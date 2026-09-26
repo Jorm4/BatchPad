@@ -9,6 +9,8 @@ parameters in a form, and run it. Its output streams into the app.
 Windows Batch (`.bat`/`.cmd`), Python (`.py`), C# (`.cs`), PowerShell (`.ps1`)
 and plain executables are all first-class.
 
+![BatchPad running the demo workspace: the script tree, a parameter form with Release and two tests picked, and the run output](docs/images/main-window.png)
+
 > **A hobby project.** BatchPad is built in spare time for the author's own
 > use and shared as is, under the MIT license. Expect rough edges and very
 > little support: issues and pull requests are welcome but may get a slow
@@ -56,8 +58,9 @@ parallel workflow steps. They are planned in [docs/DESIGN.md](docs/DESIGN.md) §
 
 ## Getting BatchPad
 
-There are no published releases yet. Either build it from source (below), or
-download the `BatchPad-win-x64` artifact from a recent CI run on `main`.
+Download `BatchPad.exe` from the
+[latest release](https://github.com/Jorm4/BatchPad/releases/latest), or build
+it from source (below).
 
 BatchPad is one self-contained `BatchPad.exe` (Windows 10 or 11, x64) with no
 installer and no .NET runtime to install. Put it anywhere, for example
@@ -163,12 +166,19 @@ Actions) builds, runs the other tests, packages the exe and checks that it
 starts. Package versions live in `Directory.Packages.props`, and
 `NuGet.config` restores from nuget.org only.
 
+To release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`.
+CI builds that version and publishes a GitHub release with `BatchPad.exe`
+attached. To refresh the README screenshot after UI changes, run
+`tools\publish.bat` and then `dotnet run tools/screenshot.cs`. It drives the
+demo workspace and rewrites `docs/images/main-window.png`.
+
 | Folder | Contents |
 |---|---|
 | `src/BatchPad.Core` | model, config, discovery, running, workflows (no UI) |
 | `src/BatchPad.App` | the WPF app (`BatchPad.exe`) |
 | `tests/` | Core and view-model tests (headless), UI tests (FlaUI) |
 | `samples/demo` | a demo workspace with one script per runner |
+| `tools/` | `publish.bat` (single-file exe), `screenshot.cs` (README image) |
 | `docs/DESIGN.md` | design, file formats, feature research and roadmap |
 
 ## License

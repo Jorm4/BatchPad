@@ -78,7 +78,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
         try
         {
             Preview = string.Join(Environment.NewLine,
-                RunPlanner.Plan(Request(), _main.Services.Interpreters).Select(s => s.Command.Display));
+                RunPlanner.Plan(Request(), _main.Services.Interpreters).Select(s => s.Command.DisplayRelativeTo(_main.Workspace!.Directory)));
         }
         catch (Exception ex) when (DetailsViewModel.IsRunProblem(ex))
         {

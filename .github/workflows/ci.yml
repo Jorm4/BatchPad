@@ -2,11 +2,18 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
 
 jobs:
   build-and-test:
     runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      # A v1.2.3 tag builds version 1.2.3; other builds keep the csproj version.
+      RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -32,8 +39,10 @@ jobs:
             }
           }
       - name: Package
-        shell: cmd
-        run: tools\publish.bat
+        shell: pwsh
+        run: |
+          $publishArgs = @(if ($env:RELEASE_VERSION) { "-p:Version=$($env:RELEASE_VERSION.TrimStart('v'))" })
+          tools\publish.bat @publishArgs
       - name: Smoke-test the packaged exe
         shell: pwsh
         run: |
@@ -41,7 +50,14 @@ jobs:
           $p = Start-Process dist\BatchPad.exe -ArgumentList --version -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
           $version = Get-Content version.txt -Raw
           Write-Output $version
-          if ($p.ExitCode -ne 0 -or $version -notmatch '^BatchPad \S') { throw "BatchPad.exe --version failed (exit $($p.ExitCode))" }
+          $expected = if ($env:RELEASE_VERSION) { [regex]::Escape($env:RELEASE_VERSION.TrimStart('v')) } else { '\S' }
+          if ($p.ExitCode -ne 0 -or $version -notmatch "^BatchPad $expected") { throw "BatchPad.exe --version failed (exit $($p.ExitCode))" }
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:RELEASE_VERSION dist/BatchPad.exe --title "BatchPad $env:RELEASE_VERSION" --generate-notes --verify-tag
       - name: Upload BatchPad.exe
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v7

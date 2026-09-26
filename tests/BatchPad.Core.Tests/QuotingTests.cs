@@ -17,6 +17,16 @@ public sealed class QuotingTests
     private static readonly RunnerResolver Resolver = new(new InterpreterLocator());
 
     [TestMethod]
+    public void DisplayRelativeToShortensWorkspacePathsAndNamesOtherPrograms()
+    {
+        var python = new CommandLine(@"C:\Users\someone\Python\py.exe", @"-3 -u C:\Work\Demo\tools\run.py --out ""C:\Work\Demo\out dir"" --log D:\elsewhere\x.log", @"C:\Work\Demo");
+        Assert.AreEqual(@"py -3 -u tools\run.py --out ""out dir"" --log D:\elsewhere\x.log", python.DisplayRelativeTo(@"C:\work\demo\"));
+
+        var builtExe = new CommandLine(@"C:\Work\Demo\build\release\bin\game.exe", "", @"C:\Work\Demo\build\release\bin");
+        Assert.AreEqual(@"build\release\bin\game.exe", builtExe.DisplayRelativeTo(@"C:\Work\Demo"));
+    }
+
+    [TestMethod]
     public void BatchArgumentsArriveIntact()
     {
         var lines = Run(Script("echo_args.bat"), [.. Awkward, "--end"]);

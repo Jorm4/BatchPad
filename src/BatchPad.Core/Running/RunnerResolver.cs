@@ -7,7 +7,20 @@ namespace BatchPad.Core.Running;
 /// <summary>An exact process command line; <see cref="Arguments"/> is passed to CreateProcess verbatim.</summary>
 public sealed record CommandLine(string FileName, string Arguments, string WorkingDirectory)
 {
-    public string Display => Arguments.Length == 0 ? ArgvQuoter.Quote(FileName) : $"{ArgvQuoter.Quote(FileName)} {Arguments}";
+    public string Display => Join(FileName, Arguments);
+
+    /// <summary>For reading, not running: paths under <paramref name="directory"/> become relative and other programs show by name.</summary>
+    public string DisplayRelativeTo(string directory)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
+        var program = FileName.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? FileName[root.Length..]
+            : Path.IsPathFullyQualified(FileName) ? Path.GetFileNameWithoutExtension(FileName)
+            : FileName;
+        return Join(program, Arguments.Replace(root, "", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string Join(string program, string arguments) =>
+        arguments.Length == 0 ? ArgvQuoter.Quote(program) : $"{ArgvQuoter.Quote(program)} {arguments}";
 
     public ProcessStartInfo ToStartInfo() => new(FileName, Arguments) { WorkingDirectory = WorkingDirectory, UseShellExecute = false };
 }

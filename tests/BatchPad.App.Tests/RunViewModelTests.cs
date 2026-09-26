@@ -62,18 +62,21 @@ public sealed class RunViewModelTests
     }
 
     [TestMethod]
-    public void PreviewShowsTheCommandAndCopies()
+    public void PreviewShowsAShortCommandAndCopiesTheFullOne()
     {
         using var test = new TestWorkspace();
         var shell = new FakeShell();
         var main = Open(test, new FakeLauncher(), "Workspace/Hello/hello.bat", shell);
+        var workspaceDir = main.Workspace!.Directory;
 
-        StringAssert.Contains(main.Details.Preview, "cmd.exe");
-        StringAssert.Contains(main.Details.Preview, "hello.bat");
+        StringAssert.StartsWith(main.Details.Preview, "cmd ");
+        StringAssert.Contains(main.Details.Preview, "\"hello.bat\"");
+        Assert.DoesNotContain(workspaceDir, main.Details.Preview, StringComparison.OrdinalIgnoreCase);
 
         main.Details.CopyPreviewCommand.Execute(null);
 
-        Assert.AreEqual(main.Details.Preview, shell.Copied);
+        StringAssert.Contains(shell.Copied!, Path.Combine(workspaceDir, "hello.bat"));
+        StringAssert.Contains(shell.Copied!, "cmd.exe");
     }
 
     [TestMethod]

@@ -45,6 +45,8 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     [NotifyCanExecuteChangedFor(nameof(CopyPreviewCommand))]
     private string preview = "";
 
+    private string fullCommand = "";
+
     [ObservableProperty]
     private string? runError;
 
@@ -99,7 +101,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
 
     public void Refresh()
     {
-        Preview = BuildPreview();
+        (Preview, fullCommand) = BuildPreview();
         OnPropertyChanged(nameof(ValidationMessage));
         RunCommand.NotifyCanExecuteChanged();
         RunInWindowCommand.NotifyCanExecuteChanged();
@@ -152,7 +154,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     }
 
     [RelayCommand(CanExecute = nameof(CanCopyPreview))]
-    private void CopyPreview() => main.Services.Shell.CopyText(Preview);
+    private void CopyPreview() => main.Services.Shell.CopyText(fullCommand.Length > 0 ? fullCommand : Preview);
 
     private bool CanEdit() => Node is { Kind: NodeKind.Script or NodeKind.Workflow, Customisation: null } && !IsEditing;
 
@@ -311,19 +313,21 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         return true;
     }
 
-    private string BuildPreview()
+    private (string Preview, string FullCommand) BuildPreview()
     {
         if (BuildWorkflowRequest() is { } workflow)
-            return string.Join(" → ", workflow.Workflow.Steps.Select((step, i) => step.Id ?? $"step{i + 1}"));
+            return (string.Join(" → ", workflow.Workflow.Steps.Select((step, i) => step.Id ?? $"step{i + 1}")), "");
         if (BuildRequest() is not { } request)
-            return "";
+            return ("", "");
         try
         {
-            return string.Join(Environment.NewLine, RunPlanner.Plan(request, main.Services.Interpreters).Select(s => s.Command.Display));
+            var commands = RunPlanner.Plan(request, main.Services.Interpreters).Select(s => s.Command).ToList();
+            return (string.Join(Environment.NewLine, commands.Select(c => c.DisplayRelativeTo(request.Workspace.Directory))),
+                string.Join(Environment.NewLine, commands.Select(c => c.Display)));
         }
         catch (Exception ex) when (IsRunProblem(ex))
         {
-            return $"⚠ {ex.Message}";
+            return ($"⚠ {ex.Message}", "");
         }
     }
 
