@@ -287,6 +287,20 @@
                                        Text="The workspace changed on disk. Reloading discards the open edit." />
                         </DockPanel>
                     </Border>
+                    <Border DockPanel.Dock="Top" Margin="0,0,0,12" Padding="12" CornerRadius="6"
+                            Background="#FFF4CE" Visibility="{Binding TelemetryProblem, Converter={StaticResource NullToCollapsed}}"
+                            AutomationProperties.AutomationId="TelemetryProblem">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Open settings" Command="{Binding OpenSettingsCommand}"
+                                        AutomationProperties.AutomationId="TelemetryProblemSettingsButton" />
+                                <Button Content="Dismiss" Margin="6,0,0,0" Command="{Binding DismissTelemetryProblemCommand}"
+                                        AutomationProperties.AutomationId="DismissTelemetryProblemButton" />
+                            </StackPanel>
+                            <TextBlock Margin="0,0,12,0" TextWrapping="Wrap" Foreground="#1C1C1C" VerticalAlignment="Center"
+                                       Text="{Binding TelemetryProblem}" />
+                        </DockPanel>
+                    </Border>
                     <TextBlock DockPanel.Dock="Top" Text="{Binding LoadErrors}" Foreground="#C42B1C" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="LoadErrors" />
 

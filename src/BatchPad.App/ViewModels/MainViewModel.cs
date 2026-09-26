@@ -77,6 +77,8 @@ public sealed partial class MainViewModel : ObservableObject
         _scheduleState = ScheduleStateStore.For(paths);
         Details = new DetailsViewModel(this);
         Telemetry = TelemetryPipeline.For(paths, settings, Time);
+        Telemetry.StatusChanged += () => Services.Dispatcher.Post(RefreshTelemetryProblem);
+        RefreshTelemetryProblem();
         Telemetry.Start();
         History = new HistoryViewModel(this);
         Output = new OutputPanelViewModel(History);
@@ -189,6 +191,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private bool isReloadPromptVisible;
+
+    [ObservableProperty]
+    private string? telemetryProblem;
+
+    // Holds until every sink recovers, so a sink that keeps failing doesn't reopen the banner on each retry.
+    private bool _telemetryProblemDismissed;
 
     public WindowLayout? WindowLayout => _settings.Window;
 
@@ -507,6 +515,31 @@ public sealed partial class MainViewModel : ObservableObject
     private void DismissReloadPrompt() => IsReloadPromptVisible = false;
 
     [RelayCommand]
+    private void DismissTelemetryProblem()
+    {
+        _telemetryProblemDismissed = true;
+        TelemetryProblem = null;
+    }
+
+    public void RefreshTelemetryProblem()
+    {
+        var enabled = _settings.Telemetry?.Sinks.Where(s => s.Enabled).Select(s => s.Key).ToHashSet() ?? [];
+        var failing = Telemetry.Statuses().Where(s => s.IsFailing && enabled.Contains(s.Key)).ToList();
+        if (failing.Count == 0)
+            _telemetryProblemDismissed = false;
+        TelemetryProblem = failing.Count == 0 || _telemetryProblemDismissed ? null : DescribeTelemetryProblem(failing);
+    }
+
+    private static string DescribeTelemetryProblem(IReadOnlyList<SinkStatus> failing)
+    {
+        var pending = failing.Sum(s => s.Pending);
+        var waiting = pending == 0 ? "" : $" {pending} {(pending == 1 ? "event is" : "events are")} waiting.";
+        if (failing is [var only])
+            return $"Telemetry to {(only.Target.Length > 0 ? only.Target : only.Type)} is failing: {only.LastError}{waiting}";
+        return $"Telemetry to {failing.Count} destinations is failing.{waiting}";
+    }
+
+    [RelayCommand]
     private void Escape()
     {
         if (Palette.IsOpen)
@@ -718,7 +751,11 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnInsightsChanged(InsightsViewModel? oldValue, InsightsViewModel? newValue) => oldValue?.Detach();
 
-    partial void OnSettingsPageChanged(SettingsViewModel? oldValue, SettingsViewModel? newValue) => oldValue?.Detach();
+    partial void OnSettingsPageChanged(SettingsViewModel? oldValue, SettingsViewModel? newValue)
+    {
+        oldValue?.Detach();
+        RefreshTelemetryProblem();
+    }
 
     private void StartScheduler(LoadedWorkspace loaded, IReadOnlyList<ScheduleEntry> entries)
     {

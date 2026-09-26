@@ -260,7 +260,7 @@ queued. A credential variable that is not set, a 401/403 answer or a
 redirect keeps the events queued until it is fixed (redirects are not
 followed); other 4xx answers drop the batch. The Settings page shows each
 sink's last success, last error and pending count, and can send a test
-event.
+event; while a sink is failing, a banner in the main window says so.
 
 ## Under the hood
 

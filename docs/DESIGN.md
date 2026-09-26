@@ -920,6 +920,8 @@ oldest when the outbox passes its cap (20 MB). A batch file another process
 has open is left for a later try, not dropped, and one process at a time
 drains the outbox. Removing a sink drops its queue. Every sink shows its state on the Settings
 page (toolbar): last success, last error, and how many events are waiting.
+While an enabled sink is failing, the main window shows a banner with the error
+and a link to Settings; dismissing it lasts until every sink delivers again.
 **Send test event** checks a configuration. The command line and the scheduler write events the
 same way; a sender idle for a minute rechecks the outbox, so what a process
 could not deliver before exiting goes out from any other that is running.

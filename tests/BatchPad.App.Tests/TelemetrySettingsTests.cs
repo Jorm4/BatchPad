@@ -91,6 +91,35 @@ public sealed class TelemetrySettingsTests
     }
 
     [TestMethod]
+    public async Task AFailingSinkShowsABannerUntilDismissedOrFixed()
+    {
+        using var test = new TestWorkspace();
+        var main = test.OpenMain(TestWorkspace.DemoSource);
+        var sink = AddSink(main, SinkTypes.Jsonl);
+        Assert.IsNull(main.TelemetryProblem);
+
+        await sink.SendTestEventCommand.ExecuteAsync(null);
+        StringAssert.Contains(main.TelemetryProblem, "Telemetry to jsonl is failing");
+        StringAssert.Contains(main.TelemetryProblem, "no path");
+
+        main.DismissTelemetryProblemCommand.Execute(null);
+        await sink.SendTestEventCommand.ExecuteAsync(null);
+        Assert.IsNull(main.TelemetryProblem);
+
+        sink.Path = Path.Combine(test.Root, "runs.jsonl");
+        await sink.SendTestEventCommand.ExecuteAsync(null);
+        Assert.IsNull(main.TelemetryProblem);
+
+        sink.Path = "";
+        await sink.SendTestEventCommand.ExecuteAsync(null);
+        Assert.IsNotNull(main.TelemetryProblem, "Recovering ends the dismissal.");
+
+        sink.Enabled = false;
+        main.EscapeCommand.Execute(null);
+        Assert.IsNull(main.TelemetryProblem);
+    }
+
+    [TestMethod]
     public void AHeaderUsingAnEnvironmentReferenceIsStoredAsWritten()
     {
         var variable = "BATCHPAD_TEST_TOKEN_" + Guid.NewGuid().ToString("N");
