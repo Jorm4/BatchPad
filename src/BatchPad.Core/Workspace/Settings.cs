@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
+using BatchPad.Core.Telemetry;
 
 namespace BatchPad.Core.Workspace;
 
@@ -11,9 +12,11 @@ public sealed class Settings : ExtensibleObject
     public List<string> RecentWorkspaces { get; set; } = [];
     public Dictionary<string, string> Interpreters { get; set; } = [];
     public List<string> TrustedFolders { get; set; } = [];
+    public McpSettings? Mcp { get; set; }
     public WindowLayout? Window { get; set; }
     public string? EditorCommand { get; set; }
     public bool KeepRunningInTray { get; set; } = true;
+    public TelemetryOptions? Telemetry { get; set; }
 
     public static Settings Load(string path)
     {

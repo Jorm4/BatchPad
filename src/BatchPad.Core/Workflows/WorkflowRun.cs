@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using BatchPad.Core.History;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 
@@ -100,6 +101,9 @@ public sealed class WorkflowRun
 
     public WorkflowRequest Request { get; }
     public WorkflowNode Workflow { get; }
+
+    /// <summary>The id of the workflow's history record, known up front so its steps' records can point at it.</summary>
+    public string RunId { get; } = RunRecord.NewId(DateTimeOffset.UtcNow);
 
     /// <summary>The first step whose failure failed the workflow; a re-run starts there.</summary>
     public StepRun? FailedStep { get; internal set; }

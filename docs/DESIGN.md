@@ -415,7 +415,8 @@ the app offers to add one.
 ### 3.8 App settings — `%APPDATA%\BatchPad\settings.json`
 
 Recent workspaces, window layout, theme (System/Light/Dark), interpreter
-overrides (`python`, `pwsh`, `dotnet`), default editor, history retention.
+overrides (`python`, `pwsh`, `dotnet`), default editor, history retention,
+`telemetry` (§4.4) and `mcp.allowIds` (§4.5), edited on the Settings page.
 The editor is `editorCommand`, a command line with `{file}`, `{line}` and
 `{col}` (default `code -g "{file}:{line}"` when `code` is on PATH, otherwise
 the file's default app, or Notepad for script and program files). The path
@@ -429,11 +430,14 @@ sharing BatchPad on a USB stick or inside a tools repo.
 ### 3.9 Run history — `%LOCALAPPDATA%\BatchPad\history\<workspaceId>\`
 
 One JSON record per run (script, resolved command, values, trigger, exit code,
-times) plus a log file. Secret values are masked in the record, command and log.
+times, time queued for a lock, folder and tags, git branch and commit, test
+counts, error lines, and for a workflow step the workflow run it belongs to)
+plus a log file. Secret values are masked in the record, command and log.
 Pruned by count and age (default 500 records, 30 days). Last-result badges are
 loaded from it when a workspace opens. The History tab lists recent runs with
 "Open log" and "Run again", which reuses the recorded values except secrets.
 It is kept in LOCALAPPDATA because it is machine-specific and can grow large.
+Runs recorded by another process, such as the command line, appear live.
 
 ### 3.10 Script folders, discovery and detection
 
@@ -571,7 +575,8 @@ Locks are re-entrant within one workflow run, so a workflow holding
 `native-build` can run a step that takes `native-build` too. `singleInstance`
 is not: two parallel steps running the same script still take turns. A queued run
 shows "waiting for lock X" on its tab and its tree badge, and Stop takes it
-out of the queue without starting it.
+out of the queue without starting it. Locks and `singleInstance` are
+machine-wide: the app, command-line runs and agents all share them (§4.5).
 
 **Unattended runs.** Scheduled runs and CLI runs have nobody to answer
 prompts. `confirm`, `ask` and `secret` then fail the run immediately, with a
@@ -800,6 +805,156 @@ Even in trusted workspaces:
 - the workspace's files never reach device paths, or network shares outside
   the workspace folder. `global.json` and `user.json` are yours, so they may.
 
+### 4.4 Run telemetry
+
+Every run already leaves a history record (§3.9). Telemetry turns those
+records into **events** that can be analysed locally and forwarded to a
+monitoring backend. The goal is to answer questions like "how long do our
+builds take, and is it getting worse?" and "how much of today went into
+tests?".
+
+**The run event.** One event per finished run, workflow and workflow step:
+
+```jsonc
+{
+  "schema": 1, "eventId": "…", "runId": "…", "parentRunId": null,   // steps point at their workflow run (and carry stepId)
+  "time": "2026-09-27T09:12:03.412Z", "queuedMs": 850, "durationMs": 94210,
+  "workspace": { "id": "5c0f…", "name": "My Project", "branch": "main", "commit": "3f9a1c2" },
+  "script": { "tree": "workspace", "id": "build", "name": "Build", "kind": "script", "folder": "Build", "tags": ["native"] },
+  "trigger": "agent:claude-code",       // manual | cli | schedule:<key> | afterRun:<key> | resume:<step> | agent:<name>
+  "outcome": "exited", "exitCode": 0,
+  "tests": { "passed": 1284, "failed": 2, "skipped": 3 },           // when the run had a test report
+  "machine": "WS-042", "user": "alex", "batchpadVersion": "0.2.0",
+  "values": { "config": "--release" }                              // only with includeValues; secrets never
+}
+```
+
+`queuedMs` is the time spent waiting for a lock. It is kept apart from
+`durationMs`, so a blocked build doesn't look slow. The git branch and commit
+come from the workspace folder when it is a git checkout, read from
+`.git/HEAD` without running git. A retried step's attempts are not told
+apart: the history record doesn't keep the attempt number.
+
+**Insights (local, no backend).** An Insights view reads the run history and
+shows:
+- per script: runs, median and p95 duration, the trend over the last N
+  runs, and the failure rate;
+- per folder or tag: total time and share of time for a period, e.g.
+  "Test: 38% of today's run time";
+- time by trigger (you, agents, schedules), and repeats (the same script
+  and values run many times in a row);
+- the slowest tests from test reports, and tests that pass and fail
+  alternately (flaky).
+
+The command line has the same data as `batchpad stats [--since 7d] [--json]`.
+
+**Forwarding (sinks).** Sinks are configured in `settings.json` only,
+never in a workspace file, so a cloned repo can't send data anywhere. Every
+sink is off until you add it:
+
+```jsonc
+"telemetry": {
+  "machine": true, "user": false,           // include the machine and user names
+  "includeValues": false,                   // parameter values (secrets are never sent)
+  "hashNames": false,                       // hash script, folder and workspace names
+  "sinks": [
+    { "type": "jsonl", "path": "%LOCALAPPDATA%\\BatchPad\\telemetry\\runs.jsonl", "maxSizeMb": 50 },
+    { "type": "otlp", "endpoint": "http://localhost:4318", "headers": { "Authorization": "${env:OTEL_TOKEN}" } },
+    { "type": "elastic", "url": "https://es.example:9200", "index": "batchpad-runs", "apiKey": "${env:ES_API_KEY}" },
+    { "type": "influx", "url": "http://influx:8086", "org": "dev", "bucket": "batchpad", "token": "${env:INFLUX_TOKEN}" }
+  ]
+}
+```
+
+| Sink | Format | Notes |
+|---|---|---|
+| `jsonl` | One event per line, appended to a file, rotated by size | Works with any backend today, through Filebeat, Vector, Fluent Bit or Telegraf |
+| `otlp` | OpenTelemetry OTLP/HTTP (JSON): a run is a span, and a workflow is a trace with its steps as child spans | The vendor-neutral standard: an OTel Collector forwards to Elastic, Influx, Grafana, Jaeger and others |
+| `elastic` | Elasticsearch `_bulk` NDJSON | Direct, no collector |
+| `influx` | InfluxDB v2 line protocol: measurement `batchpad_run`, tags script/folder/trigger/outcome, fields duration/queued/exit code | Direct, no collector |
+| `http` | A JSON array of events, POSTed | Generic webhook |
+
+Credentials come from `${env:…}` (or later from Windows Credential Manager),
+never written in plain text by the app.
+
+**Delivery never slows a run.** Events go to a local outbox
+(`LocalDirectory\telemetry\outbox\`, one file per batch). A background sender
+posts batches with exponential backoff and drops the oldest when the outbox
+passes its cap (default 20 MB). Every sink shows its state on the Settings
+page (toolbar): last success, last error, and how many events are waiting.
+**Send test event** checks a configuration. The command line and the scheduler write events the
+same way, and delivery resumes the next time any BatchPad process runs.
+Each process enqueues only the runs it recorded itself (the history store
+tells its own saves apart from records another process wrote), so a
+command-line run the app also shows is sent once.
+
+### 4.5 Coding agents
+
+Coding agents such as Claude Code build and test through shell commands.
+Running those through BatchPad gives them the project's own named, correct
+command lines, shares locks with people and other agents, and records how
+long everything takes (§4.4). That makes it visible when an agent spends
+most of its time in a slow test suite, or runs the same build over and
+over.
+
+**An agent-friendly command line.**
+- `batchpad list --json` lists every runnable id with its name, folder,
+  description and parameters (types, choices, defaults), so an agent can
+  find what to run without reading the config.
+- `batchpad run <id> --set name=value … --json` streams nothing and prints
+  one result object at the end: exit code, outcome, duration, queued time,
+  log path, the test summary with failed test names, and the error lines
+  with their `file(line)` locations.
+- `--errors-only` prints only error-pattern and stderr lines and the summary.
+  An agent gets what it needs to fix a build without a 5,000-line log, which
+  saves most of the tokens a build costs. The full log stays in history, at
+  the printed path.
+- `batchpad log <run-id> [--tail N] [--errors]` reads a recorded run's log
+  later.
+- `batchpad stats --json` gives the Insights figures (§4.4) to an agent or a
+  report.
+
+**Attribution.** `--agent <name>` records the run with trigger
+`agent:<name>`. Without the flag, a run started from a coding agent's
+environment is detected where possible (Claude Code sets `CLAUDECODE=1` in
+the shell it runs commands in) and recorded as `agent:claude-code`.
+
+**Locks across processes.** Agents often run several `batchpad run`
+commands at once, next to a person using the app. So named locks and
+`singleInstance` are machine-wide:
+- Each lock is a file, `locks\<hash>.lock` in the local data folder, opened
+  for exclusive use for the run. Windows closes it when the process dies, so
+  a crashed run never leaves a lock behind. A `<hash>.owner` file next to it
+  names the holder. The process's in-memory queue keeps FIFO order within
+  the process, and other processes poll for the file.
+- A queued command-line run prints "waiting for lock native-build (held by
+  <script> since 09:12)" to stderr, so an agent sees why it is waiting.
+- `--no-wait` fails fast instead of queueing. It applies to a single script;
+  with a workflow or prerequisites it is a usage error.
+
+**An MCP server.** `batchpad mcp [--workspace <path>]` runs an MCP server
+over stdio with these tools:
+
+| Tool | Does |
+|---|---|
+| `list_scripts` | the runnable entries with their parameters |
+| `run_script` | runs one entry and returns the same result object as `run --json` (errors only, plus the log path) |
+| `get_log` | a recorded run's log: tail, errors only, or a line range (ranges are MCP-only; `batchpad log` has tail and errors) |
+| `get_stats` | the Insights figures for a period |
+
+Register it with `claude mcp add batchpad -- batchpad.com mcp --workspace .`.
+Agents then get typed tools, and the permission system can allow
+`run_script` for chosen ids only (`mcp.allowIds` in settings.json).
+
+**Trust stays with people.** The command line and the MCP server run only in
+workspaces trusted in the app (§4.3). A future command-line trust command
+would require an interactive confirmation, so an agent cannot trust a
+workspace for itself.
+
+**A project snippet.** The README gives a short CLAUDE.md section to paste
+into a project: "build and test through `batchpad run <id> --errors-only`;
+see `batchpad list --json`".
+
 ## 5. UI
 
 WPF with the built-in Windows 11 Fluent theme. It follows the system
@@ -985,9 +1140,10 @@ Takeaways:
 
 ## 7. Feature catalogue
 
-Priority: **M** = MVP (first usable build), **1** = v1, **L** = later,
-**✗** = considered and rejected. Everything marked M or 1 is built: the MVP
-in phases 1–7 and v1 in phases 8 and 9 (§10). L items are phase 10 or
+Priority: **M** = MVP (first usable build), **1** = v1, **10** = phase 10
+(telemetry and agents), **L** = later, **✗** = considered and rejected.
+Everything marked M, 1 or 10 is built: the MVP in phases 1–7, v1 in phases 8
+and 9, and telemetry and agents in phase 10 (§10). L items are phase 11 or
 later.
 
 | Feature | Pri | Notes |
@@ -1055,6 +1211,11 @@ later.
 | Schedules in-app: cron/every/at, tray, missed-run policy, Schedules view | 1 | §4.2 |
 | Triggers: fileChanged, onStart, afterRun | 1 | |
 | Export time schedules to Windows Task Scheduler | L | Needs the CLI |
+| Run events, Insights view, `batchpad stats` | 10 | §4.4 |
+| Telemetry sinks: jsonl (+ outbox), OTLP, Elasticsearch, InfluxDB, HTTP | 10 | §4.4; off by default, settings only |
+| Agent CLI: `list --json`, `run --json`/`--errors-only`, `log`, agent attribution | 10 | §4.5 |
+| Machine-wide named locks and `singleInstance` | 10 | §4.5; needed for parallel agents |
+| MCP server (`batchpad mcp`) | 10 | §4.5 |
 | Tray icon, keep running in the tray, failure notifications | 1 | §4.2 |
 | Toasts, taskbar progress, jump list | L | |
 | Hotkeys (global) | L | |
@@ -1159,12 +1320,16 @@ the UI does.
 9. **Workflows & schedules:** parallel groups, step outputs, retry, re-run
    from the failed step, the in-app scheduler with a tray icon, the Schedules
    view, triggers. It builds on the history and locks from phase 8.
-10. **Later:** benchmark comparison, Task Scheduler export, Windows shell
+10. **Telemetry and agents:** run events and the Insights view, the `jsonl`
+    sink and the outbox, the agent command line (`--json`, `--errors-only`,
+    `log`, `stats`, agent attribution), machine-wide locks, the OTLP,
+    Elasticsearch, InfluxDB and HTTP sinks, and the MCP server (§4.4, §4.5).
+11. **Later:** benchmark comparison, Task Scheduler export, Windows shell
     integration (jump lists, taskbar progress). Open items that may join it:
     unattended secrets from Windows Credential Manager, and a CLI command to
     trust a workspace.
 
-Phases 1–9 are done; phase 10 remains. Each phase leaves the app building
+Phases 1–10 are done; phase 11 remains. Each phase leaves the app building
 and runnable, and is broken into implementation steps when it starts.
 
 ## 11. Worked example: a multi-app game repository

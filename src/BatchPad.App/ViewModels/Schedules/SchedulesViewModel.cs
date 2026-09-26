@@ -32,7 +32,7 @@ public sealed partial class ScheduleItemViewModel : ObservableObject
     public string Location => IsGlobal ? "global.json" : "user.json";
     public string TriggerText => BatchPad.Core.Scheduling.TriggerText.Describe(Schedule.Trigger);
 
-    public bool IsLastRun(RunRecord record) => record.Trigger == RunTriggers.Schedule(Key) && record.NodeKey == Entry.Target?.NodeKey;
+    public bool IsLastRun(RunRecord record) => RunTriggers.ScheduleKey(record.Trigger) == Key && record.NodeKey == Entry.Target?.NodeKey;
 
     [ObservableProperty]
     private bool isEnabled;

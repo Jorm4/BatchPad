@@ -1,0 +1,362 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "batchpad"
+            }
+          },
+          {
+            "key": "service.version",
+            "value": {
+              "stringValue": "0.2.0"
+            }
+          },
+          {
+            "key": "host.name",
+            "value": {
+              "stringValue": "WS-042"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "batchpad"
+          },
+          "spans": [
+            {
+              "traceId": "b202ece3e06609d1231c4bade9fe3792",
+              "spanId": "3018e746df28250a",
+              "parentSpanId": "276103f9f9a49621",
+              "name": "Build",
+              "kind": 1,
+              "startTimeUnixNano": "1790500323512000000",
+              "endTimeUnixNano": "1790500326512000000",
+              "attributes": [
+                {
+                  "key": "batchpad.run.id",
+                  "value": {
+                    "stringValue": "step-1"
+                  }
+                },
+                {
+                  "key": "batchpad.workspace.id",
+                  "value": {
+                    "stringValue": "5c0f"
+                  }
+                },
+                {
+                  "key": "batchpad.workspace.name",
+                  "value": {
+                    "stringValue": "My Project"
+                  }
+                },
+                {
+                  "key": "vcs.ref.head.name",
+                  "value": {
+                    "stringValue": "main"
+                  }
+                },
+                {
+                  "key": "vcs.ref.head.revision",
+                  "value": {
+                    "stringValue": "3f9a1c2"
+                  }
+                },
+                {
+                  "key": "batchpad.script.tree",
+                  "value": {
+                    "stringValue": "workspace"
+                  }
+                },
+                {
+                  "key": "batchpad.script.id",
+                  "value": {
+                    "stringValue": "build"
+                  }
+                },
+                {
+                  "key": "batchpad.script.kind",
+                  "value": {
+                    "stringValue": "script"
+                  }
+                },
+                {
+                  "key": "batchpad.script.folder",
+                  "value": {
+                    "stringValue": "Build"
+                  }
+                },
+                {
+                  "key": "batchpad.script.tags",
+                  "value": {
+                    "arrayValue": {
+                      "values": [
+                        {
+                          "stringValue": "native"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "key": "batchpad.step.id",
+                  "value": {
+                    "stringValue": "build"
+                  }
+                },
+                {
+                  "key": "batchpad.trigger",
+                  "value": {
+                    "stringValue": "manual"
+                  }
+                },
+                {
+                  "key": "batchpad.outcome",
+                  "value": {
+                    "stringValue": "exited"
+                  }
+                },
+                {
+                  "key": "process.exit.code",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "batchpad.queued_ms",
+                  "value": {
+                    "intValue": "850"
+                  }
+                },
+                {
+                  "key": "batchpad.value.config",
+                  "value": {
+                    "stringValue": "Release"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "b202ece3e06609d1231c4bade9fe3792",
+              "spanId": "bec171fb4e8510ae",
+              "parentSpanId": "276103f9f9a49621",
+              "name": "Unit tests",
+              "kind": 1,
+              "startTimeUnixNano": "1790500326612000000",
+              "endTimeUnixNano": "1790500328112000000",
+              "attributes": [
+                {
+                  "key": "batchpad.run.id",
+                  "value": {
+                    "stringValue": "step-2"
+                  }
+                },
+                {
+                  "key": "batchpad.workspace.id",
+                  "value": {
+                    "stringValue": "5c0f"
+                  }
+                },
+                {
+                  "key": "batchpad.workspace.name",
+                  "value": {
+                    "stringValue": "My Project"
+                  }
+                },
+                {
+                  "key": "vcs.ref.head.name",
+                  "value": {
+                    "stringValue": "main"
+                  }
+                },
+                {
+                  "key": "vcs.ref.head.revision",
+                  "value": {
+                    "stringValue": "3f9a1c2"
+                  }
+                },
+                {
+                  "key": "batchpad.script.tree",
+                  "value": {
+                    "stringValue": "workspace"
+                  }
+                },
+                {
+                  "key": "batchpad.script.id",
+                  "value": {
+                    "stringValue": "unit"
+                  }
+                },
+                {
+                  "key": "batchpad.script.kind",
+                  "value": {
+                    "stringValue": "script"
+                  }
+                },
+                {
+                  "key": "batchpad.script.folder",
+                  "value": {
+                    "stringValue": "Test, unit=fast"
+                  }
+                },
+                {
+                  "key": "batchpad.step.id",
+                  "value": {
+                    "stringValue": "test"
+                  }
+                },
+                {
+                  "key": "batchpad.trigger",
+                  "value": {
+                    "stringValue": "manual"
+                  }
+                },
+                {
+                  "key": "batchpad.outcome",
+                  "value": {
+                    "stringValue": "exited"
+                  }
+                },
+                {
+                  "key": "process.exit.code",
+                  "value": {
+                    "intValue": "3"
+                  }
+                },
+                {
+                  "key": "batchpad.queued_ms",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "batchpad.tests.passed",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "batchpad.tests.failed",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "batchpad.tests.skipped",
+                  "value": {
+                    "intValue": "2"
+                  }
+                }
+              ],
+              "status": {
+                "code": 2,
+                "message": "exit code 3"
+              }
+            },
+            {
+              "traceId": "b202ece3e06609d1231c4bade9fe3792",
+              "spanId": "276103f9f9a49621",
+              "name": "Release",
+              "kind": 1,
+              "startTimeUnixNano": "1790500323412000000",
+              "endTimeUnixNano": "1790500328412000000",
+              "attributes": [
+                {
+                  "key": "batchpad.run.id",
+                  "value": {
+                    "stringValue": "wf-run"
+                  }
+                },
+                {
+                  "key": "batchpad.workspace.id",
+                  "value": {
+                    "stringValue": "5c0f"
+                  }
+                },
+                {
+                  "key": "batchpad.workspace.name",
+                  "value": {
+                    "stringValue": "My Project"
+                  }
+                },
+                {
+                  "key": "vcs.ref.head.name",
+                  "value": {
+                    "stringValue": "main"
+                  }
+                },
+                {
+                  "key": "vcs.ref.head.revision",
+                  "value": {
+                    "stringValue": "3f9a1c2"
+                  }
+                },
+                {
+                  "key": "batchpad.script.tree",
+                  "value": {
+                    "stringValue": "workspace"
+                  }
+                },
+                {
+                  "key": "batchpad.script.id",
+                  "value": {
+                    "stringValue": "release"
+                  }
+                },
+                {
+                  "key": "batchpad.script.kind",
+                  "value": {
+                    "stringValue": "workflow"
+                  }
+                },
+                {
+                  "key": "batchpad.script.folder",
+                  "value": {
+                    "stringValue": "Ship"
+                  }
+                },
+                {
+                  "key": "batchpad.trigger",
+                  "value": {
+                    "stringValue": "manual"
+                  }
+                },
+                {
+                  "key": "batchpad.outcome",
+                  "value": {
+                    "stringValue": "exited"
+                  }
+                },
+                {
+                  "key": "process.exit.code",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "batchpad.queued_ms",
+                  "value": {
+                    "intValue": "0"
+                  }
+                }
+              ],
+              "status": {
+                "code": 2,
+                "message": "exit code 1"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
-using System.Xml;
 using BatchPad.App.Services;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
@@ -77,7 +76,7 @@ public sealed partial class RunViewModel : OutputTabViewModel
     private readonly IDisposable? _subscription;
     private readonly RunContext? _context;
     private readonly ReadyWatcher? _readyWatcher;
-    private readonly DateTime _startedUtc = DateTime.UtcNow;
+    private readonly DateTimeOffset _startedUtc = DateTimeOffset.UtcNow;
 
     public RunViewModel(string title, NodeViewModel? node, IRunProcess process, IUiDispatcher dispatcher, RunContext? context = null)
         : base(title, node)
@@ -218,23 +217,7 @@ public sealed partial class RunViewModel : OutputTabViewModel
         ArtifactResolver.OpenAfter(outcome, Artifacts.Select(a => a.Artifact), _context.Opener);
     }
 
-    private JUnitReport? ReadTestReport()
-    {
-        if (_context is null)
-            return null;
-        try
-        {
-            // A report older than this run is left over from an earlier one.
-            return TestRerun.ReportPath(_context.Request) is { } path && File.Exists(path)
-                && File.GetLastWriteTimeUtc(path) >= _startedUtc.AddSeconds(-2)
-                ? JUnitReader.Read(path)
-                : null;
-        }
-        catch (Exception ex) when (ex is TemplateException or XmlException or IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
+    private JUnitReport? ReadTestReport() => _context is null ? null : TestReportReader.ForFinishedRun(_context.Request, _startedUtc);
 
     private TestResultsViewModel TestResultsFor(JUnitReport report)
     {

@@ -24,17 +24,20 @@ public interface IRunLauncher
 {
     /// <exception cref="UntrustedWorkspaceException" />
     /// <exception cref="RunException" />
-    IRunProcess Start(RunRequest request);
+    /// <exception cref="LockBusyException">A lock is held and <paramref name="waitForLocks"/> is false.</exception>
+    IRunProcess Start(RunRequest request, bool waitForLocks = true);
 }
 
 public sealed class GatedRunLauncher(RunGate gate, InterpreterLocator interpreters) : IRunLauncher
 {
-    public IRunProcess Start(RunRequest request) => new HandleProcess(gate.Start(request, interpreters));
+    public IRunProcess Start(RunRequest request, bool waitForLocks = true) =>
+        new HandleProcess(gate.Start(request, interpreters, waitForLocks));
 
     private sealed class HandleProcess(RunHandle handle) : IRunProcess
     {
         public IDisposable Subscribe(Action<OutputLine> onLine) => handle.Subscribe(onLine);
         public Task<RunResult> Completion => handle.Completion;
+        public RunHandle Handle => handle;
         public Task StopAsync(Func<bool>? stopCompanion = null) =>
             handle.StopAsync(RunOutcome.Stopped, stopCompanion is null ? RunHandle.DefaultStopGrace : StopCoordinator.CompanionGrace, stopCompanion);
         public string? WaitingForLock => handle.WaitingForLock;

@@ -1,0 +1,206 @@
+<UserControl x:Class="BatchPad.App.Views.Insights.InsightsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Insights"
+             xmlns:views="clr-namespace:BatchPad.App.Views">
+    <UserControl.Resources>
+        <Style x:Key="Section" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,18,0,6" />
+        </Style>
+        <Style x:Key="Empty" TargetType="TextBlock">
+            <Setter Property="Opacity" Value="0.6" />
+            <Setter Property="Text" Value="None in this period." />
+        </Style>
+        <Style x:Key="Row" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Command" Value="{Binding DataContext.SelectScriptCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+            <Setter Property="CommandParameter" Value="{Binding NodeKey}" />
+            <Setter Property="ToolTip" Value="Select in the tree" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Back" Background="Transparent" Padding="6,3" CornerRadius="4">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Back" Property="Background" Value="#14000000" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="Header" TargetType="Button">
+            <Setter Property="Command" Value="{Binding SortCommand}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="ToolTip" Value="Sort" />
+        </Style>
+        <DataTemplate x:Key="Bar" DataType="{x:Type vm:TimeBar}">
+            <Grid Margin="0,2" AutomationProperties.AutomationId="InsightsBar" AutomationProperties.Name="{Binding Name}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="250" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                <Rectangle Grid.Column="1" Height="12" HorizontalAlignment="Left" Width="{Binding BarWidth}" RadiusX="2" RadiusY="2"
+                           Fill="{StaticResource AccentBrush}" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock Text="{Binding ShareText}" MinWidth="40" AutomationProperties.AutomationId="InsightsBarShare" />
+                    <TextBlock Text="{Binding DurationText}" Opacity="0.7" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="Test" DataType="{x:Type vm:TestRow}">
+            <Button Style="{StaticResource Row}" AutomationProperties.AutomationId="InsightsTestRow" AutomationProperties.Name="{Binding Name}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding Detail}" Margin="12,0,0,0" />
+                    <TextBlock Text="{Binding Script}" DockPanel.Dock="Right" Opacity="0.6" Margin="12,0,0,0" />
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+            </Button>
+        </DataTemplate>
+    </UserControl.Resources>
+    <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" MinWidth="80"
+                          AutomationProperties.AutomationId="InsightsPeriod" AutomationProperties.Name="Period" />
+                <Button Content="Close" Command="{Binding CloseCommand}" Margin="6,0,0,0"
+                        AutomationProperties.AutomationId="InsightsCloseButton" />
+            </StackPanel>
+            <TextBlock Text="Insights" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding TotalText}" Margin="12,0,0,0" Opacity="0.7" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="InsightsTotal" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Opacity="0.7" TextWrapping="Wrap"
+                   Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"
+                   Text="No runs in this period. Insights are worked out from the workspace's run history, including runs from the command line and coding agents." />
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0,0,8,0">
+                <TextBlock Text="Where time went" Style="{StaticResource Section}" Margin="0,0,0,6" />
+                <WrapPanel>
+                    <StackPanel Margin="0,0,32,8">
+                        <TextBlock Text="By folder" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <views:FlatItemsControl ItemsSource="{Binding Folders}" ItemTemplate="{StaticResource Bar}"
+                                                AutomationProperties.AutomationId="InsightsFolders" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,32,8">
+                        <TextBlock Text="By trigger" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <views:FlatItemsControl ItemsSource="{Binding Triggers}" ItemTemplate="{StaticResource Bar}"
+                                                AutomationProperties.AutomationId="InsightsTriggers" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,32,8">
+                        <TextBlock Text="By tag" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <views:FlatItemsControl ItemsSource="{Binding Tags}" ItemTemplate="{StaticResource Bar}"
+                                                AutomationProperties.AutomationId="InsightsTags" />
+                    </StackPanel>
+                </WrapPanel>
+
+                <TextBlock Text="Scripts" Style="{StaticResource Section}" />
+                <Grid Grid.IsSharedSizeScope="True">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Margin="6,0,6,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MinWidth="160" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="Runs" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="Median" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="P95" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="Trend" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="Failures" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="Total" />
+                        </Grid.ColumnDefinitions>
+                        <Button Content="Script" Style="{StaticResource Header}" CommandParameter="{x:Static vm:ScriptSort.Name}"
+                                AutomationProperties.AutomationId="InsightsSortName" />
+                        <Button Grid.Column="1" Content="Runs" Style="{StaticResource Header}" Margin="16,0,0,0"
+                                CommandParameter="{x:Static vm:ScriptSort.Runs}" AutomationProperties.AutomationId="InsightsSortRuns" />
+                        <Button Grid.Column="2" Content="Median" Style="{StaticResource Header}" Margin="16,0,0,0"
+                                CommandParameter="{x:Static vm:ScriptSort.Median}" AutomationProperties.AutomationId="InsightsSortMedian" />
+                        <Button Grid.Column="3" Content="p95" Style="{StaticResource Header}" Margin="16,0,0,0"
+                                CommandParameter="{x:Static vm:ScriptSort.P95}" AutomationProperties.AutomationId="InsightsSortP95" />
+                        <Button Grid.Column="4" Content="Trend" Style="{StaticResource Header}" Margin="16,0,0,0"
+                                CommandParameter="{x:Static vm:ScriptSort.Trend}" AutomationProperties.AutomationId="InsightsSortTrend" />
+                        <Button Grid.Column="5" Content="Failures" Style="{StaticResource Header}" Margin="16,0,0,0"
+                                CommandParameter="{x:Static vm:ScriptSort.FailureRate}" AutomationProperties.AutomationId="InsightsSortFailures" />
+                        <Button Grid.Column="6" Content="Total" Style="{StaticResource Header}" Margin="16,0,0,0"
+                                CommandParameter="{x:Static vm:ScriptSort.Total}" AutomationProperties.AutomationId="InsightsSortTotal" />
+                    </Grid>
+                    <views:FlatItemsControl Grid.Row="1" ItemsSource="{Binding Scripts}" AutomationProperties.AutomationId="InsightsScripts">
+                        <views:FlatItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ScriptRow}">
+                                <Button Style="{StaticResource Row}" AutomationProperties.AutomationId="InsightsScriptRow"
+                                        AutomationProperties.Name="{Binding Name}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" MinWidth="160" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="Runs" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="Median" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="P95" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="Trend" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="Failures" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="Total" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="1" Text="{Binding RunsText}" Margin="16,0,0,0" />
+                                        <TextBlock Grid.Column="2" Text="{Binding MedianText}" Margin="16,0,0,0"
+                                                   AutomationProperties.AutomationId="InsightsScriptMedian" />
+                                        <TextBlock Grid.Column="3" Text="{Binding P95Text}" Margin="16,0,0,0" />
+                                        <TextBlock Grid.Column="4" Text="{Binding TrendText}" Margin="16,0,0,0" />
+                                        <TextBlock x:Name="FailureRate" Grid.Column="5" Text="{Binding FailureRateText}" Margin="16,0,0,0" />
+                                        <TextBlock Grid.Column="6" Text="{Binding TotalText}" Margin="16,0,0,0" />
+                                    </Grid>
+                                </Button>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding HasFailures}" Value="True">
+                                        <Setter TargetName="FailureRate" Property="Foreground" Value="#C42B1C" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </views:FlatItemsControl.ItemTemplate>
+                    </views:FlatItemsControl>
+                </Grid>
+
+                <TextBlock Text="Repeats" Style="{StaticResource Section}" />
+                <TextBlock Style="{StaticResource Empty}"
+                           Visibility="{Binding HasRepeats, Converter={StaticResource InverseBoolToVisibility}}" />
+                <views:FlatItemsControl ItemsSource="{Binding Repeats}" AutomationProperties.AutomationId="InsightsRepeats">
+                    <views:FlatItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:RepeatRow}">
+                            <Button Style="{StaticResource Row}" AutomationProperties.AutomationId="InsightsRepeatRow"
+                                    AutomationProperties.Name="{Binding Name}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Margin="12,0,0,0" />
+                                    <TextBlock Text="{Binding Name}" />
+                                    <TextBlock Text="{Binding ValuesText}" Margin="12,0,0,0" Opacity="0.6" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                            </Button>
+                        </DataTemplate>
+                    </views:FlatItemsControl.ItemTemplate>
+                </views:FlatItemsControl>
+
+                <TextBlock Text="Slowest tests" Style="{StaticResource Section}" />
+                <TextBlock Style="{StaticResource Empty}"
+                           Visibility="{Binding HasSlowestTests, Converter={StaticResource InverseBoolToVisibility}}" />
+                <views:FlatItemsControl ItemsSource="{Binding SlowestTests}" ItemTemplate="{StaticResource Test}"
+                                        AutomationProperties.AutomationId="InsightsSlowestTests" />
+
+                <TextBlock Text="Flaky tests" Style="{StaticResource Section}" />
+                <TextBlock Style="{StaticResource Empty}"
+                           Visibility="{Binding HasFlakyTests, Converter={StaticResource InverseBoolToVisibility}}" />
+                <views:FlatItemsControl ItemsSource="{Binding FlakyTests}" ItemTemplate="{StaticResource Test}"
+                                        AutomationProperties.AutomationId="InsightsFlakyTests" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

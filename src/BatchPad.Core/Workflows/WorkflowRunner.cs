@@ -48,7 +48,8 @@ public sealed partial class WorkflowRunner(
             try
             {
                 var lockNames = LocksHeldThroughout(request);
-                using var lease = lockNames.Count == 0 ? null : await _locks.AcquireAsync(lockNames, run.LockOwner, run.Wait, run.StopRequested);
+                using var lease = lockNames.Count == 0 ? null : await _locks.AcquireAsync(lockNames, run.LockOwner, run.Wait, run.StopRequested,
+                    holder: ScriptTree.DisplayName(request.Workflow));
                 run.Wait(null);
                 run.Complete(await ExecuteAsync(run, request, resumeAt));
             }

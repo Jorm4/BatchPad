@@ -98,7 +98,10 @@ public sealed partial class CommandPaletteViewModel(MainViewModel main) : Observ
             yield return new("Workspace settings", "Command", "", () => main.OpenWorkspaceSettingsCommand.Execute(null));
         if (main.OpenSchedulesCommand.CanExecute(null))
             yield return new("Schedules", "Command", "", () => main.OpenSchedulesCommand.Execute(null));
+        if (main.OpenInsightsCommand.CanExecute(null))
+            yield return new("Insights", "Command", "", () => main.OpenInsightsCommand.Execute(null));
         yield return new("New workspace…", "Command", "", () => main.OpenNewWorkspaceCommand.Execute(null));
+        yield return new("Settings", "Command", "", () => main.OpenSettingsCommand.Execute(null));
         yield return new("Show history", "Command", "", () => main.Output.IsHistoryOpen = true);
     }
 

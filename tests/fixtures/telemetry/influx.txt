@@ -1,0 +1,3 @@
+batchpad_run,folder=Build,outcome=exited,script=Build,trigger=manual,workspace=My\ Project duration_ms=3000i,queued_ms=850i,exit_code=0i 1790500323512000000
+batchpad_run,folder=Test\,\ unit\=fast,outcome=exited,script=Unit\ tests,trigger=manual,workspace=My\ Project duration_ms=1500i,queued_ms=0i,exit_code=3i,tests_failed=1i 1790500326612000000
+batchpad_run,folder=Ship,outcome=exited,script=Release,trigger=manual,workspace=My\ Project duration_ms=5000i,queued_ms=0i,exit_code=1i 1790500323412000000

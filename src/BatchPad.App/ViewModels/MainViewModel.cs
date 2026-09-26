@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using BatchPad.App.Services;
 using BatchPad.App.ViewModels.History;
+using BatchPad.App.ViewModels.AppSettings;
+using BatchPad.App.ViewModels.Insights;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.App.ViewModels.Schedules;
 using BatchPad.App.ViewModels.Wizard;
@@ -15,6 +17,7 @@ using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Scheduling;
+using BatchPad.Core.Telemetry;
 using BatchPad.Core.Trust;
 using BatchPad.Core.Workspace;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -61,7 +64,7 @@ public sealed partial class MainViewModel : ObservableObject
         Time = time ?? TimeProvider.System;
         Trust = new TrustStore(settings, paths.SettingsFile);
         var interpreters = new InterpreterLocator(settings.Interpreters);
-        var gate = new RunGate(Trust, Time);
+        var gate = new RunGate(Trust, Time, LockManager.For(paths));
         CommandChoices = new CommandChoiceSource(Trust, interpreters);
         Probes = new ScriptProbes(Trust, interpreters);
         shell ??= new ShellService();
@@ -73,6 +76,8 @@ public sealed partial class MainViewModel : ObservableObject
         _fingerprints = new Debouncer(Services.Dispatcher, TimeSpan.Zero);
         _scheduleState = ScheduleStateStore.For(paths);
         Details = new DetailsViewModel(this);
+        Telemetry = TelemetryPipeline.For(paths, settings, Time);
+        Telemetry.Start();
         History = new HistoryViewModel(this);
         Output = new OutputPanelViewModel(History);
         MyScripts = new MyScriptsViewModel(this);
@@ -99,6 +104,8 @@ public sealed partial class MainViewModel : ObservableObject
     public AppPaths Paths => _paths;
     public TimeProvider Time { get; }
     public HistoryViewModel History { get; }
+    public TelemetryPipeline Telemetry { get; }
+    public Settings UserSettings => _settings;
     public RenameTracker Renames { get; } = new();
     public Scheduler? Scheduler { get; private set; }
 
@@ -129,7 +136,7 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<WorkspaceChoice> RecentWorkspaces { get; } = [];
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(OpenWorkspaceSettingsCommand), nameof(OpenSchedulesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenWorkspaceSettingsCommand), nameof(OpenSchedulesCommand), nameof(OpenInsightsCommand))]
     private LoadedWorkspace? workspace;
 
     [ObservableProperty]
@@ -165,8 +172,18 @@ public sealed partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsPageOpen))]
     private SchedulesViewModel? schedules;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPageOpen))]
+    private InsightsViewModel? insights;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPageOpen))]
+    private SettingsViewModel? settingsPage;
+
     /// <summary>A page replaces the details panel while it is open.</summary>
-    public bool IsPageOpen => WorkspaceSettings is not null || NewItem is not null || NewWorkspace is not null || Schedules is not null;
+    public bool IsPageOpen =>
+        WorkspaceSettings is not null || NewItem is not null || NewWorkspace is not null || Schedules is not null || Insights is not null
+        || SettingsPage is not null;
 
     private bool IsEditingPage => WorkspaceSettings is not null || NewItem is not null || NewWorkspace is not null || Schedules?.Editor is not null;
 
@@ -199,7 +216,7 @@ public sealed partial class MainViewModel : ObservableObject
             Tree.PropertyChanged -= OnTreePropertyChanged;
 
         Workspace = loaded;
-        ClosePages(keepSchedules: true);
+        ClosePages(keepSchedules: true, keepInsights: true, keepSettings: true);
         Tree = new TreeViewModel(loaded, OpenNewItem);
         Tree.PropertyChanged += OnTreePropertyChanged;
         IsTrusted = Trust.IsTrusted(loaded.Directory);
@@ -645,16 +662,46 @@ public sealed partial class MainViewModel : ObservableObject
         Schedules = page;
     }
 
-    private void ClosePages(bool keepSchedules = false)
+    [RelayCommand(CanExecute = nameof(HasWorkspace))]
+    private void OpenInsights()
+    {
+        ClosePages(keepInsights: true);
+        if (Insights is not null)
+            return;
+        var page = new InsightsViewModel(this);
+        page.Closed += () => Insights = null;
+        Insights = page;
+    }
+
+    [RelayCommand]
+    private void OpenSettings()
+    {
+        ClosePages(keepSettings: true);
+        if (SettingsPage is not null)
+            return;
+        var page = new SettingsViewModel(this);
+        page.Closed += () => SettingsPage = null;
+        SettingsPage = page;
+    }
+
+    private void ClosePages(bool keepSchedules = false, bool keepInsights = false, bool keepSettings = false)
     {
         WorkspaceSettings = null;
         NewItem = null;
         NewWorkspace = null;
         if (!keepSchedules)
             Schedules = null;
+        if (!keepInsights)
+            Insights = null;
+        if (!keepSettings)
+            SettingsPage = null;
     }
 
     partial void OnSchedulesChanged(SchedulesViewModel? oldValue, SchedulesViewModel? newValue) => oldValue?.Detach();
+
+    partial void OnInsightsChanged(InsightsViewModel? oldValue, InsightsViewModel? newValue) => oldValue?.Detach();
+
+    partial void OnSettingsPageChanged(SettingsViewModel? oldValue, SettingsViewModel? newValue) => oldValue?.Detach();
 
     private void StartScheduler(LoadedWorkspace loaded, IReadOnlyList<ScheduleEntry> entries)
     {

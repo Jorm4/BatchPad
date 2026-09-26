@@ -1,0 +1,169 @@
+<UserControl x:Class="BatchPad.App.Views.AppSettings.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.AppSettings"
+             xmlns:views="clr-namespace:BatchPad.App.Views">
+    <UserControl.Resources>
+        <Style x:Key="Section" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Opacity" Value="0.7" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Width" Value="110" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="Field" TargetType="DockPanel">
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <DataTemplate x:Key="Sink" DataType="{x:Type vm:SinkViewModel}">
+            <Border Margin="0,0,0,10" Padding="12" CornerRadius="6" BorderThickness="1"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    AutomationProperties.AutomationId="TelemetrySink" AutomationProperties.Name="{Binding Title}">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,8">
+                        <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}"
+                                AutomationProperties.AutomationId="TelemetrySinkRemove" />
+                        <CheckBox IsChecked="{Binding Enabled}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                  AutomationProperties.AutomationId="TelemetrySinkEnabled" AutomationProperties.Name="Enabled" />
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    </DockPanel>
+
+                    <StackPanel Visibility="{Binding IsJsonl, Converter={StaticResource BoolToVisibility}}">
+                        <DockPanel Style="{StaticResource Field}">
+                            <TextBlock Text="File" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding Path}" AutomationProperties.AutomationId="TelemetrySinkPath" AutomationProperties.Name="File" />
+                        </DockPanel>
+                        <DockPanel Style="{StaticResource Field}">
+                            <TextBlock Text="Rotate at (MB)" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding MaxSizeMb}" Width="80" HorizontalAlignment="Left"
+                                     AutomationProperties.AutomationId="TelemetrySinkMaxSize" AutomationProperties.Name="Rotate at (MB)" />
+                        </DockPanel>
+                    </StackPanel>
+                    <DockPanel Style="{StaticResource Field}" Visibility="{Binding IsOtlp, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Endpoint" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding Endpoint}" AutomationProperties.AutomationId="TelemetrySinkEndpoint" AutomationProperties.Name="Endpoint" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}" Visibility="{Binding UsesUrl, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="URL" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding Url}" AutomationProperties.AutomationId="TelemetrySinkUrl" AutomationProperties.Name="URL" />
+                    </DockPanel>
+                    <StackPanel Visibility="{Binding IsElastic, Converter={StaticResource BoolToVisibility}}">
+                        <DockPanel Style="{StaticResource Field}">
+                            <TextBlock Text="Index" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding Index}" AutomationProperties.AutomationId="TelemetrySinkIndex" AutomationProperties.Name="Index" />
+                        </DockPanel>
+                        <DockPanel Style="{StaticResource Field}">
+                            <TextBlock Text="API key" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding ApiKey}" AutomationProperties.AutomationId="TelemetrySinkApiKey" AutomationProperties.Name="API key" />
+                        </DockPanel>
+                    </StackPanel>
+                    <StackPanel Visibility="{Binding IsInflux, Converter={StaticResource BoolToVisibility}}">
+                        <DockPanel Style="{StaticResource Field}">
+                            <TextBlock Text="Organization" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding Org}" AutomationProperties.AutomationId="TelemetrySinkOrg" AutomationProperties.Name="Organization" />
+                        </DockPanel>
+                        <DockPanel Style="{StaticResource Field}">
+                            <TextBlock Text="Bucket" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding Bucket}" AutomationProperties.AutomationId="TelemetrySinkBucket" AutomationProperties.Name="Bucket" />
+                        </DockPanel>
+                        <DockPanel Style="{StaticResource Field}">
+                            <TextBlock Text="Token" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding Token}" AutomationProperties.AutomationId="TelemetrySinkToken" AutomationProperties.Name="Token" />
+                        </DockPanel>
+                    </StackPanel>
+                    <DockPanel Style="{StaticResource Field}" Visibility="{Binding UsesHeaders, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Headers" Style="{StaticResource FieldLabel}" VerticalAlignment="Top" Margin="0,4,0,0" />
+                        <TextBox Text="{Binding HeadersText}" AcceptsReturn="True" MinLines="2" TextWrapping="NoWrap"
+                                 ToolTip="One per line, as Name: value"
+                                 AutomationProperties.AutomationId="TelemetrySinkHeaders" AutomationProperties.Name="Headers" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}" Margin="110,0,0,6"
+                               Visibility="{Binding IsJsonl, Converter={StaticResource InverseBoolToVisibility}}"
+                               Text="Don't paste secrets here: write credentials as ${env:NAME}, which is read from the environment when sending." />
+                    <TextBlock Text="{Binding SecretWarning}" Foreground="#9D5D00" TextWrapping="Wrap" Margin="110,0,0,6"
+                               Visibility="{Binding SecretWarning, Converter={StaticResource NullToCollapsed}}"
+                               AutomationProperties.AutomationId="TelemetrySinkSecretWarning" />
+
+                    <DockPanel Margin="0,4,0,0">
+                        <Button DockPanel.Dock="Right" Content="Send test event" Command="{Binding SendTestEventCommand}"
+                                AutomationProperties.AutomationId="TelemetrySinkSendTest" />
+                        <StackPanel Margin="0,0,12,0">
+                            <TextBlock Text="{Binding StatusText}" Opacity="0.8" AutomationProperties.AutomationId="TelemetrySinkStatus" />
+                            <TextBlock Text="{Binding LastErrorText}" TextWrapping="Wrap"
+                                       Visibility="{Binding LastErrorText, Converter={StaticResource NullToCollapsed}}"
+                                       AutomationProperties.AutomationId="TelemetrySinkLastError">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Opacity" Value="0.7" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsFailing}" Value="True">
+                                                <Setter Property="Foreground" Value="#C42B1C" />
+                                                <Setter Property="Opacity" Value="1" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding TestResult}" TextWrapping="Wrap"
+                                       Visibility="{Binding TestResult, Converter={StaticResource NullToCollapsed}}"
+                                       AutomationProperties.AutomationId="TelemetrySinkTestResult">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding TestFailed}" Value="True">
+                                                <Setter Property="Foreground" Value="#C42B1C" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+    <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="SettingsCloseButton" />
+            <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </DockPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0,0,8,0" DataContext="{Binding Telemetry}">
+                <TextBlock Text="Telemetry" Style="{StaticResource Section}" AutomationProperties.AutomationId="TelemetrySection" />
+                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8"
+                           Text="Forward a record of each run to your own tools. Nothing is forwarded until you add a sink, and command lines are never included." />
+                <CheckBox Content="Include the machine name" IsChecked="{Binding Machine}" Margin="0,0,0,4"
+                          AutomationProperties.AutomationId="TelemetryMachine" />
+                <CheckBox Content="Include the user name" IsChecked="{Binding User}" Margin="0,0,0,4"
+                          AutomationProperties.AutomationId="TelemetryUser" />
+                <CheckBox Content="Include parameter values" IsChecked="{Binding IncludeValues}" Margin="0,0,0,4"
+                          AutomationProperties.AutomationId="TelemetryIncludeValues" />
+                <CheckBox Content="Hash script, folder and workspace names" IsChecked="{Binding HashNames}" Margin="0,0,0,12"
+                          AutomationProperties.AutomationId="TelemetryHashNames" />
+
+                <DockPanel Margin="0,0,0,8">
+                    <Button DockPanel.Dock="Right" Content="Open outbox folder" Command="{Binding OpenOutboxFolderCommand}"
+                            AutomationProperties.AutomationId="TelemetryOpenOutbox" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Sinks" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <ComboBox ItemsSource="{Binding AvailableSinkTypes}" SelectedItem="{Binding NewSinkType}" MinWidth="90"
+                                  AutomationProperties.AutomationId="TelemetryNewSinkType" AutomationProperties.Name="Sink type" />
+                        <Button Content="Add sink" Command="{Binding AddSinkCommand}" Margin="6,0,0,0"
+                                AutomationProperties.AutomationId="TelemetryAddSink" />
+                    </StackPanel>
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="No sinks: telemetry is off."
+                           Visibility="{Binding HasSinks, Converter={StaticResource InverseBoolToVisibility}}" />
+                <views:FlatItemsControl ItemsSource="{Binding Sinks}" ItemTemplate="{StaticResource Sink}"
+                                        AutomationProperties.AutomationId="TelemetrySinks" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

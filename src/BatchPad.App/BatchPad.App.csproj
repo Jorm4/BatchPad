@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="ModelContextProtocol" />
     <Using Include="System.IO" />
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />

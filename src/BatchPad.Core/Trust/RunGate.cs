@@ -42,7 +42,8 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
     }
 
     /// <exception cref="UntrustedWorkspaceException">The workspace, or the folder of an included file, is not trusted.</exception>
-    public RunHandle Start(RunRequest request, InterpreterLocator interpreters)
+    /// <exception cref="LockBusyException">A lock is held and <paramref name="waitForLocks"/> is false.</exception>
+    public RunHandle Start(RunRequest request, InterpreterLocator interpreters, bool waitForLocks = true)
     {
         Demand(Check(request));
         var specs = RunPlanner.Plan(request, interpreters);
@@ -50,8 +51,15 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
         if (locks.Count == 0)
             return ProcessRunner.Start(specs, Time);
 
+        var holder = ScriptTree.DisplayName(request.Script);
+        var lease = waitForLocks ? null : Locks.AcquireAsync(locks, wait: false, holder: holder).GetAwaiter().GetResult();
         var handle = ProcessRunner.Create(specs, Time);
-        var acquiring = Locks.AcquireAsync(locks, handle.Wait, handle.StopRequested);
+        if (lease is not null)
+        {
+            handle.Begin(lease);
+            return handle;
+        }
+        var acquiring = Locks.AcquireAsync(locks, handle.Wait, handle.StopRequested, holder: holder);
         if (acquiring.IsCompletedSuccessfully)
             handle.Begin(acquiring.Result);
         else

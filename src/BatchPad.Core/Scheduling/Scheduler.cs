@@ -329,7 +329,7 @@ public sealed class Scheduler : IDisposable
             ScheduleFailed?.Invoke(new ScheduleFailure(entry, entry.Problem ?? $"'{entry.Schedule.Target}' was not found.", null));
             return false;
         }
-        var trigger = RunTriggers.Schedule(entry.Key);
+        var trigger = entry.Schedule.Trigger.Kind == TriggerKind.AfterRun ? RunTriggers.AfterRunOf(entry.Key) : RunTriggers.Schedule(entry.Key);
         IRunOutput run;
         Task<RunRecord> recorded;
         RunRequest? request;

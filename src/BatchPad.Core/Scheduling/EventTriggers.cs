@@ -105,8 +105,6 @@ public sealed class FileChangedTriggerSource : ITriggerSource, IDisposable
 /// </summary>
 public sealed class AfterRunTriggerSource : ITriggerSource, IDisposable
 {
-    private static readonly string SchedulePrefix = RunTriggers.Schedule("");
-
     private readonly Scheduler _scheduler;
     private readonly Lock _lock = new();
     private readonly List<RunWatch> _watches = [];
@@ -147,12 +145,11 @@ public sealed class AfterRunTriggerSource : ITriggerSource, IDisposable
         lock (_lock)
         {
             IReadOnlyList<ScheduleEntry> chain = [];
-            if (record.Trigger.StartsWith(SchedulePrefix, StringComparison.Ordinal)
-                && _cascades.TryGetValue(record.Trigger[SchedulePrefix.Length..], out var cascade))
+            if (RunTriggers.ScheduleKey(record.Trigger) is { } scheduleKey && _cascades.TryGetValue(scheduleKey, out var cascade))
             {
                 chain = cascade.Chain;
                 if (record.NodeKey == cascade.RootNodeKey)
-                    _cascades.Remove(record.Trigger[SchedulePrefix.Length..]);
+                    _cascades.Remove(scheduleKey);
             }
             foreach (var watch in _watches.Where(w => w.NodeKey == record.NodeKey && Matches(w.Result, record)))
             {

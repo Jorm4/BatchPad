@@ -10,7 +10,7 @@ internal sealed class FakeLauncher : IRunLauncher
     public List<RunRequest> Requests { get; } = [];
     public Exception? Failure { get; init; }
 
-    public IRunProcess Start(RunRequest request)
+    public IRunProcess Start(RunRequest request, bool waitForLocks = true)
     {
         Requests.Add(request);
         if (Failure is not null)

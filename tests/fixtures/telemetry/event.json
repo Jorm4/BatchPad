@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "eventId": "EVENT-ID",
+  "runId": "20260927-091203-412-3f9a1c2",
+  "parentRunId": "20260927-091200-000-0a1b2c3",
+  "stepId": "build",
+  "time": "2026-09-27T09:12:03.412Z",
+  "queuedMs": 850,
+  "durationMs": 94210,
+  "workspace": { "id": "5c0f", "name": "My Project", "branch": "main", "commit": "3f9a1c2" },
+  "script": { "tree": "workspace", "id": "build", "name": "Build", "kind": "script", "folder": "Build", "tags": ["native"] },
+  "trigger": "agent:example",
+  "outcome": "exited",
+  "exitCode": 0,
+  "tests": { "passed": 1284, "failed": 2, "skipped": 3 },
+  "machine": "WS-042",
+  "batchPadVersion": "0.2.0"
+}

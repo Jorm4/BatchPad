@@ -1,21 +1,39 @@
+using System.Globalization;
+using System.Text.Json.Nodes;
+using BatchPad.Core.Telemetry;
+
 namespace BatchPad.App.Cli;
 
-public enum CliVerb { Run, List }
+public enum CliVerb { Run, List, Log, Stats, Mcp }
 
 public sealed record CliCommand(CliVerb Verb)
 {
     public string? Target { get; init; }
     public string? Workspace { get; init; }
     public IReadOnlyDictionary<string, string> Values { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, JsonNode?> JsonValues { get; init; } = new Dictionary<string, JsonNode?>();
+    public IReadOnlyCollection<string>? AllowedIds { get; init; }
     public bool Yes { get; init; }
+    public bool Json { get; init; }
+    public bool ErrorsOnly { get; init; }
+    public bool NoWait { get; init; }
+    public string? Agent { get; init; }
+    public int? Tail { get; init; }
+    public int? FirstLine { get; init; }
+    public int? LastLine { get; init; }
+    public TimeSpan Since { get; init; } = TimeSpan.FromDays(7);
 
     public const string Usage = """
         Usage:
           batchpad run <id|name> [--workspace <path>] [--set name=value]... [--yes]
-          batchpad list [--workspace <path>]
+                       [--json | --errors-only] [--no-wait] [--agent <name>]
+          batchpad list [--workspace <path>] [--json]
+          batchpad log <run-id> [--workspace <path>] [--tail N] [--errors]
+          batchpad stats [--workspace <path>] [--since 1d|7d|30d] [--json]
+          batchpad mcp [--workspace <path>]
         """;
 
-    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list", ..];
+    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "mcp", ..];
 
     /// <exception cref="CliUsageException" />
     public static CliCommand Parse(IReadOnlyList<string> args)
@@ -24,41 +42,59 @@ public sealed record CliCommand(CliVerb Verb)
         {
             ["run", ..] => CliVerb.Run,
             ["list", ..] => CliVerb.List,
-            _ => throw new CliUsageException("Expected 'run' or 'list'."),
+            ["log", ..] => CliVerb.Log,
+            ["stats", ..] => CliVerb.Stats,
+            ["mcp", ..] => CliVerb.Mcp,
+            _ => throw new CliUsageException("Expected 'run', 'list', 'log', 'stats' or 'mcp'."),
         };
-        string? target = null, workspace = null;
-        var yes = false;
+        var command = new CliCommand(verb);
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 1; i < args.Count; i++)
         {
-            switch (args[i])
+            command = (args[i], verb) switch
             {
-                case "--workspace" or "-w":
-                    workspace = ValueAfter(args, ref i);
-                    break;
-                case "--set" when verb == CliVerb.Run:
-                    var assignment = ValueAfter(args, ref i);
-                    var equals = assignment.IndexOf('=');
-                    if (equals <= 0)
-                        throw new CliUsageException($"--set expects name=value, not '{assignment}'.");
-                    values[assignment[..equals]] = assignment[(equals + 1)..];
-                    break;
-                case "--yes" or "-y" when verb == CliVerb.Run:
-                    yes = true;
-                    break;
-                case var option when option.StartsWith('-'):
-                    throw new CliUsageException($"Unknown option '{option}'.");
-                case var positional when verb == CliVerb.Run && target is null:
-                    target = positional;
-                    break;
-                default:
-                    throw new CliUsageException($"Unexpected argument '{args[i]}'.");
-            }
+                ("--workspace" or "-w", _) => command with { Workspace = ValueAfter(args, ref i) },
+                ("--set", CliVerb.Run) => Set(command, values, ValueAfter(args, ref i)),
+                ("--yes" or "-y", CliVerb.Run) => command with { Yes = true },
+                ("--json", CliVerb.Run or CliVerb.List or CliVerb.Stats) => command with { Json = true },
+                ("--errors-only", CliVerb.Run) => command with { ErrorsOnly = true },
+                ("--no-wait", CliVerb.Run) => command with { NoWait = true },
+                ("--agent", CliVerb.Run) => command with { Agent = ValueAfter(args, ref i) },
+                ("--tail", CliVerb.Log) => command with { Tail = Count(ValueAfter(args, ref i)) },
+                ("--errors", CliVerb.Log) => command with { ErrorsOnly = true },
+                ("--since", CliVerb.Stats) => command with { Since = Period(ValueAfter(args, ref i)) },
+                (var option, _) when option.StartsWith('-') => throw new CliUsageException($"Unknown option '{option}'."),
+                (var positional, CliVerb.Run or CliVerb.Log) when command.Target is null => command with { Target = positional },
+                _ => throw new CliUsageException($"Unexpected argument '{args[i]}'."),
+            };
         }
-        if (verb == CliVerb.Run && target is null)
+        if (command.Target is null && verb is CliVerb.Run)
             throw new CliUsageException("'run' needs the id or name of a script or workflow.");
-        return new CliCommand(verb) { Target = target, Workspace = workspace, Values = values, Yes = yes };
+        if (command.Target is null && verb is CliVerb.Log)
+            throw new CliUsageException("'log' needs a run id.");
+        if (command.Json && command.ErrorsOnly)
+            throw new CliUsageException("Use either --json or --errors-only.");
+        return command with { Values = values };
     }
+
+    private static CliCommand Set(CliCommand command, Dictionary<string, string> values, string assignment)
+    {
+        var equals = assignment.IndexOf('=');
+        if (equals <= 0)
+            throw new CliUsageException($"--set expects name=value, not '{assignment}'.");
+        values[assignment[..equals]] = assignment[(equals + 1)..];
+        return command;
+    }
+
+    private static int Count(string text) =>
+        int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count > 0
+            ? count
+            : throw new CliUsageException($"--tail expects a positive number, not '{text}'.");
+
+    private static TimeSpan Period(string text) =>
+        RunStats.TryParsePeriod(text, out var period)
+            ? period
+            : throw new CliUsageException($"--since expects a period such as 1d, 7d, 30d or 12h, not '{text}'.");
 
     private static string ValueAfter(IReadOnlyList<string> args, ref int i) =>
         ++i < args.Count ? args[i] : throw new CliUsageException($"{args[i - 1]} needs a value.");

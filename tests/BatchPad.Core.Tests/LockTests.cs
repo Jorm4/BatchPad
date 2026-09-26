@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Workflows;
@@ -152,6 +153,91 @@ public sealed class LockTests
 
         CollectionAssert.AreEqual(new[] { 0, 1, 2 }, order);
         Assert.IsFalse(locks.IsHeld("x"));
+    }
+
+    [TestMethod]
+    public async Task ManagersSharingADirectorySerialiseTheSameLockButNotDifferentOnes()
+    {
+        using var temp = new TempDir();
+        var first = new LockManager(temp.Root);
+        var second = new LockManager(temp.Root);
+
+        var held = await first.AcquireAsync(["x"], new object());
+        var queued = second.AcquireAsync(["X"], new object());
+        using (await second.AcquireAsync(["y"], new object()).WaitAsync(Limit))
+            await Task.Delay(100);
+        Assert.IsFalse(queued.IsCompleted);
+
+        held.Dispose();
+        (await queued.WaitAsync(Limit)).Dispose();
+    }
+
+    [TestMethod]
+    public async Task ALockHeldByAProcessThatDiesIsFreed()
+    {
+        using var temp = new TempDir();
+        var locks = new LockManager(temp.Root);
+        var python = new InterpreterLocator().Python() ?? throw new AssertInconclusiveException("Python is not installed.");
+        var startInfo = new ProcessStartInfo(python.Path) { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
+        foreach (var argument in python.LeadingArguments.Concat(["-c",
+                     "import os, sys, time; f = open(sys.argv[1], 'a'); print(os.getpid(), flush=True); time.sleep(60)",
+                     MachineLock.PathFor(temp.Root, "x")]))
+            startInfo.ArgumentList.Add(argument);
+        using var launcher = Process.Start(startInfo)!;
+        using var holder = Process.GetProcessById(int.Parse(launcher.StandardOutput.ReadLine()!));
+
+        Assert.ThrowsExactly<LockBusyException>(() => locks.AcquireAsync(["x"], new object(), wait: false).GetAwaiter().GetResult());
+        var queued = locks.AcquireAsync(["x"], new object());
+        holder.Kill();
+        launcher.Kill();
+
+        (await queued.WaitAsync(Limit)).Dispose();
+    }
+
+    [TestMethod]
+    public async Task AWaiterInAnotherProcessIsToldWhoHoldsTheLock()
+    {
+        using var temp = new TempDir();
+        using var held = await new LockManager(temp.Root).AcquireAsync(["x"], new object(), holder: "Build");
+        var other = new LockManager(temp.Root);
+        var reported = new List<string>();
+        using var stop = new CancellationTokenSource();
+
+        var queued = other.AcquireAsync(["x"], new object(), text => { lock (reported) reported.Add(text); }, stop.Token);
+        await Eventually(() => { lock (reported) return reported.Count > 0; });
+
+        StringAssert.Matches(reported[0], new System.Text.RegularExpressions.Regex(@"^x \(held by Build since \d\d:\d\d\)$"));
+        StringAssert.StartsWith(other.DescribeHolder("x"), "held by Build since ");
+        await stop.CancelAsync();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => queued);
+        Assert.IsFalse(other.IsHeld("x"));
+    }
+
+    [TestMethod]
+    public async Task ANoWaitAcquireFailsFastWhereverTheLockIsHeld()
+    {
+        using var temp = new TempDir();
+        var locks = new LockManager(temp.Root);
+        using (await locks.AcquireAsync(["x"], new object(), holder: "Build"))
+        {
+            var here = locks.AcquireAsync(["x"], new object(), wait: false);
+            var elsewhere = new LockManager(temp.Root).AcquireAsync(["x"], new object(), wait: false);
+
+            Assert.IsTrue(here.IsFaulted && elsewhere.IsFaulted);
+            StringAssert.Contains(here.Exception!.InnerException!.Message, "held by Build");
+            StringAssert.Contains(elsewhere.Exception!.InnerException!.Message, "held by Build");
+        }
+        (await locks.AcquireAsync(["x"], new object(), wait: false)).Dispose();
+    }
+
+    [TestMethod]
+    public async Task ARunThatMustNotWaitIsRefusedWhileItsLockIsHeld()
+    {
+        using var test = new LockTest();
+        using var first = test.Start("a");
+
+        Assert.ThrowsExactly<LockBusyException>(() => test.Workspace.Gate.Start(test.Workspace.Request("b"), RunWorkspace.Interpreters, waitForLocks: false));
+        await first.Completion.WaitAsync(Limit);
     }
 
     private static DateTimeOffset EndOf(RunHandle run) => run.StartedAt + run.Completion.Result.Duration;

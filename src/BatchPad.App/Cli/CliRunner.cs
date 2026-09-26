@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using BatchPad.App.Services;
 using BatchPad.App.ViewModels.History;
@@ -5,18 +7,21 @@ using BatchPad.Core.Config;
 using BatchPad.Core.Customisation;
 using BatchPad.Core.History;
 using BatchPad.Core.Model;
+using BatchPad.Core.Output;
 using BatchPad.Core.Running;
+using BatchPad.Core.Telemetry;
 using BatchPad.Core.Trust;
 using BatchPad.Core.Workflows;
 using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Cli;
 
-/// <summary>Runs the <c>run</c> and <c>list</c> verbs headless (§9.3), unattended and recorded with the <c>cli</c> trigger.</summary>
+/// <summary>Runs the command-line verbs headless (§9.3, §4.5), unattended and recorded with the <c>cli</c> or an agent trigger.</summary>
 public sealed class CliRunner
 {
     public const int UsageError = 2;
     public const int Failure = 1;
+    public const string ClaudeCodeAgent = "claude-code";
 
     private readonly AppPaths _paths;
     private readonly TextWriter _out;
@@ -24,6 +29,7 @@ public sealed class CliRunner
     private readonly TrustStore _trust;
     private readonly IRunLauncher _launcher;
     private readonly IWorkflowLauncher _workflows;
+    private readonly TelemetryPipeline _telemetry;
 
     public CliRunner(AppPaths paths, Settings settings, TextWriter output, TextWriter error,
         IRunLauncher? launcher = null, IWorkflowLauncher? workflows = null)
@@ -33,10 +39,13 @@ public sealed class CliRunner
         _error = error;
         var interpreters = new InterpreterLocator(settings.Interpreters);
         _trust = new TrustStore(settings, paths.SettingsFile);
-        var gate = new RunGate(_trust);
+        _telemetry = TelemetryPipeline.For(paths, settings);
+        var gate = new RunGate(_trust, locks: LockManager.For(paths));
         _launcher = launcher ?? new GatedRunLauncher(gate, interpreters);
         _workflows = workflows ?? new GatedWorkflowLauncher(gate, interpreters, new ShellOpener(new ShellService()));
     }
+
+    public Func<string, string?> EnvironmentVariable { get; init; } = Environment.GetEnvironmentVariable;
 
     public async Task<int> RunAsync(IReadOnlyList<string> args, string currentDirectory)
     {
@@ -51,7 +60,14 @@ public sealed class CliRunner
             _error.WriteLine(CliCommand.Usage);
             return UsageError;
         }
+        if (command.Verb == CliVerb.Mcp)
+            return await McpHost.RunAsync(_paths, command.Workspace, currentDirectory, _error);
+        return await RunAsync(command, currentDirectory);
+    }
 
+    /// <param name="trustedOnly">Refuses every verb, not only runs, in a workspace that isn't trusted.</param>
+    internal async Task<int> RunAsync(CliCommand command, string currentDirectory, bool trustedOnly = false)
+    {
         LoadedWorkspace workspace;
         try
         {
@@ -67,17 +83,76 @@ public sealed class CliRunner
             _error.WriteLine(ex.Message);
             return Failure;
         }
+        if (trustedOnly && new RunGate(_trust).Check(workspace) is { Allowed: false } refusal)
+        {
+            _error.WriteLine(refusal.Reason);
+            return Failure;
+        }
         foreach (var problem in workspace.Errors)
             _error.WriteLine($"{problem.FilePath}: {problem.Message}");
 
-        if (command.Verb == CliVerb.List)
+        return command.Verb switch
         {
-            foreach (var entry in Entries(workspace))
-                _out.WriteLine($"{entry.Reference}\t{entry.Name}");
+            CliVerb.List => List(command, workspace),
+            CliVerb.Log => ShowLog(command, workspace),
+            CliVerb.Stats => ShowStats(command, workspace),
+            _ => await RunAsync(command, workspace),
+        };
+    }
+
+    private int List(CliCommand command, LoadedWorkspace workspace)
+    {
+        if (command.Json)
+        {
+            _out.WriteLine(JsonSerializer.Serialize(Entries(workspace).Select(e => CliListing.Describe(e, workspace)), RunResultJson.Options));
             return 0;
         }
-        return await RunAsync(command, workspace);
+        foreach (var entry in Entries(workspace))
+            _out.WriteLine($"{entry.Reference}\t{entry.Name}");
+        return 0;
     }
+
+    private int ShowLog(CliCommand command, LoadedWorkspace workspace)
+    {
+        var store = HistoryStore.For(_paths, workspace.Id);
+        if (store.Recent().FirstOrDefault(r => r.Id == command.Target) is not { } record)
+        {
+            _error.WriteLine($"No run '{command.Target}' in this workspace's history.");
+            return UsageError;
+        }
+        IEnumerable<string> lines;
+        try
+        {
+            lines = command.ErrorsOnly ? (record.Errors ?? []).Select(e => e.Text) : File.ReadAllLines(store.LogPath(record));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _error.WriteLine(ex.Message);
+            return Failure;
+        }
+        if (command.FirstLine is { } first)
+            lines = lines.Skip(first - 1);
+        if (command.LastLine is { } last)
+            lines = lines.Take(last - (command.FirstLine ?? 1) + 1);
+        foreach (var line in command.Tail is { } tail ? lines.TakeLast(tail) : lines)
+            _out.WriteLine(line);
+        return 0;
+    }
+
+    private int ShowStats(CliCommand command, LoadedWorkspace workspace)
+    {
+        var stats = RunStats.Compute(HistoryStore.For(_paths, workspace.Id).Recent(), command.Since, DateTimeOffset.Now);
+        if (command.Json)
+            _out.WriteLine(JsonSerializer.Serialize(stats, RunResultJson.Options));
+        else
+            CliStatsFormatter.Write(stats, _out);
+        return 0;
+    }
+
+    private string TriggerFor(CliCommand command) =>
+        command.Agent is { Length: > 0 } agent ? RunTriggers.Agent(agent)
+        : EnvironmentVariable("CLAUDECODE") == "1" ? RunTriggers.Agent(ClaudeCodeAgent)
+        : RunTriggers.Cli;
 
     private async Task<int> RunAsync(CliCommand command, LoadedWorkspace workspace)
     {
@@ -90,10 +165,19 @@ public sealed class CliRunner
             return UsageError;
         }
         var target = matches[0];
+        if (command.AllowedIds is { } allowed && !allowed.Contains(target.Reference))
+        {
+            _error.WriteLine($"'{target.Reference}' is not in mcp.allowIds in the BatchPad settings.");
+            return UsageError;
+        }
         var values = new Dictionary<string, JsonNode?>(target.Values ?? new Dictionary<string, JsonNode?>());
+        foreach (var (name, value) in command.JsonValues)
+            values[name] = value?.DeepClone();
         foreach (var (name, value) in command.Values)
             values[name] = JsonValue.Create(value);
         var store = HistoryStore.For(_paths, workspace.Id);
+        await using var telemetry = _telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
+        var run = new CliRun(command, TriggerFor(command), store, target);
 
         try
         {
@@ -106,7 +190,7 @@ public sealed class CliRunner
                     Unattended = true,
                     Confirmed = command.Yes,
                 };
-                return await RunWorkflowAsync(workspace, request, store, recordAs: target);
+                return await RunWorkflowAsync(workspace, request, run, recordAs: target);
             }
 
             var runRequest = new RunRequest(workspace, target.Tree, (ScriptNode)target.Definition)
@@ -118,16 +202,24 @@ public sealed class CliRunner
             };
             RunPlanner.CheckUnattended(runRequest);
             if (Prerequisites.WorkflowFor(runRequest) is { } withPrerequisites)
-                return await RunWorkflowAsync(workspace, withPrerequisites, store, recordAs: null);
+                return await RunWorkflowAsync(workspace, withPrerequisites, run, recordAs: null);
 
-            using var process = _launcher.Start(runRequest);
-            var recording = HistoryRecorder.Attach(process, store, runRequest, target.Key, RunTriggers.Cli, target.Name);
-            using (process.Subscribe(Write))
+            using var process = _launcher.Start(runRequest, waitForLocks: !command.NoWait);
+            var reportWaiting = WaitingReporter(() => process.WaitingForLock);
+            process.WaitingChanged += reportWaiting;
+            reportWaiting();
+            var recording = HistoryRecorder.Attach(process, store, runRequest, target.Key, run.Trigger, target.Name);
+            using (Relay(process, runRequest, command))
             {
                 var result = await process.Completion;
-                await recording;
+                Report(run, RunSummary.From(await recording, store, target.Reference, steps: []));
                 return ExitCodeOf(result);
             }
+        }
+        catch (LockBusyException ex)
+        {
+            _error.WriteLine($"{ex.Message} Not waiting because of --no-wait.");
+            return Failure;
         }
         catch (Exception ex) when (ex is WorkflowException or InvalidOperationException || RunProblems.IsRunProblem(ex))
         {
@@ -136,37 +228,123 @@ public sealed class CliRunner
         }
     }
 
-    private async Task<int> RunWorkflowAsync(LoadedWorkspace workspace, WorkflowRequest request, HistoryStore store, Entry? recordAs)
+    private async Task<int> RunWorkflowAsync(LoadedWorkspace workspace, WorkflowRequest request, CliRun cli, Entry? recordAs)
     {
+        if (cli.Command.NoWait)
+        {
+            _error.WriteLine($"--no-wait works only for a single script, and '{cli.Target.Reference}' runs several steps.");
+            return UsageError;
+        }
         var run = _workflows.Start(workspace, request);
         var streamed = new HashSet<StepRun>();
-        var subscriptions = new List<IDisposable>();
+        var subscriptions = new List<IDisposable?>();
         run.StepChanged += step =>
         {
-            if (step.Handle is not { } handle)
+            if (step is not { Handle: { } handle, Request: { } stepRequest })
                 return;
             lock (streamed)
             {
                 if (!streamed.Add(step))
                     return;
-                _error.WriteLine($"> {step.Id}{(step.Item is null ? "" : $" [{step.Item}]")}");
-                subscriptions.Add(handle.Subscribe(Write));
+                if (!cli.Command.Json)
+                    _error.WriteLine($"> {step.Id}{(step.Item is null ? "" : $" [{step.Item}]")}");
+                var reportWaiting = WaitingReporter(() => handle.WaitingForLock);
+                handle.WaitingChanged += reportWaiting;
+                reportWaiting();
+                subscriptions.Add(Relay(handle, stepRequest, cli.Command));
             }
         };
-        var recording = recordAs is null
-            ? HistoryRecorder.AttachSteps(run, store, HistoryViewModel.KeyOf, RunTriggers.Cli)
-            : HistoryRecorder.AttachWorkflow(run, store,
-                new RunRecord { NodeKey = recordAs.Key, Tree = recordAs.Tree.Kind, Name = recordAs.Name, Trigger = RunTriggers.Cli },
-                HistoryViewModel.KeyOf, RunTriggers.Cli);
+        var steps = recordAs is null ? HistoryRecorder.AttachSteps(run, cli.Store, HistoryViewModel.KeyOf, cli.Trigger) : null;
+        var workflowRecord = recordAs is null
+            ? null
+            : HistoryRecorder.AttachWorkflow(run, cli.Store,
+                new RunRecord { NodeKey = recordAs.Key, Tree = recordAs.Tree.Kind, Name = recordAs.Name, Trigger = cli.Trigger },
+                HistoryViewModel.KeyOf, cli.Trigger);
         var result = await run.Completion;
-        await recording;
+        if (workflowRecord is not null)
+            Report(cli, RunSummary.From(await workflowRecord, cli.Store, cli.Target.Reference));
+        else if (await steps! is { Count: > 0 } records)
+        {
+            var last = records[^1];
+            Report(cli, RunSummary.From(last, cli.Store, last.NodeId == cli.Target.Definition.Id ? cli.Target.Reference : null, records.SkipLast(1)));
+        }
         lock (streamed)
-            subscriptions.ForEach(s => s.Dispose());
+            subscriptions.ForEach(s => s?.Dispose());
         foreach (var step in run.Steps.Where(s => s.Error is not null))
             _error.WriteLine($"{step.Id}: {step.Error}");
         if (result.Succeeded)
             return 0;
         return run.Steps.Select(s => s.Result).LastOrDefault(r => r is { Succeeded: false }) is { } failed ? ExitCodeOf(failed) : Failure;
+    }
+
+    private IDisposable? Relay(IRunOutput output, RunRequest request, CliCommand command)
+    {
+        if (command.Json)
+            return null;
+        if (!command.ErrorsOnly)
+            return output.Subscribe(Write);
+        var parser = new OutputLineParser(request.Script.ErrorPatterns);
+        return output.Subscribe(line =>
+        {
+            if (line.Stream == OutputStream.Stderr || line.Stream == OutputStream.Stdout && parser.Parse(line.Text).IsErrorMatch)
+                Write(line);
+        });
+    }
+
+    private void Report(CliRun run, RunSummary summary)
+    {
+        if (run.Command.Json)
+        {
+            lock (_out)
+                _out.WriteLine(RunResultJson.Serialize(summary));
+        }
+        else if (run.Command.ErrorsOnly)
+        {
+            lock (_out)
+                WriteSummary(summary);
+        }
+    }
+
+    private void WriteSummary(RunSummary summary)
+    {
+        var queued = summary.QueuedMs >= 100 ? $", queued {Seconds(summary.QueuedMs)}" : "";
+        _out.WriteLine($"{summary.Name}: {OutcomeText(summary)} after {Seconds(summary.DurationMs)}{queued}");
+        foreach (var step in summary.Steps.Where(s => !s.Succeeded))
+            _out.WriteLine($"  {step.Id ?? step.Name}: {OutcomeText(step)}");
+        if (summary.Tests is { } tests)
+        {
+            _out.WriteLine($"tests: {tests.Passed} passed, {tests.Failed} failed, {tests.Skipped} skipped");
+            foreach (var name in tests.FailedNames)
+                _out.WriteLine($"  failed: {name}");
+        }
+        _out.WriteLine($"log: {summary.LogPath}");
+    }
+
+    private static string OutcomeText(RunSummary summary) => summary switch
+    {
+        { Succeeded: true } => "succeeded",
+        { Outcome: RunOutcome.Exited } => $"failed with exit code {summary.ExitCode}",
+        { Outcome: RunOutcome.TimedOut } => "timed out",
+        { Outcome: RunOutcome.FailedToStart } => "failed to start",
+        _ => "stopped",
+    };
+
+    private static string Seconds(long milliseconds) =>
+        (milliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + "s";
+
+    private Action WaitingReporter(Func<string?> waitingFor)
+    {
+        string? reported = null;
+        return () =>
+        {
+            lock (_error)
+            {
+                if (waitingFor() is not { } lockName || lockName == reported)
+                    return;
+                reported = lockName;
+                _error.WriteLine($"waiting for lock {lockName}");
+            }
+        };
     }
 
     private void Write(OutputLine line)
@@ -179,11 +357,15 @@ public sealed class CliRunner
     private static int ExitCodeOf(RunResult result) =>
         result.Outcome == RunOutcome.Exited ? result.ExitCode : result.ExitCode != 0 ? result.ExitCode : Failure;
 
-    private sealed record Entry(string Reference, string Name, ScriptTree Tree, RunnableNode Definition, string Key)
+    private sealed record CliRun(CliCommand Command, string Trigger, HistoryStore Store, Entry Target);
+
+    internal sealed record Entry(string Reference, string Name, ScriptTree Tree, RunnableNode Definition, string Key)
     {
         public IReadOnlyDictionary<string, JsonNode?>? Values { get; init; }
         public IReadOnlyDictionary<string, Dictionary<string, JsonNode?>>? StepValues { get; init; }
         public string? ExtraArguments { get; init; }
+        public string? Folder { get; init; }
+        public string? Description { get; init; }
     }
 
     /// <summary>An id or reference, where the workspace's own id wins over a My Scripts one; else a unique name.</summary>
@@ -216,10 +398,16 @@ public sealed class CliRunner
                             Values = resolved.Values,
                             StepValues = resolved.StepValues,
                             ExtraArguments = resolved.ExtraArgs,
+                            Folder = tree.FolderOf(entry),
+                            Description = entry.Description ?? definition.Description,
                         };
                     continue;
                 }
-                yield return new Entry(tree.Kind == TreeKind.Workspace ? id : reference, ScriptTree.DisplayName(node), tree, runnable, key);
+                yield return new Entry(tree.Kind == TreeKind.Workspace ? id : reference, ScriptTree.DisplayName(node), tree, runnable, key)
+                {
+                    Folder = tree.FolderOf(runnable),
+                    Description = runnable.Description,
+                };
             }
         }
     }

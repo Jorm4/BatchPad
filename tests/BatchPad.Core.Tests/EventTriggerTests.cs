@@ -86,6 +86,29 @@ public sealed class EventTriggerTests
     }
 
     [TestMethod]
+    public void AfterRunFiresAreRecordedAsAfterRunAndTheLoopGuardStillStopsThem()
+    {
+        using var h = new Harness("""
+            { "id": "then-flow", "target": "workspace:flow", "trigger": { "afterRun": "workspace:build", "result": "always" } },
+            { "id": "then-build", "target": "workspace:build", "trigger": { "afterRun": "workspace:flow" } }
+            """);
+        using var triggers = EventTriggers.Register(h.Scheduler, h.Workspace, null);
+        h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
+
+        RecordBuild(h, exitCode: 0);
+        h.Launcher.Runs.Single().Run.Complete(0);
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.Launcher.Runs.Count == 2, Limit));
+        h.Launcher.Runs[1].Run.Complete(0);
+
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.Failures.Count == 1, Limit));
+        StringAssert.StartsWith(h.Failures[0].Message, "Stopped an afterRun loop");
+        Assert.HasCount(2, h.Launcher.Runs);
+        var recorded = h.History.Recent().Select(r => r.Trigger).ToList();
+        CollectionAssert.Contains(recorded, RunTriggers.AfterRunOf("sched:then-flow"));
+        CollectionAssert.Contains(recorded, RunTriggers.AfterRunOf("sched:then-build"));
+    }
+
+    [TestMethod]
     public void AScheduledWorkflowsStepRecordContinuesItsCascadeUntilTheWorkflowIsRecorded()
     {
         using var h = new Harness("""{ "id": "then-flow", "target": "workspace:flow", "trigger": { "afterRun": "workspace:build" } }""");
@@ -93,7 +116,7 @@ public sealed class EventTriggerTests
         h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
 
         RecordBuild(h, exitCode: 0);
-        RecordBuild(h, exitCode: 0, RunTriggers.Schedule("sched:then-flow"));
+        RecordBuild(h, exitCode: 0, RunTriggers.AfterRunOf("sched:then-flow"));
 
         Assert.HasCount(1, h.Launcher.Runs);
         Assert.AreEqual("Stopped an afterRun loop: then-flow → then-flow.", h.Failures.Single().Message);

@@ -8,6 +8,8 @@
                     { "value": "1", "label": "Fast" }, { "value": "2", "label": "Fast" } ] } ] },
     { "id": "deploy", "name": "Deploy", "path": "../run/exit3.bat", "confirm": "Deploy to production?" },
     { "id": "flow", "name": "Flow", "steps": [ { "id": "drei-✓", "run": "exit-three" } ] },
-    { "id": "greeting", "name": "Grüße ✓", "path": "../run/exit3.bat" }
+    { "id": "greeting", "name": "Grüße ✓", "path": "../run/exit3.bat" },
+    { "id": "build", "name": "Build", "path": "build.bat", "errorPatterns": [ "error CS\\d+" ] },
+    { "id": "locked", "name": "Locked", "path": "../run/exit3.bat", "lock": "cli-fixture-lock" }
   ]
 }

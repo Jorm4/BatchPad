@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
 using BatchPad.Core.History;
 using BatchPad.Core.Running;
+using BatchPad.Core.Telemetry;
 using BatchPad.Core.Workflows;
 using BatchPad.Core.Workspace;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -32,6 +33,7 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
     private const int Shown = 200;
 
     private readonly TimeProvider _time = main.Time;
+    private TelemetrySubscription? _telemetry;
 
     public HistoryStore? Store { get; private set; }
     public ObservableCollection<HistoryEntryViewModel> Runs { get; } = [];
@@ -54,6 +56,8 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
             Store.RunRecorded -= OnRecorded;
         Store = store;
         store.RunRecorded += OnRecorded;
+        _telemetry?.Dispose();
+        _telemetry = main.Telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
         Runs.Clear();
         foreach (var record in store.Recent(Shown))
             Runs.Add(new HistoryEntryViewModel(record, this));

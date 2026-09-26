@@ -16,7 +16,8 @@ and plain executables are all first-class.
 > little support: issues and pull requests are welcome but may get a slow
 > answer or none. If you need something changed, forking is encouraged.
 >
-> **Status:** the MVP and v1 features are built. See
+> **Status:** the MVP, v1, and telemetry and coding-agent features are
+> built. See
 > [docs/DESIGN.md](docs/DESIGN.md) for the design and the roadmap.
 
 ## Features
@@ -54,7 +55,14 @@ and plain executables are all first-class.
   `file:line` locations, search, F8 to the next error, and a test-results view
   for scripts that write JUnit XML.
 - **Safe to run together.** Named locks queue runs that must not overlap,
-  and `dependsOn` runs a script's prerequisites first.
+  across the app, the command line and agents, and `dependsOn` runs a
+  script's prerequisites first.
+- **Insights.** See where the time goes: per-script medians, trends and
+  failure rates, time by folder, tag and trigger, repeated runs, and slow or
+  flaky tests. Optionally forward every run to a monitoring backend.
+- **Built for coding agents.** JSON output, errors-only output, run
+  attribution and an MCP server let agents such as Claude Code build and
+  test through the same named scripts you use.
 - **Long-running processes.** Servers and watchers show a running indicator,
   open their URL when ready, and stop from the app, through a matching stop
   script or by ending the whole process tree.
@@ -100,10 +108,28 @@ otherwise Windows PowerShell.
   names. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
   so that cmd waits for the run. Runs from the command line show in the
   app's history too.
+- For coding agents and scripts:
+  - `batchpad list --json` describes every entry with its folder, description
+    and parameters (types, choices, defaults).
+  - `batchpad run <id> --json` prints nothing while it runs, then one JSON
+    object: run id, outcome, exit code, duration, time queued for locks, log
+    path, test summary, and error lines with their file and line.
+  - `--errors-only` prints only stderr and error-pattern lines, then a short
+    summary with the log path.
+  - `--no-wait` fails at once instead of queueing when a lock is held.
+  - `--agent <name>` records the run as `agent:<name>`. Runs started from
+    Claude Code are recognised by its `CLAUDECODE=1` variable.
+  - `batchpad log <run-id> [--tail N] [--errors]` prints a recorded run's log.
+  - `batchpad stats [--since 1d|7d|30d] [--json]` summarises where the time
+    went.
+  - `batchpad mcp [--workspace <path>]` serves the same over the Model
+    Context Protocol (below).
 - **Schedules** (toolbar, or "Schedules" in the Ctrl+K palette) lists every
   schedule with its next and last run. Add one by picking a script or
   workflow, a trigger and its values; it is stored in your own `user.json`,
   never in the shared `batchpad.json`. Schedules run while BatchPad is open.
+- **Insights** and **Settings** (toolbar, or the palette) show the run
+  figures and the telemetry settings.
 - To adopt a project, use **New workspace** (the button next to the workspace
   list): pick the project folder, tick the scripts to show, name it and trust
   it. BatchPad writes `batchpad.json` at the project root; commit it to share
@@ -120,6 +146,80 @@ next to the exe to keep them in a `data` folder beside it instead.
 
 To try it without a project of your own, open the demo workspace:
 `BatchPad.exe samples\demo` (or `dotnet run` it, below).
+
+### Coding agents
+
+`batchpad mcp` runs an MCP server over stdio with four tools: `list_scripts`,
+`run_script` (id, values, `errorsOnly`; returns the same result object as
+`run --json`), `get_log` (tail, errors only or a line range) and `get_stats`.
+Runs are recorded as `agent:<client name>`, for example `agent:claude-code`.
+Register it with Claude Code:
+
+```
+claude mcp add batchpad -- C:\Tools\BatchPad\batchpad.com mcp --workspace C:\src\my-project
+```
+
+The workspace must be trusted in the app first. To let agents run only some
+entries, list their ids in your `settings.json` (never in a workspace file):
+
+```json
+{ "mcp": { "allowIds": ["build", "test"] } }
+```
+
+To steer an agent to BatchPad, paste this into the project's `CLAUDE.md`:
+
+```markdown
+## Building and testing
+Build and test through BatchPad, not by calling the tools directly:
+- `batchpad list --json` lists what can be run, with parameters.
+- `batchpad run <id> --errors-only` runs one; it prints only the errors and
+  a summary with the log path. `batchpad log <run-id> --tail 50` shows more.
+- With the batchpad MCP server, use `run_script` and `get_log` instead.
+```
+
+### Run telemetry
+
+Every run is recorded with its duration, time spent waiting for a lock,
+trigger (you, `cli`, a schedule or `agent:<name>`), outcome, folder and
+tags, git branch and commit, and test counts. **Insights** and
+`batchpad stats` summarise this locally; nothing leaves the machine unless
+you add a sink.
+
+Sinks forward one event per run to a file or a backend. They are set up on
+the **Settings** page, or in your `settings.json` (never in a workspace
+file, so a cloned repository can't send data anywhere). Credentials are
+`${env:NAME}` references, resolved only when sending:
+
+```jsonc
+"telemetry": {
+  "machine": true, "user": false, "includeValues": false, "hashNames": false,
+  "sinks": [
+    { "type": "jsonl", "path": "%LOCALAPPDATA%\\BatchPad\\telemetry\\runs.jsonl" },
+    { "type": "otlp", "endpoint": "https://otel.example.com:4318",
+      "headers": { "Authorization": "Bearer ${env:OTEL_TOKEN}" } },
+    { "type": "elastic", "url": "https://es.example.com:9200", "index": "batchpad-runs",
+      "apiKey": "${env:ES_API_KEY}" },
+    { "type": "influx", "url": "https://influx.example.com:8086", "org": "dev",
+      "bucket": "batchpad", "token": "${env:INFLUX_TOKEN}" }
+  ]
+}
+```
+
+- `jsonl` appends one event per line (rotated at 50 MB by default), for
+  Filebeat, Vector, Fluent Bit or Telegraf to pick up.
+- `otlp` sends OpenTelemetry traces over OTLP/HTTP JSON: a run is a span,
+  and a workflow's steps are its child spans. An OTel Collector can forward
+  them to most backends.
+- `elastic` posts to Elasticsearch's `_bulk` API, `influx` writes InfluxDB v2
+  line protocol, and `http` POSTs a JSON array of events to any URL.
+
+By default events carry the machine name but not the user name or parameter
+values, and names are sent as is; the switches above change that. Secret
+values are never sent. Events wait in an outbox under
+`%LOCALAPPDATA%\BatchPad\telemetry\outbox` (capped at 20 MB) and a
+background sender delivers them, so a slow or unreachable backend never
+delays a run. The Settings page shows each sink's last success, last error
+and pending count, and can send a test event.
 
 ## Under the hood
 

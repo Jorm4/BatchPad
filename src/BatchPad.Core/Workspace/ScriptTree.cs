@@ -79,6 +79,29 @@ public sealed class ScriptTree(TreeKind kind, string filePath, WorkspaceFile fil
         }
     }
 
+    /// <summary>The folders the tree shows <paramref name="node"/> in, joined by <c>/</c>; null at the top level or when it isn't shown.</summary>
+    public string? FolderOf(RunnableNode node)
+    {
+        var key = node is ScriptNode { Path: { } path } && !path.Contains("${")
+            ? ScriptFolderScanner.RelativeKey(BaseDirectory, Path.GetFullPath(Path.Combine(BaseDirectory, path)))
+            : null;
+        return Find(Items, null);
+
+        string? Find(IReadOnlyList<TreeItem> items, string? folder)
+        {
+            foreach (var item in items)
+            {
+                if (ReferenceEquals(item.Node, node)
+                    || node.Id is { } id && item.Node is RunnableNode { Id: var itemId } && itemId == id
+                    || key is not null && string.Equals(item.ScriptPath, key, StringComparison.OrdinalIgnoreCase))
+                    return folder;
+                if (item.Node is FolderNode && Find(item.Children, folder is null ? item.Name : $"{folder}/{item.Name}") is { } found)
+                    return found;
+            }
+            return null;
+        }
+    }
+
     public static string DisplayName(TreeNode node) => node switch
     {
         FolderNode f => f.Folder ?? "",

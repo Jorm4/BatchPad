@@ -33,6 +33,7 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
     private readonly TimeProvider _time;
     private readonly CancellationTokenSource _stopRequested = new();
     private LockLease? _locks;
+    private readonly long _createdTimestamp;
     private long _startTimestamp;
     private RunOutcome? _stopOutcome;
     private bool _outputEnded;
@@ -41,11 +42,17 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
     {
         Specs = specs;
         _time = time;
+        _createdTimestamp = time.GetTimestamp();
     }
 
     public IReadOnlyList<RunSpec> Specs { get; }
     public Task<RunResult> Completion => _completion.Task;
     public DateTimeOffset StartedAt { get; private set; }
+
+    RunHandle IRunOutput.Handle => this;
+
+    /// <summary>How long the run waited for its locks before it started.</summary>
+    public TimeSpan Queued { get; private set; }
 
     /// <summary>The lock this run is queued behind; null once it has started.</summary>
     public string? WaitingForLock { get; private set; }
@@ -181,6 +188,7 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
             WaitingForLock = null;
             StartedAt = _time.GetLocalNow();
             _startTimestamp = _time.GetTimestamp();
+            Queued = _time.GetElapsedTime(_createdTimestamp, _startTimestamp);
             try
             {
                 _processes.Add(ProcessRunner.Launch(Specs[0], Publish));
