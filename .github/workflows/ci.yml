@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: dotnet build -c Release
+      # UI tests drive a real window and need an interactive desktop.
+      - run: dotnet test -c Release --no-build --filter "TestCategory!=UI"
+      - name: Package
+        shell: cmd
+        run: tools\publish.bat
+      - name: Smoke-test the packaged exe
+        shell: pwsh
+        run: |
+          # BatchPad.exe is a GUI app, so wait for it explicitly rather than relying on the shell.
+          $p = Start-Process dist\BatchPad.exe -ArgumentList --version -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
+          $version = Get-Content version.txt -Raw
+          Write-Output $version
+          if ($p.ExitCode -ne 0 -or $version -notmatch '^BatchPad \S') { throw "BatchPad.exe --version failed (exit $($p.ExitCode))" }
+      - name: Upload BatchPad.exe
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BatchPad-win-x64
+          path: dist/BatchPad.exe
+          retention-days: 14

@@ -1,0 +1,75 @@
+<UserControl x:Class="BatchPad.App.Views.Wizard.NewWorkspaceWizard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:BatchPad.App.Views">
+    <DockPanel MaxWidth="720" HorizontalAlignment="Left">
+        <TextBlock DockPanel.Dock="Top" Text="New workspace" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12" />
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <TextBlock Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap" AutomationProperties.AutomationId="WizardError" />
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <Button Content="Back" Command="{Binding BackCommand}" MinWidth="80" AutomationProperties.AutomationId="WizardBackButton" />
+                <Button Content="Next" Command="{Binding NextCommand}" MinWidth="80" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
+                        Visibility="{Binding IsFinishPage, Converter={StaticResource InverseBoolToVisibility}}"
+                        AutomationProperties.AutomationId="WizardNextButton" />
+                <Button Content="Create" Command="{Binding FinishCommand}" MinWidth="80" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
+                        Visibility="{Binding IsFinishPage, Converter={StaticResource BoolToVisibility}}"
+                        AutomationProperties.AutomationId="WizardFinishButton" />
+                <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" AutomationProperties.AutomationId="WizardCancelButton" />
+            </StackPanel>
+        </StackPanel>
+
+        <Grid>
+            <StackPanel Visibility="{Binding IsFolderPage, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="Project folder" />
+                <DockPanel Margin="0,4,0,10">
+                    <Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseCommand}" Margin="6,0,0,0"
+                            AutomationProperties.AutomationId="WizardBrowse" />
+                    <TextBox Text="{Binding Folder, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.AutomationId="WizardFolder" AutomationProperties.Name="Project folder" />
+                </DockPanel>
+                <TextBlock Opacity="0.7" TextWrapping="Wrap"
+                           Text="BatchPad looks for .bat files in the folder itself and for scripts in tools, scripts and .batchpad/scripts." />
+            </StackPanel>
+
+            <DockPanel Visibility="{Binding IsScriptsPage, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock DockPanel.Dock="Top" Text="Scripts to show" Margin="0,0,0,6" FontWeight="SemiBold" />
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <views:FlatItemsControl ItemsSource="{Binding Groups}" AutomationProperties.AutomationId="WizardScripts">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,10">
+                                    <TextBlock Text="{Binding Title}" Opacity="0.7" FontWeight="SemiBold" />
+                                    <views:FlatItemsControl ItemsSource="{Binding Scripts}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox IsChecked="{Binding IsChecked}" Margin="0,4,0,0"
+                                                          AutomationProperties.AutomationId="{Binding AutomationId}" AutomationProperties.Name="{Binding Name}">
+                                                    <StackPanel>
+                                                        <TextBlock>
+                                                            <Run Text="{Binding Name, Mode=OneWay}" />
+                                                            <Run Text="{Binding RelativePath, Mode=OneWay}" Foreground="Gray" />
+                                                        </TextBlock>
+                                                        <TextBlock Text="{Binding Description}" Opacity="0.7" TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </CheckBox>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </views:FlatItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </views:FlatItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+
+            <StackPanel Visibility="{Binding IsFinishPage, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="Name" />
+                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10"
+                         AutomationProperties.AutomationId="WizardName" AutomationProperties.Name="Name" />
+                <CheckBox IsChecked="{Binding TrustFolder}" Content="Trust this folder, so its scripts can run"
+                          AutomationProperties.AutomationId="WizardTrust" />
+                <TextBlock Text="{Binding WorkspaceFile, StringFormat=Writes {0}}" Opacity="0.7" Margin="0,10,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

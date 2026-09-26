@@ -1,0 +1,83 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.ChoicesTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Editor"
+             xmlns:views="clr-namespace:BatchPad.App.Views"
+             x:Name="Root">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,10,0,0">
+            <TextBlock Text="Fixed choices" FontWeight="SemiBold" />
+            <views:FlatItemsControl ItemsSource="{Binding Rows}" AutomationProperties.AutomationId="ChoiceRows">
+                <views:FlatItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:ChoiceRowViewModel}">
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBox Text="{Binding Label, UpdateSourceTrigger=PropertyChanged}" Width="140" ToolTip="Label"
+                                     AutomationProperties.AutomationId="ChoiceLabel" AutomationProperties.Name="Label" />
+                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="4,0,0,0"
+                                     FontFamily="{StaticResource MonoFont}" ToolTip="Value passed"
+                                     AutomationProperties.AutomationId="ChoiceValue" AutomationProperties.Name="Value" />
+                            <views:FlatItemsControl ItemsSource="{Binding Fields}">
+                                <views:FlatItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </views:FlatItemsControl.ItemsPanel>
+                                <views:FlatItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ChoiceFieldCell}">
+                                        <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="4,0,0,0"
+                                                 ToolTip="{Binding Name}" AutomationProperties.AutomationId="{Binding Name, StringFormat=ChoiceField_{0}}"
+                                                 AutomationProperties.Name="{Binding Name}" />
+                                    </DataTemplate>
+                                </views:FlatItemsControl.ItemTemplate>
+                            </views:FlatItemsControl>
+                            <CheckBox Content="Split" IsChecked="{Binding Split}" Margin="6,0,0,0" VerticalAlignment="Center"
+                                      ToolTip="Pass the value as several arguments, for example --release --asan"
+                                      AutomationProperties.AutomationId="ChoiceSplit" />
+                            <Button Content="✕" Margin="4,0,0,0" ToolTip="Remove"
+                                    Command="{Binding DataContext.RemoveRowCommand, ElementName=Root}" CommandParameter="{Binding}"
+                                    AutomationProperties.AutomationId="RemoveChoiceRow" AutomationProperties.Name="Remove choice" />
+                        </StackPanel>
+                    </DataTemplate>
+                </views:FlatItemsControl.ItemTemplate>
+            </views:FlatItemsControl>
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <Button Content="+ Row" Command="{Binding AddRowCommand}" AutomationProperties.AutomationId="AddChoiceRow" />
+                <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="12,0,0,0"
+                         ToolTip="Extra field name, e.g. dir" AutomationProperties.AutomationId="NewFieldName"
+                         AutomationProperties.Name="New field name" />
+                <Button Content="+ Field" Command="{Binding AddFieldCommand}" Margin="4,0,0,0"
+                        AutomationProperties.AutomationId="AddChoiceField" />
+            </StackPanel>
+
+            <TextBlock Text="Sources" FontWeight="SemiBold" Margin="0,14,0,0" />
+            <views:FlatItemsControl ItemsSource="{Binding Sources}" AutomationProperties.AutomationId="ChoiceSources">
+                <views:FlatItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:ChoiceSourceRowViewModel}">
+                        <DockPanel Margin="0,4,0,0">
+                            <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}" Margin="4,0,0,0"
+                                    AutomationProperties.AutomationId="RemoveChoiceSource" />
+                            <Button DockPanel.Dock="Right" Content="Edit…" Command="{Binding EditCommand}" Margin="8,0,0,0"
+                                    AutomationProperties.AutomationId="EditChoiceSource" />
+                            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        </DockPanel>
+                    </DataTemplate>
+                </views:FlatItemsControl.ItemTemplate>
+            </views:FlatItemsControl>
+            <Button Content="+ Source…" Command="{Binding AddSourceCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"
+                    AutomationProperties.AutomationId="AddChoiceSource" />
+            <CheckBox Content="Pass values lowercased (labels stay as found)" IsChecked="{Binding LowercaseValues}" Margin="0,10,0,0"
+                      AutomationProperties.AutomationId="ChoicesLowercase" />
+
+            <TextBlock Text="Choices" FontWeight="SemiBold" Margin="0,14,0,4" />
+            <ListView ItemsSource="{Binding Preview}" MaxHeight="200" AutomationProperties.AutomationId="ChoicesPreview">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Label" DisplayMemberBinding="{Binding Label}" Width="160" />
+                        <GridViewColumn Header="Value passed" DisplayMemberBinding="{Binding Value}" Width="160" />
+                    </GridView>
+                </ListView.View>
+            </ListView>
+            <TextBlock Text="{Binding Problems}" Foreground="#C42B1C" TextWrapping="Wrap" AutomationProperties.AutomationId="ChoicesProblems" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

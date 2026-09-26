@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+add_game_app(Asteroids src/asteroids)
+add_game_app(RobotManager src/robots)
+add_game_app(Tetris src/tetris)
+add_library(common STATIC src/common)

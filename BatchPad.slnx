@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BatchPad.App/BatchPad.App.csproj" />
+    <Project Path="src/BatchPad.Core/BatchPad.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BatchPad.App.Tests/BatchPad.App.Tests.csproj" />
+    <Project Path="tests/BatchPad.Core.Tests/BatchPad.Core.Tests.csproj" />
+    <Project Path="tests/BatchPad.UiTests/BatchPad.UiTests.csproj" />
+  </Folder>
+</Solution>

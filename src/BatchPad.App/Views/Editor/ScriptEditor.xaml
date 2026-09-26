@@ -1,0 +1,57 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.ScriptEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:editor="clr-namespace:BatchPad.App.Views.Editor">
+    <Grid>
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Margin="0,0,0,10" Padding="10,6" CornerRadius="4" Background="#FFF4CE"
+                Visibility="{Binding IsShared, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="{Binding SharedBannerText}" TextWrapping="Wrap" Foreground="#1C1C1C"
+                       AutomationProperties.AutomationId="SharedBanner" />
+        </Border>
+
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Test run" Command="{Binding TestRunCommand}" AutomationProperties.AutomationId="EditorTestRunButton" />
+                <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" AutomationProperties.AutomationId="EditorCancelButton" />
+                <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
+                        AutomationProperties.AutomationId="EditorSaveButton" />
+            </StackPanel>
+            <TextBlock Text="{Binding Title, StringFormat=Edit — {0}}" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="EditorTitle" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="EditorError" />
+
+        <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="10,6" CornerRadius="4" Background="#14000000">
+            <TextBox Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
+                     Background="Transparent" FontFamily="{StaticResource MonoFont}"
+                     AutomationProperties.AutomationId="EditorPreview" AutomationProperties.Name="Command preview" />
+        </Border>
+
+        <TabControl AutomationProperties.AutomationId="EditorTabs">
+            <TabItem Header="General" AutomationProperties.AutomationId="GeneralTab">
+                <editor:GeneralTab DataContext="{Binding General}" />
+            </TabItem>
+            <TabItem Header="Parameters" AutomationProperties.AutomationId="ParametersTab">
+                <editor:ParametersTab DataContext="{Binding Parameters}" />
+            </TabItem>
+            <TabItem Header="Choices" IsEnabled="{Binding Parameters.Selected.HasChoices, FallbackValue=False}"
+                     AutomationProperties.AutomationId="ChoicesTab">
+                <editor:ChoicesTab DataContext="{Binding Choices}" />
+            </TabItem>
+            <TabItem Header="Environment" IsEnabled="False" AutomationProperties.AutomationId="EnvironmentTab" />
+            <TabItem Header="After run" AutomationProperties.AutomationId="AfterRunTab">
+                <editor:AfterRunTab DataContext="{Binding AfterRun}" />
+            </TabItem>
+            <TabItem Header="Advanced" AutomationProperties.AutomationId="AdvancedTab">
+                <editor:AdvancedTab DataContext="{Binding Advanced}" />
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+    <Grid Background="#66000000"
+          Visibility="{Binding Choices.IsPickerOpen, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
+        <editor:ChoiceSourcePicker DataContext="{Binding Choices.Picker}" Margin="12" VerticalAlignment="Center" />
+    </Grid>
+    </Grid>
+</UserControl>

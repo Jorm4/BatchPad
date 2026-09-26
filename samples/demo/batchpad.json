@@ -1,0 +1,53 @@
+{
+  "id": "batchpad-demo",
+  "name": "Demo",
+  "scripts": [
+    {
+      "folder": "Hello",
+      "items": [
+        { "id": "hello-bat", "name": "hello.bat", "path": "hello.bat" },
+        { "id": "hello-py", "name": "hello.py", "path": "hello.py" },
+        { "id": "hello-cs", "name": "hello.cs", "path": "hello.cs" },
+        { "id": "hello-ps1", "name": "hello.ps1", "path": "hello.ps1" }
+      ]
+    },
+    {
+      "id": "params-demo", "name": "Parameters demo", "path": "params_demo.py",
+      "description": "One parameter of every type; prints the arguments it receives.",
+      "params": [
+        { "name": "config", "label": "Config", "type": "choice", "default": "", "choices": [
+            { "value": "", "label": "Debug" }, { "value": "--release", "label": "Release" }, { "value": "--final", "label": "Retail" } ] },
+        { "name": "game", "label": "Game", "type": "choice", "arg": "--game", "default": "Alpha",
+          "choices": ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"] },
+        { "name": "tests", "label": "Tests", "type": "multichoice", "arg": "--test", "repeatArg": true, "emptyMeans": "all",
+          "choices": ["Physics", "Audio", "Input", "Render", "Network"] },
+        { "name": "verbose", "label": "Verbose", "type": "flag", "arg": "--verbose" },
+        { "name": "port", "label": "Port", "type": "int", "arg": "--port", "default": 8123, "min": 1, "max": 65535 },
+        { "name": "targets", "label": "Targets", "type": "text", "split": true, "position": "end" },
+        { "name": "out", "label": "Output folder", "type": "path", "arg": "--out", "mode": "folder" }
+      ]
+    },
+    {
+      "folder": "Web",
+      "items": [
+        { "id": "serve", "name": "Serve demo", "path": "serve.py", "longRunning": true, "stop": "stop-serve",
+          "description": "A small web server that runs until stopped; opens the browser once it serves.",
+          "ready": { "pattern": "Serving on (http://\\S+)", "open": "$1" },
+          "params": [ { "name": "port", "label": "Port", "type": "int", "arg": "--port", "default": 8765, "min": 1, "max": 65535 } ] },
+        { "id": "stop-serve", "name": "Stop demo server", "path": "stop_serve.py",
+          "params": [ { "name": "port", "label": "Port", "type": "int", "arg": "--port", "default": 8765, "min": 1, "max": 65535 } ] }
+      ]
+    },
+    {
+      "id": "build-and-run", "name": "Build & run",
+      "description": "Builds with hello.bat, then runs the Parameters demo for the chosen game.",
+      "params": [
+        { "name": "game", "label": "Game", "type": "choice", "default": "Alpha", "choices": ["Alpha", "Beta", "Gamma"] }
+      ],
+      "steps": [
+        { "id": "build", "run": "hello-bat" },
+        { "id": "run", "run": "params-demo" }
+      ]
+    }
+  ]
+}

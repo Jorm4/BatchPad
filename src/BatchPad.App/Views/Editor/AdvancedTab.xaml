@@ -1,0 +1,27 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.AdvancedTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="0,10,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Text="Fixed arguments" Margin="0,6,16,8" />
+        <TextBox Grid.Column="1" Text="{Binding FixedArgs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                 FontFamily="{StaticResource MonoFont}" ToolTip="Passed before the parameters' arguments on every run"
+                 AutomationProperties.AutomationId="FixedArgs" AutomationProperties.Name="Fixed arguments" />
+        <TextBlock Grid.Row="1" Text="Name template" Margin="0,6,16,8" />
+        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding NameTemplate, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                 ToolTip="Names My Scripts entries from their values, for example Build ${param:config.label} &amp; run ${param:app}"
+                 AutomationProperties.AutomationId="NameTemplate" AutomationProperties.Name="Name template" />
+        <TextBlock Grid.Row="2" Text="Id" Margin="0,6,16,8" />
+        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Id, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                 FontFamily="{StaticResource MonoFont}" ToolTip="What workflow steps and stop companions refer to this script by"
+                 AutomationProperties.AutomationId="EditorId" AutomationProperties.Name="Id" />
+    </Grid>
+</UserControl>

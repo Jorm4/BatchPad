@@ -1,0 +1,113 @@
+{
+  "id": "adoption-fixture",
+  "name": "Game Studio",
+  "scriptFolders": [
+    { "path": ".", "include": ["*.bat"], "recurse": false },
+    { "path": "tools", "include": ["*.py", "*.bat", "*.ps1"], "exclude": ["test_*", "*_lib.py"] }
+  ],
+  "sharedParams": {
+    "config": { "type": "choice", "default": "--release", "choices": [
+      { "value": "",                    "label": "Debug",        "dir": "debug",        "testFlag": "" },
+      { "value": "--release",           "label": "Release",      "dir": "release",      "testFlag": "--release" },
+      { "value": "--final",             "label": "Retail",       "dir": "retail",       "testFlag": "" },
+      { "value": "--asan",              "label": "Debug ASan",   "dir": "debugasan",    "testFlag": "--asan" },
+      { "value": "--release --asan",    "label": "Release ASan", "dir": "releaseasan",  "testFlag": "--release --asan", "split": true } ] },
+    "app":    { "type": "choice", "choicesFrom": { "file": "build.bat", "regex": "set \"GAMES=([^\"]*)\"", "split": " " } },
+    "webApp": { "type": "choice", "choicesFrom": { "file": "CMakeLists.txt", "regex": "add_game_app\\((\\w+)", "all": true } },
+    // --game takes the exe name: the GAMES entry lowercased (robotmanager, not the src/robots folder)
+    "game":   { "type": "multichoice", "emptyMeans": "all",
+                "choicesFrom": { "file": "build.bat", "regex": "set \"GAMES=([^\"]*)\"", "split": " ", "valueTransform": "lower" } },
+    "window": { "type": "choice", "choices": [
+      { "value": "", "label": "Headless" }, { "value": "--show-windows", "label": "Visible" } ] }
+  },
+  "scripts": [
+    { "folder": "Build", "items": [
+      { "id": "generate", "path": "generate.bat" },
+      { "id": "build", "name": "Build", "path": "build.bat", "lock": "native-build",
+        "params": [ { "use": "config", "split": true },
+                    { "use": "app", "name": "apps", "type": "multichoice", "emptyMeans": "all", "maxPerCall": 9 } ] }
+    ]},
+    { "folder": "Run", "items": [
+      { "id": "run-app", "name": "Run app", "runner": "exe", "longRunning": true,
+        "path": "build/${param:config.dir}/bin/${param:app|lower}.exe",
+        "params": [ { "use": "config", "emit": false }, { "use": "app", "emit": false } ] },
+      { "id": "build-run", "name": "Build & run",
+        "nameTemplate": "Build ${param:config.label} & run ${param:app}",
+        "params": [ { "use": "config" }, { "use": "app" } ],
+        "steps": [ { "id": "build", "run": "workspace:build", "values": { "apps": ["${param:app}"] } },
+                   { "id": "run",   "run": "workspace:run-app" } ] }
+    ]},
+    { "folder": "Web", "items": [
+      { "id": "build-web", "name": "Build web", "path": "build_web.bat", "params": [ { "use": "webApp" } ] },
+      { "id": "serve", "name": "Serve web build", "path": "serve_web.bat", "longRunning": true, "stop": "stop-web",
+        "params": [ { "name": "port", "type": "int", "default": 8123 },
+                    { "use": "webApp", "emit": false } ],
+        "ready": { "pattern": "Press Ctrl\\+C to stop", "open": "http://localhost:${param:port}/${param:webApp}.html" } },
+      { "id": "stop-web", "name": "Stop web server", "path": "stop_web.bat",
+        "params": [ { "name": "port", "type": "int", "default": 8123 } ] },
+      { "id": "web-local", "name": "Build web & serve locally",
+        "params": [ { "use": "webApp" } ],
+        "steps": [ { "id": "build", "run": "workspace:build-web" }, { "id": "serve", "run": "workspace:serve" } ] },
+      { "id": "package-web", "name": "Package for web deploy", "path": "package_web.bat",
+        "params": [ { "use": "webApp" } ],
+        "artifacts": [ { "path": "build/package_web/${param:webApp}", "open": "onSuccess" } ] }
+    ]},
+    { "folder": "Test", "items": [
+      { "id": "unit-tests", "name": "Build & run unit tests",
+        "params": [ { "use": "config" },
+                    { "name": "suites", "type": "multichoice", "emptyMeans": "all",
+                      "choicesFrom": { "file": "build.bat", "regex": "set \"TESTS=([^\"]*)\"", "split": " " } } ],
+        "steps": [ { "id": "build", "run": "workspace:build",
+                     "values": { "apps": "${param:suites}" }, "emptyArgs": ["--tests"] },
+                   { "id": "run", "run": "workspace:run-tests",
+                     "values": { "match": "${param:suites}", "cfg": "${param:config.testFlag}" } } ] },
+      { "id": "run-tests", "name": "Run unit tests", "path": "tools/run_tests.py",
+        "params": [ { "name": "match", "type": "multichoice", "emptyMeans": "all" },
+                    { "name": "cfg", "type": "text", "split": true },
+                    { "name": "gated", "type": "flag", "arg": "--gated" } ] },
+      { "id": "benches", "name": "Build & run benchmarks",
+        "params": [ { "name": "benches", "type": "multichoice", "emptyMeans": "all",
+                      "choicesFrom": { "file": "build.bat", "regex": "set \"BENCH=([^\"]*)\"", "split": " " } },
+                    { "name": "tier", "type": "choice", "choices": [
+                      { "value": "^Smoke", "label": "Smoke" }, { "value": "^Deep", "label": "Deep" },
+                      { "value": "", "label": "All" } ] } ],
+        "steps": [ { "id": "build", "run": "workspace:build",
+                     "values": { "config": "--release", "apps": "${param:benches}" }, "emptyArgs": ["--bench"] },
+                   { "id": "each", "forEach": "${param:benches}", "run": "workspace:run-bench",
+                     "values": { "bench": "${item}" } } ] },
+      { "id": "run-bench", "name": "Run one benchmark", "runner": "exe",
+        "path": "build/release/benchmarks/${param:bench|lower}.exe",
+        "params": [ { "name": "bench", "type": "text", "emit": false },
+                    { "name": "tier", "type": "text", "arg": "--benchmark_filter=" } ] },
+      { "id": "scenarios-run", "name": "Run gameplay scenarios", "runner": "python", "module": "pytest",
+        "workingDir": "tools/qa",
+        "args": ["--junitxml=${workspaceDir}/build/qa/scenarios.xml"],
+        "testReport": "build/qa/scenarios.xml",
+        "params": [ { "name": "files", "type": "multichoice", "emptyMeans": "all", "emptyArgs": ["scenarios"],
+                      "choicesFrom": { "glob": "tools/qa/scenarios/test_*.py",
+                                       "relativeTo": "tools/qa" } },
+                    { "use": "app", "name": "game", "arg": "--game", "valueTransform": "lower" },
+                    { "use": "window" }, { "name": "sound", "type": "flag", "arg": "--with-sound" } ] },
+      // the scenario fixture drives the ASan build by default
+      { "id": "scenarios", "name": "Gameplay scenarios",
+        "params": [ { "use": "app", "name": "game", "valueTransform": "lower" }, { "use": "window" } ],
+        "steps": [ { "id": "build", "run": "workspace:build", "values": { "config": "--asan", "apps": ["${param:game}"] } },
+                   { "id": "run", "run": "workspace:scenarios-run" } ] },
+      { "id": "qa-game", "name": "QA crawl one game", "runner": "python", "module": "pytest",
+        "workingDir": "tools/qa", "args": ["scenarios/test_crawl.py"],
+        "params": [ { "name": "game", "type": "text", "arg": "--game" }, { "use": "window" } ] },
+      { "id": "qa-report", "name": "QA report", "path": "tools/qa/report.py",
+        "artifacts": [ { "path": "qa_report.html", "open": "onSuccess" } ] },
+      { "id": "qa-sweep", "name": "QA crawl & use cases",
+        "params": [ { "use": "game" }, { "use": "window" } ],
+        "steps": [ { "id": "build", "run": "workspace:build", "values": { "config": "--asan", "apps": "${param:game}" },
+                     "emptyArgs": ["--games"] },
+                   { "id": "crawl", "forEach": "${param:game}", "run": "workspace:qa-game", "values": { "game": "${item}" } },
+                   { "id": "report", "run": "workspace:qa-report", "when": "always" } ] }
+    ]},
+    { "folder": "Reports", "items": [
+      { "id": "qa-report-2", "name": "QA report", "url": "qa_report.html" },
+      { "id": "local-web-build", "name": "Local web build", "url": "http://localhost:8123/" }
+    ]}
+  ]
+}

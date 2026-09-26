@@ -1,0 +1,128 @@
+<UserControl x:Class="BatchPad.App.Views.DetailsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:BatchPad.App.Views"
+             xmlns:editor="clr-namespace:BatchPad.App.Views.Editor"
+             xmlns:workflows="clr-namespace:BatchPad.App.Views.Workflows">
+    <Grid>
+    <editor:ScriptEditor DataContext="{Binding Editor}"
+                         Visibility="{Binding DataContext.Editor, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource NullToCollapsed}}" />
+    <workflows:WorkflowEditor DataContext="{Binding WorkflowEditor}"
+                              Visibility="{Binding DataContext.WorkflowEditor, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource NullToCollapsed}}" />
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ScrollViewer.Style>
+            <Style TargetType="ScrollViewer">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </ScrollViewer.Style>
+        <StackPanel>
+            <StackPanel DataContext="{Binding Node}">
+                <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"
+                           AutomationProperties.AutomationId="DetailsName" />
+                <TextBlock Text="{Binding Location}" Opacity="0.7" Margin="0,2,0,0"
+                           AutomationProperties.AutomationId="DetailsLocation" />
+                <TextBlock Text="{Binding FilePath}" Opacity="0.7" FontFamily="{StaticResource MonoFont}"
+                           AutomationProperties.AutomationId="DetailsFile" />
+                <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,8,0,0"
+                           AutomationProperties.AutomationId="DetailsDescription" />
+            </StackPanel>
+            <TextBlock Text="{Binding CustomisesText}" Opacity="0.7" Margin="0,4,0,0"
+                       Visibility="{Binding CustomisesText, Converter={StaticResource NullToCollapsed}}"
+                       AutomationProperties.AutomationId="DetailsCustomises" />
+            <Border Margin="0,12,0,0" Padding="12" CornerRadius="6" Background="#FFF4CE"
+                    Visibility="{Binding Node.IsBroken, Converter={StaticResource BoolToVisibility}}"
+                    AutomationProperties.AutomationId="BrokenBanner">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Change base…" Command="{Binding OpenChangeBaseCommand}"
+                            AutomationProperties.AutomationId="ChangeBaseButton" />
+                    <TextBlock Text="{Binding Node.Customisation.Problem}" TextWrapping="Wrap" Foreground="#1C1C1C" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+            <DockPanel Margin="0,8,0,0" DataContext="{Binding ChangeBase}"
+                       Visibility="{Binding DataContext.ChangeBase, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource NullToCollapsed}}">
+                <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0"
+                        AutomationProperties.AutomationId="ChangeBaseCancel" />
+                <Button DockPanel.Dock="Right" Content="Apply" Command="{Binding ApplyCommand}" Margin="6,0,0,0"
+                        Style="{DynamicResource AccentButtonStyle}" AutomationProperties.AutomationId="ChangeBaseApply" />
+                <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected}" DisplayMemberPath="Label"
+                          AutomationProperties.AutomationId="ChangeBaseChoice" AutomationProperties.Name="New base" />
+            </DockPanel>
+
+            <StackPanel Margin="0,16,0,0" Orientation="Horizontal" Visibility="{Binding IsLink, Converter={StaticResource BoolToVisibility}}">
+                <Button Command="{Binding OpenLinkCommand}" Style="{DynamicResource AccentButtonStyle}" MinWidth="80"
+                        AutomationProperties.AutomationId="OpenLinkButton" AutomationProperties.Name="Open">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8A7;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Open" />
+                    </StackPanel>
+                </Button>
+                <TextBlock Text="{Binding RunError}" Foreground="#C42B1C" TextWrapping="Wrap" Margin="10,6,0,0"
+                           AutomationProperties.AutomationId="LinkError" />
+            </StackPanel>
+
+            <StackPanel Margin="0,16,0,0" Visibility="{Binding IsRunnable, Converter={StaticResource BoolToVisibility}}">
+                <views:ParameterForm DataContext="{Binding Form}" Margin="0,0,0,8" />
+                <Border Padding="10,6" CornerRadius="4" Background="#14000000">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Copy" Command="{Binding CopyPreviewCommand}" Margin="8,0,0,0"
+                                VerticalAlignment="Top" AutomationProperties.AutomationId="CopyPreviewButton" />
+                        <TextBox Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap"
+                                 BorderThickness="0" Background="Transparent" FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="CommandPreview" AutomationProperties.Name="Command preview" />
+                    </DockPanel>
+                </Border>
+                <TextBlock Text="{Binding ValidationMessage}" Foreground="#C42B1C" TextWrapping="Wrap" Margin="0,6,0,0"
+                           AutomationProperties.AutomationId="ValidationMessage" />
+                <TextBlock Text="{Binding RunError}" Foreground="#C42B1C" TextWrapping="Wrap" Margin="0,6,0,0"
+                           AutomationProperties.AutomationId="RunError" />
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button Command="{Binding RunCommand}" Style="{DynamicResource AccentButtonStyle}" MinWidth="80"
+                            AutomationProperties.AutomationId="RunButton" AutomationProperties.Name="Run">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Run" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding RunInWindowCommand}" Margin="6,0,0,0"
+                            AutomationProperties.AutomationId="RunInWindowButton" AutomationProperties.Name="Run in window">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE756;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Run in window" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding StopCommand}" Margin="6,0,0,0"
+                            AutomationProperties.AutomationId="StopButton" AutomationProperties.Name="Stop">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71A;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Stop" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding SaveCommand}" Margin="6,0,0,0"
+                            Visibility="{Binding IsMyScript, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.AutomationId="SaveMyScriptButton" AutomationProperties.Name="Save">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Save" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding DuplicateCommand}" Margin="6,0,0,0" Content="Duplicate"
+                            Visibility="{Binding IsMyScript, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.AutomationId="DuplicateButton" />
+                    <Button Command="{Binding SaveAsMyScriptCommand}" Margin="6,0,0,0"
+                            Visibility="{Binding CanSaveAsMyScript, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.AutomationId="SaveAsMyScriptButton" AutomationProperties.Name="Save as new My Script">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE734;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Save as new My Script" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -1,0 +1,58 @@
+// Every node type, rich choices, comments and trailing commas, plus unknown properties.
+{
+  "$schema": "https://example.invalid/batchpad.schema.json",
+  "id": "5c0f-demo",
+  "name": "Fixture workspace",
+  "futureTopLevel": { "nested": [1, 2, 3] },
+  "variables": { "webDir": "${workspaceDir}/build/web" },
+  "lists": { "games": ["SpaceTrader", "RallyRacer"] },
+  "sharedParams": {
+    "app": { "name": "app", "type": "choice", "choicesFrom": { "list": "games", "valueTransform": "lower" } },
+  },
+  "scriptFolders": [
+    { "path": ".batchpad/scripts" },
+    { "path": "tools", "include": ["*.py"], "exclude": ["test_*"], "recurse": false },
+  ],
+  "scripts": [
+    {
+      "folder": "Build",
+      "collapsed": true,
+      "items": [
+        {
+          "id": "build",
+          "name": "Build",
+          "path": "build.bat",
+          "runner": "batch",
+          "console": "windowKeepOpen",
+          "futureScriptField": "kept",
+          "params": [
+            /* rich choice */
+            { "name": "config", "type": "choice", "default": "--release", "choices": [
+                { "value": "", "label": "Debug", "dir": "debug" },
+                { "value": "--release --asan", "label": "Release ASan", "dir": "release", "split": true },
+                "plain",
+            ] },
+            { "name": "apps", "type": "multichoice", "position": "end", "emptyMeans": "all",
+              "emptyArgs": ["--tests"], "maxPerCall": 9,
+              "choicesFrom": [
+                { "file": "build.bat", "regex": "set \"GAMES=([^\"]*)\"", "split": " " },
+                { "glob": "build/web/*.html", "stem": true },
+              ] },
+            { "name": "driver", "type": "text", "envVar": "GAME_AUDIO_DRIVER", "emit": false, "futureParamField": 7 },
+          ],
+          "ready": { "pattern": "Serving on (http://\\S+)", "open": "$1" },
+          "artifacts": [{ "path": "qa_report.html", "open": "onSuccess" }],
+        },
+      ],
+    },
+    {
+      "id": "build-and-run",
+      "name": "Build & run",
+      "steps": [
+        { "id": "build", "run": "workspace:build", "values": { "config": "--release", "apps": ["SpaceTrader"] } },
+        { "id": "report", "run": "report", "when": "always", "parallel": 4 },
+      ],
+    },
+    { "name": "QA report", "url": "qa_report.html" },
+  ],
+}

@@ -1,0 +1,84 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.ParameterEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,6,16,8" />
+                </Style>
+                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                    <Setter Property="Margin" Value="0,0,0,8" />
+                </Style>
+                <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+                    <Setter Property="Margin" Value="0,0,16,8" />
+                </Style>
+            </Grid.Resources>
+
+            <TextBlock Text="Name" />
+            <TextBox Grid.Column="1" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="ParamName" AutomationProperties.Name="Parameter name" />
+            <TextBlock Grid.Row="1" Text="Label" />
+            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Label, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="ParamLabel" AutomationProperties.Name="Label" />
+            <TextBlock Grid.Row="2" Text="Type" />
+            <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Types}" SelectedItem="{Binding Type}" DisplayMemberPath="Label"
+                      HorizontalAlignment="Left" MinWidth="180" Margin="0,0,0,8"
+                      AutomationProperties.AutomationId="ParamType" AutomationProperties.Name="Type" />
+            <TextBlock Grid.Row="3" Text="Switch" ToolTip="The argument before the value, e.g. --port; ending in = joins it to the value" />
+            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Arg, UpdateSourceTrigger=PropertyChanged}"
+                     FontFamily="{StaticResource MonoFont}"
+                     AutomationProperties.AutomationId="ParamArg" AutomationProperties.Name="Switch" />
+            <TextBlock Grid.Row="4" Text="Default" />
+            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding DefaultText, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="ParamDefault" AutomationProperties.Name="Default" />
+            <TextBlock Grid.Row="5" Text="Description" />
+            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="ParamDescription" AutomationProperties.Name="Description" />
+            <TextBlock Grid.Row="6" Text="Env var" ToolTip="Pass the value as this environment variable instead of an argument" />
+            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding EnvVar, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="ParamEnvVar" AutomationProperties.Name="Environment variable" />
+            <WrapPanel Grid.Row="7" Grid.Column="1">
+                <CheckBox Content="Required" IsChecked="{Binding Required}" AutomationProperties.AutomationId="ParamRequired" />
+                <CheckBox Content="Ask on run" IsChecked="{Binding Ask}" AutomationProperties.AutomationId="ParamAsk" />
+                <CheckBox Content="Add to the command" IsChecked="{Binding Emit}" AutomationProperties.AutomationId="ParamEmit" />
+                <CheckBox Content="Split into words" IsChecked="{Binding Split}" ToolTip="Pass the value as several arguments, split like a command line"
+                          AutomationProperties.AutomationId="ParamSplit" />
+                <CheckBox Content="Pass values lowercased" IsChecked="{Binding LowercaseValues}"
+                          Visibility="{Binding IsShared, Converter={StaticResource BoolToVisibility}}"
+                          AutomationProperties.AutomationId="ParamLowercase" />
+            </WrapPanel>
+            <TextBlock Grid.Row="8" Text="When none picked" Visibility="{Binding ShowsChoiceOptions, Converter={StaticResource BoolToVisibility}}" />
+            <WrapPanel Grid.Row="8" Grid.Column="1" Visibility="{Binding ShowsChoiceOptions, Converter={StaticResource BoolToVisibility}}">
+                <CheckBox Content="Means all" IsChecked="{Binding EmptyMeansAll}" ToolTip="Labels an empty selection All and passes nothing"
+                          AutomationProperties.AutomationId="ParamEmptyMeansAll" />
+                <TextBlock Text="pass" Margin="0,6,6,8" />
+                <TextBox Text="{Binding EmptyArgs, UpdateSourceTrigger=PropertyChanged}" MinWidth="160" FontFamily="{StaticResource MonoFont}"
+                         ToolTip="Arguments passed instead when nothing is picked, for example --tests"
+                         AutomationProperties.AutomationId="ParamEmptyArgs" AutomationProperties.Name="Arguments when none picked" />
+            </WrapPanel>
+            <TextBlock Grid.Row="9" Text="At most per call" Visibility="{Binding ShowsChoiceOptions, Converter={StaticResource BoolToVisibility}}" />
+            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding MaxPerCallText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left"
+                     Visibility="{Binding ShowsChoiceOptions, Converter={StaticResource BoolToVisibility}}"
+                     ToolTip="A larger selection runs the script several times, this many picks at a time"
+                     AutomationProperties.AutomationId="ParamMaxPerCall" AutomationProperties.Name="At most per call" />
+        </Grid>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,69 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.GeneralTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,6,16,8" />
+                </Style>
+                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                    <Setter Property="Margin" Value="0,0,0,8" />
+                </Style>
+                <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                    <Setter Property="Margin" Value="0,0,0,8" />
+                    <Setter Property="DisplayMemberPath" Value="Label" />
+                    <Setter Property="HorizontalAlignment" Value="Left" />
+                    <Setter Property="MinWidth" Value="260" />
+                </Style>
+            </Grid.Resources>
+
+            <TextBlock Text="Name" />
+            <TextBox Grid.Column="1" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="EditorName" AutomationProperties.Name="Name" />
+            <TextBlock Grid.Row="1" Text="Description" />
+            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
+                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="48"
+                     AutomationProperties.AutomationId="EditorDescription" AutomationProperties.Name="Description" />
+            <TextBlock Grid.Row="2" Text="File" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding FilePath}" FontFamily="{StaticResource MonoFont}" Opacity="0.7"
+                       AutomationProperties.AutomationId="EditorFile" />
+            <TextBlock Grid.Row="3" Text="Runner" />
+            <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding Runners}" SelectedItem="{Binding Runner}"
+                      AutomationProperties.AutomationId="EditorRunner" AutomationProperties.Name="Runner" />
+            <TextBlock Grid.Row="4" Text="Working directory" />
+            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding WorkingDir, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="EditorWorkingDir" AutomationProperties.Name="Working directory" />
+            <TextBlock Grid.Row="5" Text="Console" />
+            <ComboBox Grid.Row="5" Grid.Column="1" ItemsSource="{Binding ConsoleModes}" SelectedItem="{Binding Console}"
+                      AutomationProperties.AutomationId="EditorConsole" AutomationProperties.Name="Console" />
+            <CheckBox Grid.Row="6" Grid.Column="1" Margin="0,0,0,8" Content="Long-running (a server or watcher)"
+                      IsChecked="{Binding LongRunning}" AutomationProperties.AutomationId="EditorLongRunning" />
+            <TextBlock Grid.Row="7" Text="Confirm" ToolTip="Ask this question before every run; empty runs without asking" />
+            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding Confirm, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="EditorConfirm" AutomationProperties.Name="Confirm" />
+            <TextBlock Grid.Row="8" Text="Module" ToolTip="A Python module run with -m instead of the file, for example pytest" />
+            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding Module, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="EditorModule" AutomationProperties.Name="Module" />
+            <TextBlock Grid.Row="9" Text="Lock" ToolTip="Runs that share a lock name wait for each other" />
+            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding LockName, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="EditorLock" AutomationProperties.Name="Lock" />
+        </Grid>
+    </ScrollViewer>
+</UserControl>

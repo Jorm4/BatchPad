@@ -1,0 +1,244 @@
+<Window x:Class="BatchPad.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:BatchPad.App.ViewModels"
+        xmlns:views="clr-namespace:BatchPad.App.Views"
+        xmlns:ws="clr-namespace:BatchPad.App.Views.Workspace"
+        xmlns:wizard="clr-namespace:BatchPad.App.Views.Wizard"
+        Title="BatchPad" Height="760" Width="1200"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        SourceInitialized="OnSourceInitialized" Closing="OnClosing" PreviewKeyDown="OnPreviewKeyDown"
+        AutomationProperties.AutomationId="MainWindow">
+    <Window.InputBindings>
+        <KeyBinding Key="F4" Command="{Binding Details.EditCommand}" />
+        <KeyBinding Key="Escape" Command="{Binding EscapeCommand}" />
+    </Window.InputBindings>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="12,8" LastChildFill="False">
+            <ComboBox DockPanel.Dock="Left" Width="220" ItemsSource="{Binding RecentWorkspaces}"
+                      SelectedItem="{Binding SelectedWorkspace}" DisplayMemberPath="DisplayName"
+                      AutomationProperties.AutomationId="WorkspaceSelector" AutomationProperties.Name="Workspace" />
+            <Button DockPanel.Dock="Left" Margin="4,0,0,0" Command="{Binding OpenNewWorkspaceCommand}" ToolTip="New workspace…"
+                    AutomationProperties.AutomationId="NewWorkspaceButton" AutomationProperties.Name="New workspace">
+                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F4;" VerticalAlignment="Center" />
+            </Button>
+            <Button DockPanel.Dock="Left" Margin="8,0,0,0" IsEnabled="False" ToolTip="Add a script"
+                    AutomationProperties.AutomationId="AddButton">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Add" />
+                </StackPanel>
+            </Button>
+            <Button DockPanel.Dock="Left" Margin="4,0,0,0" Command="{Binding Details.EditCommand}" ToolTip="Edit (F4)"
+                    AutomationProperties.AutomationId="EditButton">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Edit" />
+                </StackPanel>
+            </Button>
+            <Button DockPanel.Dock="Left" Margin="4,0,0,0" Command="{Binding OpenWorkspaceSettingsCommand}" ToolTip="Workspace settings"
+                    AutomationProperties.AutomationId="WorkspaceButton">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE713;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Workspace" />
+                </StackPanel>
+            </Button>
+            <Button DockPanel.Dock="Right" Click="OnSearchClick" ToolTip="Search (Ctrl+K)"
+                    AutomationProperties.AutomationId="SearchButton">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE721;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Search" />
+                </StackPanel>
+            </Button>
+        </DockPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="TreeColumn" Width="312" MinWidth="200" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Margin="8,0,0,8">
+                <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,8"
+                         Text="{Binding Tree.Filter, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.AutomationId="FilterBox" AutomationProperties.Name="Filter" />
+                <TextBlock DockPanel.Dock="Bottom" Text="{Binding MyScripts.Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="MyScriptsError" />
+                <TreeView x:Name="ScriptTreeView" ItemsSource="{Binding Tree.Roots}" BorderThickness="0" Background="Transparent"
+                          AllowDrop="True" PreviewMouseRightButtonDown="OnTreeRightClick"
+                          PreviewMouseLeftButtonDown="OnTreeMouseDown" PreviewMouseMove="OnTreeMouseMove"
+                          DragOver="OnTreeDragOver" Drop="OnTreeDrop" AutomationProperties.AutomationId="ScriptTree">
+                    <TreeView.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding Details.RunCommand}" />
+                        <KeyBinding Key="F2" Command="{Binding MyScripts.BeginRenameCommand}" CommandParameter="{Binding Tree.SelectedNode}" />
+                        <KeyBinding Key="Delete" Command="{Binding MyScripts.DeleteCommand}" CommandParameter="{Binding Tree.SelectedNode}" />
+                    </TreeView.InputBindings>
+                    <TreeView.ContextMenu>
+                        <ContextMenu AutomationProperties.AutomationId="TreeContextMenu">
+                            <MenuItem Header="Add to My Scripts" Command="{Binding MyScripts.AddToMyScriptsCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="AddToMyScriptsMenuItem" />
+                            <MenuItem Header="Duplicate" Command="{Binding MyScripts.DuplicateCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="DuplicateMenuItem" />
+                            <MenuItem Header="Rename" InputGestureText="F2" Command="{Binding MyScripts.BeginRenameCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="RenameMenuItem" />
+                            <MenuItem Header="Delete" InputGestureText="Del" Command="{Binding MyScripts.DeleteCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="DeleteMenuItem" />
+                            <Separator />
+                            <MenuItem Header="New link…" Command="{Binding Tree.NewLinkCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="NewLinkMenuItem" />
+                            <MenuItem Header="New workflow…" Command="{Binding Tree.NewWorkflowCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="NewWorkflowMenuItem" />
+                            <MenuItem Header="New entry…" Command="{Binding Tree.NewEntryCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="NewEntryMenuItem" />
+                            <MenuItem Header="New folder" Command="{Binding Tree.NewFolderCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="NewFolderMenuItem" />
+                        </ContextMenu>
+                    </TreeView.ContextMenu>
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                            <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVisibility}}" />
+                            <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                        </Style>
+                    </TreeView.ItemContainerStyle>
+                    <TreeView.Resources>
+                        <HierarchicalDataTemplate DataType="{x:Type vm:NodeViewModel}" ItemsSource="{Binding Children}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding Icon}" Margin="0,0,8,0"
+                                           VerticalAlignment="Center" />
+                                <TextBlock x:Name="Label" Text="{Binding Header}" VerticalAlignment="Center" />
+                                <TextBox x:Name="RenameBox" Visibility="Collapsed" MinWidth="160" Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}"
+                                         IsVisibleChanged="OnRenameBoxVisibleChanged" AutomationProperties.AutomationId="RenameBox">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Enter" Command="{Binding DataContext.MyScripts.CommitRenameCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}" />
+                                        <KeyBinding Key="Escape" Command="{Binding DataContext.MyScripts.CancelRenameCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
+                                <TextBlock x:Name="BrokenBadge" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center"
+                                           FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="#9D5D00" ToolTip="{Binding Description}" />
+                                <TextBlock x:Name="RunBadge" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                <Border x:Name="NewBadge" Visibility="Collapsed" Margin="6,0,0,0" Padding="4,0"
+                                        CornerRadius="3" Background="{StaticResource AccentBrush}">
+                                    <TextBlock Text="NEW" FontSize="10" Foreground="White" />
+                                </Border>
+                            </StackPanel>
+                            <HierarchicalDataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:NodeKind.Root}">
+                                    <Setter TargetName="Label" Property="FontSize" Value="11" />
+                                    <Setter TargetName="Label" Property="FontWeight" Value="SemiBold" />
+                                    <Setter TargetName="Label" Property="Opacity" Value="0.7" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Running}">
+                                    <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="RunBadge" Property="Text" Value="●" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Ready}">
+                                    <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="RunBadge" Property="Text" Value="●" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="#0F7B0F" />
+                                    <Setter TargetName="RunBadge" Property="ToolTip" Value="Running · ready" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Passed}">
+                                    <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="RunBadge" Property="Text" Value="✓" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="#0F7B0F" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Failed}">
+                                    <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="RunBadge" Property="Text" Value="✗" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="#C42B1C" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsNew}" Value="True">
+                                    <Setter TargetName="NewBadge" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsRenaming}" Value="True">
+                                    <Setter TargetName="Label" Property="Visibility" Value="Collapsed" />
+                                    <Setter TargetName="RenameBox" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsBroken}" Value="True">
+                                    <Setter TargetName="Label" Property="Opacity" Value="0.5" />
+                                    <Setter TargetName="BrokenBadge" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsOrphan}" Value="True">
+                                    <Setter TargetName="Label" Property="TextDecorations" Value="Strikethrough" />
+                                </DataTrigger>
+                            </HierarchicalDataTemplate.Triggers>
+                        </HierarchicalDataTemplate>
+                    </TreeView.Resources>
+                </TreeView>
+            </DockPanel>
+
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" Background="Transparent"
+                          AutomationProperties.AutomationId="TreeSplitter" />
+
+            <Border Grid.Column="2" Margin="0,0,8,8" CornerRadius="8" BorderThickness="1"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                <DockPanel Margin="20,16">
+                    <Border DockPanel.Dock="Top" Margin="0,0,0,12" Padding="12" CornerRadius="6"
+                            Background="#FFF4CE" Visibility="{Binding IsTrustPromptVisible, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.AutomationId="TrustPrompt">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Trust" Command="{Binding TrustWorkspaceCommand}" Style="{DynamicResource AccentButtonStyle}"
+                                        AutomationProperties.AutomationId="TrustButton" />
+                                <Button Content="Not now" Margin="6,0,0,0" Command="{Binding DismissTrustPromptCommand}"
+                                        AutomationProperties.AutomationId="DismissTrustButton" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="Trust this workspace?" FontWeight="SemiBold" Foreground="#1C1C1C" />
+                                <TextBlock Text="{Binding TrustPromptText}" TextWrapping="Wrap" Foreground="#1C1C1C" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border DockPanel.Dock="Top" Margin="0,0,0,12" Padding="12" CornerRadius="6"
+                            Background="#FFF4CE" Visibility="{Binding IsReloadPromptVisible, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.AutomationId="ReloadPrompt">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Reload" Command="{Binding ReloadFromDiskCommand}" Style="{DynamicResource AccentButtonStyle}"
+                                        AutomationProperties.AutomationId="ReloadButton" />
+                                <Button Content="Keep editing" Margin="6,0,0,0" Command="{Binding DismissReloadPromptCommand}"
+                                        AutomationProperties.AutomationId="DismissReloadButton" />
+                            </StackPanel>
+                            <TextBlock Margin="0,0,12,0" TextWrapping="Wrap" Foreground="#1C1C1C" VerticalAlignment="Center"
+                                       Text="The workspace changed on disk. Reloading discards the open edit." />
+                        </DockPanel>
+                    </Border>
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding LoadErrors}" Foreground="#C42B1C" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="LoadErrors" />
+
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" MinHeight="120" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition x:Name="OutputRow" Height="270" MinHeight="80" />
+                        </Grid.RowDefinitions>
+                        <views:DetailsPanel DataContext="{Binding Details}" Margin="0,0,0,12"
+                                            Visibility="{Binding DataContext.IsPageOpen, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InverseBoolToVisibility}}" />
+                        <ws:WorkspaceSettings DataContext="{Binding WorkspaceSettings}" Margin="0,0,0,12"
+                                              Visibility="{Binding DataContext.WorkspaceSettings, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToCollapsed}}" />
+                        <ws:NewItem DataContext="{Binding NewItem}" Margin="0,0,0,12"
+                                    Visibility="{Binding DataContext.NewItem, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToCollapsed}}" />
+                        <wizard:NewWorkspaceWizard DataContext="{Binding NewWorkspace}" Margin="0,0,0,12"
+                                                   Visibility="{Binding DataContext.NewWorkspace, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToCollapsed}}" />
+                        <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent"
+                                      AutomationProperties.AutomationId="OutputSplitter" />
+                        <views:OutputPanel Grid.Row="2" DataContext="{Binding Output}" Margin="-20,0,-20,-16" />
+                    </Grid>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

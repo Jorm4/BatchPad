@@ -1,0 +1,72 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.ParametersTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Editor"
+             xmlns:views="clr-namespace:BatchPad.App.Views"
+             xmlns:editor="clr-namespace:BatchPad.App.Views.Editor">
+    <Grid Margin="0,10,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Margin="0,0,12,0">
+            <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                <Button Content="+ Add" Command="{Binding AddCommand}" AutomationProperties.AutomationId="AddParameterButton" />
+                <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="4,0,0,0"
+                        AutomationProperties.AutomationId="RemoveParameterButton" />
+                <Button FontFamily="{StaticResource IconFont}" Content="&#xE70E;" Command="{Binding MoveUpCommand}" Margin="4,0,0,0"
+                        ToolTip="Move up" AutomationProperties.AutomationId="MoveParameterUpButton" AutomationProperties.Name="Move up" />
+                <Button FontFamily="{StaticResource IconFont}" Content="&#xE70D;" Command="{Binding MoveDownCommand}" Margin="4,0,0,0"
+                        ToolTip="Move down" AutomationProperties.AutomationId="MoveParameterDownButton" AutomationProperties.Name="Move down" />
+                <ComboBox ItemsSource="{Binding SharedNames}" SelectedItem="{Binding SharedToAdd}" Margin="0,6,0,0" MinWidth="140"
+                          Text="+ Shared…" IsEditable="False" ToolTip="Use a shared parameter"
+                          Visibility="{Binding HasSharedNames, Converter={StaticResource BoolToVisibility}}"
+                          AutomationProperties.AutomationId="AddSharedParameter" AutomationProperties.Name="Add shared parameter" />
+            </WrapPanel>
+
+            <views:FlatItemsControl DockPanel.Dock="Bottom" ItemsSource="{Binding Proposals}" Margin="0,6,0,0"
+                                    AutomationProperties.AutomationId="Proposals">
+                <views:FlatItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:ProposalViewModel}">
+                        <Grid Margin="0,4,0,0">
+                            <Rectangle Stroke="#8A8A8A" StrokeDashArray="4 3" RadiusX="4" RadiusY="4" />
+                            <StackPanel Margin="8,6">
+                                <TextBlock Text="DETECTED" FontSize="10" FontWeight="SemiBold" Opacity="0.6" />
+                                <TextBlock Text="{Binding Summary}" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Description}" Opacity="0.7" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Button Content="Accept" Command="{Binding AcceptCommand}"
+                                            AutomationProperties.AutomationId="{Binding Parameter.Name, StringFormat=Accept_{0}}" />
+                                    <Button Content="Dismiss" Command="{Binding DismissCommand}" Margin="4,0,0,0"
+                                            AutomationProperties.AutomationId="{Binding Parameter.Name, StringFormat=Dismiss_{0}}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </views:FlatItemsControl.ItemTemplate>
+            </views:FlatItemsControl>
+
+            <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" VirtualizingPanel.IsVirtualizing="False"
+                     AutomationProperties.AutomationId="ParameterList" AutomationProperties.Name="Parameters">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:ParameterEditorViewModel}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Opacity="0.5" Margin="0,0,6,0"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding DisplayName}" />
+                            <TextBlock Text="{Binding Use, StringFormat=' (shared: {0})', TargetNullValue=''}" Opacity="0.6" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <editor:ParameterEditor Grid.Column="1" DataContext="{Binding Selected}" />
+    </Grid>
+</UserControl>

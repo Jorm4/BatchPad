@@ -1,0 +1,169 @@
+<UserControl x:Class="BatchPad.App.Views.Workspace.WorkspaceSettings"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Workspace"
+             xmlns:views="clr-namespace:BatchPad.App.Views"
+             xmlns:editor="clr-namespace:BatchPad.App.Views.Editor"
+             x:Name="Root">
+    <UserControl.Resources>
+        <Style x:Key="Section" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,18,0,6" />
+        </Style>
+    </UserControl.Resources>
+    <Grid>
+        <DockPanel>
+            <Border DockPanel.Dock="Top" Margin="0,0,0,10" Padding="10,6" CornerRadius="4" Background="#FFF4CE">
+                <TextBlock Foreground="#1C1C1C" TextWrapping="Wrap" AutomationProperties.AutomationId="WorkspaceSharedBanner"
+                           Text="{Binding FileName, StringFormat=Shared settings — saved to {0} in the repository. Everyone who pulls gets this change.}" />
+            </Border>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Cancel" Command="{Binding CancelCommand}" AutomationProperties.AutomationId="WorkspaceCancelButton" />
+                    <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
+                            AutomationProperties.AutomationId="WorkspaceSaveButton" />
+                </StackPanel>
+                <TextBlock Text="Workspace settings" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="WorkspaceError" />
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,8,0">
+                    <DockPanel>
+                        <TextBlock Text="Name" Margin="0,6,12,0" Width="60" />
+                        <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.AutomationId="WorkspaceName" AutomationProperties.Name="Workspace name" />
+                    </DockPanel>
+
+                    <TextBlock Text="Script folders" Style="{StaticResource Section}" />
+                    <views:FlatItemsControl ItemsSource="{Binding ScriptFolders}" AutomationProperties.AutomationId="ScriptFolders">
+                        <views:FlatItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ScriptFolderViewModel}">
+                                <Border Margin="0,0,0,8" Padding="10" CornerRadius="6" Background="#0A000000">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Content="Remove" Margin="6,0,0,0"
+                                                    Command="{Binding DataContext.RemoveFolderCommand, ElementName=Root}" CommandParameter="{Binding}"
+                                                    AutomationProperties.AutomationId="RemoveScriptFolder" />
+                                            <Button DockPanel.Dock="Right" Content="Browse…" Margin="6,0,0,0"
+                                                    Command="{Binding DataContext.BrowseFolderCommand, ElementName=Root}" CommandParameter="{Binding}"
+                                                    AutomationProperties.AutomationId="BrowseScriptFolder" />
+                                            <TextBox Text="{Binding Path, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                                                     AutomationProperties.AutomationId="ScriptFolderPath" AutomationProperties.Name="Folder" />
+                                        </DockPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                            <TextBlock Text="Include" Margin="0,6,6,0" />
+                                            <TextBox Text="{Binding Include, UpdateSourceTrigger=PropertyChanged}" Width="160"
+                                                     ToolTip="Patterns such as *.bat *.py; empty = the usual script types"
+                                                     AutomationProperties.AutomationId="ScriptFolderInclude" AutomationProperties.Name="Include" />
+                                            <TextBlock Text="Exclude" Margin="12,6,6,0" />
+                                            <TextBox Text="{Binding Exclude, UpdateSourceTrigger=PropertyChanged}" Width="160"
+                                                     AutomationProperties.AutomationId="ScriptFolderExclude" AutomationProperties.Name="Exclude" />
+                                            <CheckBox Content="Subfolders" IsChecked="{Binding Recurse}" Margin="12,0,0,0" VerticalAlignment="Center"
+                                                      AutomationProperties.AutomationId="ScriptFolderRecurse" />
+                                            <CheckBox Content="Group by prefix" IsChecked="{Binding GroupByPrefix}" Margin="12,0,0,0"
+                                                      VerticalAlignment="Center" AutomationProperties.AutomationId="ScriptFolderGroup" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Matches.Count, StringFormat=Matches {0} files:}" Opacity="0.7" Margin="0,6,0,0" />
+                                        <ItemsControl ItemsSource="{Binding Matches}" MaxHeight="120" FontFamily="{StaticResource MonoFont}"
+                                                      AutomationProperties.AutomationId="ScriptFolderMatches">
+                                            <ItemsControl.Template>
+                                                <ControlTemplate TargetType="ItemsControl">
+                                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                                        <ItemsPresenter />
+                                                    </ScrollViewer>
+                                                </ControlTemplate>
+                                            </ItemsControl.Template>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </views:FlatItemsControl.ItemTemplate>
+                    </views:FlatItemsControl>
+                    <Button Content="+ Add script folder" Command="{Binding AddFolderCommand}" HorizontalAlignment="Left"
+                            AutomationProperties.AutomationId="AddScriptFolder" />
+
+                    <TextBlock Text="Shared parameters" Style="{StaticResource Section}" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <DockPanel Margin="0,0,12,0">
+                            <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                                <Button DockPanel.Dock="Right" Content="+ Add" Command="{Binding AddSharedCommand}" Margin="4,0,0,0"
+                                        AutomationProperties.AutomationId="AddSharedParam" />
+                                <TextBox Text="{Binding NewSharedName, UpdateSourceTrigger=PropertyChanged}" ToolTip="Name, e.g. app"
+                                         AutomationProperties.AutomationId="NewSharedParamName" AutomationProperties.Name="New shared parameter name" />
+                            </DockPanel>
+                            <ListBox ItemsSource="{Binding SharedParameters}" SelectedItem="{Binding SelectedShared}" DisplayMemberPath="Key"
+                                     MinHeight="80" VirtualizingPanel.IsVirtualizing="False"
+                                     AutomationProperties.AutomationId="SharedParamList" AutomationProperties.Name="Shared parameters">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                        <Setter Property="AutomationProperties.Name" Value="{Binding Key}" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </DockPanel>
+                        <StackPanel Grid.Column="1" DataContext="{Binding SelectedShared}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Remove"
+                                        Command="{Binding DataContext.RemoveSharedCommand, ElementName=Root}" CommandParameter="{Binding}"
+                                        AutomationProperties.AutomationId="RemoveSharedParam" />
+                                <TextBlock Text="{Binding UsedBySummary}" TextWrapping="Wrap" Opacity="0.7"
+                                           AutomationProperties.AutomationId="SharedParamUsedBy" />
+                            </DockPanel>
+                            <editor:ParameterEditor DataContext="{Binding Editor}" Margin="0,8,0,0" />
+                            <editor:ChoicesTab DataContext="{Binding Choices}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="Variables" Style="{StaticResource Section}" />
+                    <views:FlatItemsControl ItemsSource="{Binding Variables}" AutomationProperties.AutomationId="WorkspaceVariables">
+                        <views:FlatItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:KeyValueRow}">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBox Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" Width="160" FontFamily="{StaticResource MonoFont}"
+                                             AutomationProperties.AutomationId="VariableName" AutomationProperties.Name="Name" />
+                                    <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="320" Margin="4,0,0,0"
+                                             AutomationProperties.AutomationId="VariableValue" AutomationProperties.Name="Value" />
+                                    <Button Content="✕" Margin="4,0,0,0"
+                                            Command="{Binding DataContext.RemoveVariableCommand, ElementName=Root}" CommandParameter="{Binding}"
+                                            AutomationProperties.AutomationId="RemoveVariable" AutomationProperties.Name="Remove variable" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </views:FlatItemsControl.ItemTemplate>
+                    </views:FlatItemsControl>
+                    <Button Content="+ Variable" Command="{Binding AddVariableCommand}" HorizontalAlignment="Left"
+                            AutomationProperties.AutomationId="AddVariable" />
+
+                    <TextBlock Text="Environment" Style="{StaticResource Section}" />
+                    <views:FlatItemsControl ItemsSource="{Binding Environment}" AutomationProperties.AutomationId="WorkspaceEnvironment">
+                        <views:FlatItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:KeyValueRow}">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBox Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" Width="160" FontFamily="{StaticResource MonoFont}"
+                                             AutomationProperties.AutomationId="EnvName" AutomationProperties.Name="Name" />
+                                    <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="320" Margin="4,0,0,0"
+                                             AutomationProperties.AutomationId="EnvValue" AutomationProperties.Name="Value" />
+                                    <Button Content="✕" Margin="4,0,0,0"
+                                            Command="{Binding DataContext.RemoveEnvironmentCommand, ElementName=Root}" CommandParameter="{Binding}"
+                                            AutomationProperties.AutomationId="RemoveEnv" AutomationProperties.Name="Remove variable" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </views:FlatItemsControl.ItemTemplate>
+                    </views:FlatItemsControl>
+                    <Button Content="+ Environment variable" Command="{Binding AddEnvironmentCommand}" HorizontalAlignment="Left"
+                            AutomationProperties.AutomationId="AddEnv" />
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+        <Grid Background="#66000000"
+              Visibility="{Binding SelectedShared.Choices.IsPickerOpen, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
+            <editor:ChoiceSourcePicker DataContext="{Binding SelectedShared.Choices.Picker}" Margin="12" VerticalAlignment="Center" />
+        </Grid>
+    </Grid>
+</UserControl>

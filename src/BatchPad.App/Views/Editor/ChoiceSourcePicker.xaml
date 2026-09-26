@@ -1,0 +1,199 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.ChoiceSourcePicker"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Editor"
+             xmlns:views="clr-namespace:BatchPad.App.Views"
+             x:Name="Root">
+    <Border Padding="16" CornerRadius="8" BorderThickness="1" MaxWidth="760"
+            Background="{DynamicResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+            AutomationProperties.AutomationId="ChoiceSourcePicker">
+        <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="Choice source" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+            <ListBox DockPanel.Dock="Top" ItemsSource="{Binding SourceCards}" SelectedValue="{Binding SelectedKind}" SelectedValuePath="Kind"
+                     BorderThickness="0" Background="Transparent" AutomationProperties.AutomationId="SourceCards">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="1" />
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="IsEnabled" Value="{Binding IsEnabled}" />
+                        <Setter Property="AutomationProperties.AutomationId" Value="{Binding Kind, StringFormat=SourceCard_{0}}" />
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                        <Setter Property="Margin" Value="0,0,6,0" />
+                        <Setter Property="VerticalContentAlignment" Value="Top" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:SourceCard}">
+                        <StackPanel Margin="4">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                <Button Content="Cancel" Command="{Binding CancelCommand}" AutomationProperties.AutomationId="PickerCancelButton" />
+                <Button Content="Use these choices" Command="{Binding AcceptCommand}" Margin="6,0,0,0"
+                        Style="{DynamicResource AccentButtonStyle}" AutomationProperties.AutomationId="PickerAcceptButton" />
+            </StackPanel>
+
+            <Grid DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Choices" FontWeight="SemiBold" Margin="0,0,0,4" />
+                    <ListView ItemsSource="{Binding Preview}" Height="140" AutomationProperties.AutomationId="PickerPreview">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Label" DisplayMemberBinding="{Binding Label}" Width="180" />
+                                <GridViewColumn Header="Value passed" DisplayMemberBinding="{Binding Value}" Width="180" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                    <TextBlock Text="{Binding Problems}" Foreground="#C42B1C" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="PickerProblems" />
+                </StackPanel>
+                <CheckBox Grid.Column="1" Content="Pass values lowercased" IsChecked="{Binding LowercaseValues}" VerticalAlignment="Top"
+                          Margin="12,24,0,0" AutomationProperties.AutomationId="PickerLowercase">
+                    <CheckBox.Style>
+                        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsFixed}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </CheckBox.Style>
+                </CheckBox>
+            </Grid>
+
+            <Grid Margin="0,10,0,0">
+                <StackPanel Visibility="{Binding IsFolder, Converter={StaticResource BoolToVisibility}}">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseFolderCommand}" Margin="6,0,0,0"
+                                AutomationProperties.AutomationId="PickerBrowseFolder" />
+                        <TextBlock Text="Folder" Margin="0,6,12,0" Width="60" />
+                        <TextBox Text="{Binding FolderPath, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.AutomationId="PickerFolder" AutomationProperties.Name="Folder" />
+                    </DockPanel>
+                    <DockPanel Margin="0,6,0,0">
+                        <TextBlock Text="Pattern" Margin="0,6,12,0" Width="60" />
+                        <TextBox Text="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="PickerPattern" AutomationProperties.Name="Pattern" />
+                    </DockPanel>
+                    <TextBlock Text="Name each choice by (click a part of the example path):" Margin="0,10,0,4" Opacity="0.7" />
+                    <ListBox ItemsSource="{Binding Segments}" SelectedItem="{Binding SelectedSegment}" BorderThickness="0"
+                             Background="Transparent" AutomationProperties.AutomationId="PickerSegments">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Text}" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:PathSegmentViewModel}">
+                                <TextBlock x:Name="Text" Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" />
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter TargetName="Text" Property="FontWeight" Value="Bold" />
+                                        <Setter TargetName="Text" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <DockPanel Margin="0,8,0,0">
+                        <CheckBox DockPanel.Dock="Left" Content="Pass the file's path, relative to" IsChecked="{Binding ValuesArePaths}"
+                                  VerticalAlignment="Center" AutomationProperties.AutomationId="PickerValuesArePaths" />
+                        <TextBox Text="{Binding RelativeTo, UpdateSourceTrigger=PropertyChanged}" Margin="6,0,0,0"
+                                 IsEnabled="{Binding ValuesArePaths}" ToolTip="Empty means the workspace folder"
+                                 AutomationProperties.AutomationId="PickerRelativeTo" AutomationProperties.Name="Relative to" />
+                    </DockPanel>
+                </StackPanel>
+
+                <DockPanel Visibility="{Binding IsLines, Converter={StaticResource BoolToVisibility}}">
+                    <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseFileCommand}" Margin="6,0,0,0"
+                                AutomationProperties.AutomationId="PickerBrowseFile" />
+                        <TextBlock Text="File" Margin="0,6,12,0" Width="60" />
+                        <TextBox Text="{Binding FilePath, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.AutomationId="PickerFile" AutomationProperties.Name="File" />
+                    </DockPanel>
+                    <Grid DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="60" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Regex" Margin="0,6,12,0" />
+                        <TextBox Grid.Column="1" Text="{Binding RegexText, UpdateSourceTrigger=PropertyChanged}"
+                                 FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="PickerRegex" AutomationProperties.Name="Regex" />
+                        <TextBlock Grid.Column="2" Text="Split on" Margin="12,6,6,0" />
+                        <TextBox Grid.Column="3" Text="{Binding SplitText, UpdateSourceTrigger=PropertyChanged}"
+                                 FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="PickerSplit" AutomationProperties.Name="Split on" />
+                        <CheckBox Grid.Column="4" Content="All matches" IsChecked="{Binding AllMatches}" Margin="12,0,0,0"
+                                  VerticalAlignment="Center" AutomationProperties.AutomationId="PickerAllMatches" />
+                    </Grid>
+                    <ListBox ItemsSource="{Binding Lines}" SelectedItem="{Binding SelectedLine}" Height="180" Margin="0,6,0,0"
+                             AutomationProperties.AutomationId="PickerLines">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Text}" />
+                                <Setter Property="Padding" Value="4,1" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMatch}" Value="True">
+                                        <Setter Property="Background" Value="#33FFB900" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:FileLineViewModel}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Number}" Width="32" Opacity="0.5" FontFamily="{StaticResource MonoFont}" />
+                                    <TextBlock Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+
+                <StackPanel Visibility="{Binding IsFixed, Converter={StaticResource BoolToVisibility}}">
+                    <views:FlatItemsControl ItemsSource="{Binding FixedRows}" AutomationProperties.AutomationId="PickerFixedRows">
+                        <views:FlatItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:FixedChoiceRow}">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBox Text="{Binding Label, UpdateSourceTrigger=PropertyChanged}" Width="180" ToolTip="Label"
+                                             AutomationProperties.AutomationId="FixedLabel" AutomationProperties.Name="Label" />
+                                    <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="180" Margin="4,0,0,0"
+                                             ToolTip="Value passed (empty = same as the label)" FontFamily="{StaticResource MonoFont}"
+                                             AutomationProperties.AutomationId="FixedValue" AutomationProperties.Name="Value" />
+                                    <Button Content="✕" Margin="4,0,0,0"
+                                            Command="{Binding DataContext.RemoveFixedRowCommand, ElementName=Root}" CommandParameter="{Binding}"
+                                            AutomationProperties.AutomationId="RemoveFixedRow" AutomationProperties.Name="Remove row" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </views:FlatItemsControl.ItemTemplate>
+                    </views:FlatItemsControl>
+                    <Button Content="+ Row" Command="{Binding AddFixedRowCommand}" HorizontalAlignment="Left"
+                            AutomationProperties.AutomationId="AddFixedRow" />
+                </StackPanel>
+            </Grid>
+        </DockPanel>
+    </Border>
+</UserControl>
