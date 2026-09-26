@@ -417,7 +417,7 @@ the app offers to add one.
 
 Recent workspaces, window layout, theme (System/Light/Dark), interpreter
 overrides (`python`, `pwsh`, `dotnet`), default editor, history retention,
-`telemetry` (§4.4) and `mcp.allowIds` (§4.5), edited on the Settings page.
+`telemetry` (§4.4) and `mcp.enabled` / `mcp.allowIds` (§4.5), edited on the Settings page.
 The editor is `editorCommand`, a command line with `{file}`, `{line}` and
 `{col}` (default `code -g "{file}:{line}"` when `code` is on PATH, otherwise
 the file's default app, or Notepad for script and program files). The path
@@ -951,8 +951,11 @@ commands at once, next to a person using the app. So named locks and
 - `--no-wait` fails fast instead of queueing. It applies to a single script;
   with a workflow or prerequisites it is a usage error.
 
-**An MCP server.** `batchpad mcp` runs an MCP server over stdio with these
-tools:
+**An MCP server.** `batchpad mcp` runs an MCP server over stdio. It is off
+until the user turns on "Let coding agents run scripts" on the Settings page
+(`mcp.enabled` in settings.json, never a workspace file, so a cloned repository
+can't turn it on). While off, the server refuses to start, and a running one
+refuses each call, since every call rereads the settings. Its tools:
 
 | Tool | Does |
 |---|---|

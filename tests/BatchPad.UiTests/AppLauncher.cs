@@ -18,8 +18,13 @@ public sealed class AppLauncher : IDisposable
     }
 
     /// <summary>Starts the exe with a fresh data folder, so no test reads or changes the user's settings.</summary>
+    public const string OptIn = "BATCHPAD_UI_TESTS";
+
+    // They take the foreground and type real keys, so they only run where nobody is using the desktop.
     public static AppLauncher Start(params string[] args)
     {
+        if (Environment.GetEnvironmentVariable(OptIn) != "1")
+            Assert.Inconclusive($"UI tests drive the real desktop; set {OptIn}=1 to run them.");
         var exe = LocateExe();
         var dataDirectory = Directory.CreateDirectory(
             Path.Combine(Path.GetTempPath(), "BatchPadUiTests", Guid.NewGuid().ToString("N"))).FullName;

@@ -26,9 +26,13 @@ jobs:
         with:
           python-version: "3.x"
       - run: dotnet build -c Release
-      # UI tests drive a real window and need an interactive desktop.
       - name: Test
         run: dotnet test -c Release --no-build --filter "TestCategory!=UI" --logger trx --results-directory TestResults
+      # The runner's desktop is nobody's, so the UI tests can take it over here.
+      - name: UI tests
+        env:
+          BATCHPAD_UI_TESTS: "1"
+        run: dotnet test tests/BatchPad.UiTests -c Release --no-build --logger trx --results-directory TestResults
       - name: Annotate failed tests
         if: failure()
         shell: pwsh

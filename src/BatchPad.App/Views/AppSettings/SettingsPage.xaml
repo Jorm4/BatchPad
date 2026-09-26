@@ -135,7 +135,13 @@
             <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
         </DockPanel>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="0,0,8,0" DataContext="{Binding Telemetry}">
+            <StackPanel Margin="0,0,8,0">
+                <TextBlock Text="Coding agents" Style="{StaticResource Section}" AutomationProperties.AutomationId="AgentsSection" />
+                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8"
+                           Text="Lets coding agents such as Claude Code list and run the scripts of trusted workspaces through BatchPad's MCP server (batchpad.com mcp). Off by default." />
+                <CheckBox Content="Let coding agents run scripts" IsChecked="{Binding McpEnabled}" Margin="0,0,0,12"
+                          AutomationProperties.AutomationId="McpEnabled" />
+            <StackPanel DataContext="{Binding Telemetry}">
                 <TextBlock Text="Telemetry" Style="{StaticResource Section}" AutomationProperties.AutomationId="TelemetrySection" />
                 <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8"
                            Text="Forward a record of each run to your own tools. Nothing is forwarded until you add a sink, and command lines are never included." />
@@ -163,6 +169,7 @@
                            Visibility="{Binding HasSinks, Converter={StaticResource InverseBoolToVisibility}}" />
                 <views:FlatItemsControl ItemsSource="{Binding Sinks}" ItemTemplate="{StaticResource Sink}"
                                         AutomationProperties.AutomationId="TelemetrySinks" />
+            </StackPanel>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>

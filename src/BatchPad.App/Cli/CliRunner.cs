@@ -66,7 +66,7 @@ public sealed class CliRunner
             return UsageError;
         }
         if (command.Verb == CliVerb.Mcp)
-            return await McpHost.RunAsync(_paths);
+            return await McpHost.RunAsync(_paths, _error);
         return await RunAsync(command, currentDirectory);
     }
 

@@ -29,7 +29,7 @@ public sealed class McpTests
     {
         using var test = new TestWorkspace();
         var directory = Path.GetDirectoryName(WriteWorkspace(test))!;
-        await using var tools = new McpTools(test.Paths);
+        await using var tools = EnabledTools(test);
 
         foreach (var result in new[]
                  {
@@ -46,7 +46,7 @@ public sealed class McpTests
     public async Task OnlyALocalDriveDirectoryIsAccepted()
     {
         using var test = new TestWorkspace();
-        await using var tools = new McpTools(test.Paths);
+        await using var tools = EnabledTools(test);
 
         foreach (var directory in new[] { @"\\host\share\repo", "//host/share/repo", @"\\?\C:\repo", @"\\.\C:\repo", @"C:repo", @"repo", "" })
         {
@@ -63,7 +63,7 @@ public sealed class McpTests
         new TrustStore(new Settings(), test.Paths.SettingsFile).Trust(repo.Main);
         var nested = Directory.CreateDirectory(Path.Combine(repo.Main, "vendor", "lib")).FullName;
         GitRepo.Git(nested, "init", "-q", "-b", "trunk");
-        await using var tools = new McpTools(test.Paths);
+        await using var tools = EnabledTools(test);
 
         var listed = JsonNode.Parse(((TextContentBlock)(await tools.ListScripts(nested)).Content[0]).Text)!;
 
@@ -116,7 +116,7 @@ public sealed class McpTests
         var workspace = Path.GetDirectoryName(WriteWorkspace(test))!;
         var settings = new Settings();
         new TrustStore(settings, test.Paths.SettingsFile).Trust(workspace);
-        settings.Update(test.Paths.SettingsFile, s => s.Mcp = new McpSettings { AllowIds = ["pass", "fail", "long"] });
+        settings.Update(test.Paths.SettingsFile, s => (s.Mcp ??= new McpSettings()).AllowIds = ["pass", "fail", "long"]);
         await using var client = await McpClient.StartInitializedAsync(test, test.Root);
 
         var tools = (await client.CallAsync("tools/list"))["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Order();
@@ -181,6 +181,33 @@ public sealed class McpTests
         Assert.AreEqual(RunOutcome.Stopped, record.Outcome);
     }
 
+    [TestMethod]
+    public async Task TheServerIsOffUntilTheUserTurnsItOn()
+    {
+        using var test = new TestWorkspace();
+        var workspace = Path.GetDirectoryName(WriteWorkspace(test))!;
+        new TrustStore(new Settings(), test.Paths.SettingsFile).Trust(workspace);
+        var error = new StringWriter();
+
+        var exitCode = await new CliRunner(test.Paths, new Settings(), new StringWriter(), error).RunAsync(["mcp"], workspace);
+
+        Assert.AreEqual(CliRunner.Failure, exitCode);
+        StringAssert.Contains(error.ToString(), McpSettings.TurnedOff);
+        await using var tools = new McpTools(test.Paths);
+        var refused = await tools.ListScripts(workspace);
+        Assert.IsTrue(refused.IsError);
+        StringAssert.Contains(((TextContentBlock)refused.Content.Single()).Text, McpSettings.TurnedOff);
+    }
+
+    private static void EnableMcp(TestWorkspace test) =>
+        new Settings().Update(test.Paths.SettingsFile, s => (s.Mcp ??= new McpSettings()).Enabled = true);
+
+    private static McpTools EnabledTools(TestWorkspace test)
+    {
+        EnableMcp(test);
+        return new McpTools(test.Paths);
+    }
+
     private static string TextOf(JsonNode result) => result["content"]![0]!["text"]!.GetValue<string>();
 
     private static string WriteWorkspace(TestWorkspace test)
@@ -232,6 +259,7 @@ public sealed class McpTests
 
         private static McpClient Start(TestWorkspace test, string workingDirectory)
         {
+            EnableMcp(test);
             var startInfo = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "batchpad.com"))
             {
                 WorkingDirectory = workingDirectory,

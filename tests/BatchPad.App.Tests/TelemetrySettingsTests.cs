@@ -41,6 +41,22 @@ public sealed class TelemetrySettingsTests
     }
 
     [TestMethod]
+    public void TheMcpServerIsOffUntilTurnedOnInSettings()
+    {
+        using var test = new TestWorkspace();
+        var main = test.OpenMain(TestWorkspace.DemoSource);
+        main.OpenSettingsCommand.Execute(null);
+        Assert.IsFalse(main.SettingsPage!.McpEnabled);
+
+        main.SettingsPage.McpEnabled = true;
+
+        Assert.IsTrue(Settings.Load(test.Paths.SettingsFile).Mcp!.Enabled);
+        var reopened = test.OpenMain(TestWorkspace.DemoSource, settings: Settings.Load(test.Paths.SettingsFile));
+        reopened.OpenSettingsCommand.Execute(null);
+        Assert.IsTrue(reopened.SettingsPage!.McpEnabled);
+    }
+
+    [TestMethod]
     public async Task SendTestEventWritesOneLineToAJsonlSink()
     {
         using var test = new TestWorkspace();

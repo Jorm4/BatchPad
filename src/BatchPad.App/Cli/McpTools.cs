@@ -149,6 +149,8 @@ public sealed partial class McpTools : IAsyncDisposable
         var output = new StringWriter();
         var error = new StringWriter();
         var settings = _settings = App.LoadSettings(_paths, error);
+        if (settings.Mcp?.Enabled != true)
+            return Error(McpSettings.TurnedOff);
         var runner = new CliRunner(_paths, settings, output, error, telemetry: _telemetry);
         var exitCode = await runner.RunAsync(commandFor(settings), directory, trustedOnly: true, stop.Token);
         afterRun?.Invoke(runner);

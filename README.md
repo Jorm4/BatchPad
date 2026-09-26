@@ -159,8 +159,12 @@ working folder on a local drive, and finds the workspace from it as the
 command line does; `get_log` reads only that workspace's history. The server has no workspace of its own, because one server serves a
 whole session, including subagents working in other git worktrees; every
 result names the checkout it ran in. Runs are recorded as
-`agent:<client name>`, for example `agent:claude-code`. Register it with
-Claude Code:
+`agent:<client name>`, for example `agent:claude-code`.
+
+The server is off by default. Turn on **Let coding agents run scripts** in
+the app's Settings (stored in your `settings.json`, never in a workspace, so a
+cloned repository can't turn it on); until then it refuses to start. Then
+register it with Claude Code:
 
 ```
 claude mcp add batchpad -- C:\Tools\BatchPad\batchpad.com mcp
@@ -306,17 +310,17 @@ From the repository root:
 
 ```
 dotnet build
-dotnet test --filter "TestCategory!=UI"
+dotnet test
 dotnet run --project src/BatchPad.App -- samples/demo
 ```
 
 To produce the single-file `dist\BatchPad.exe`, run `tools\publish.bat`
 (a self-contained win-x64 `dotnet publish`).
 
-`dotnet test` without the filter also runs the UI tests. They start the real
-app and need an interactive desktop, so CI leaves them out. CI (GitHub
-Actions) builds, runs the other tests, packages the exe and checks that it
-starts. Package versions live in `Directory.Packages.props`, and
+The UI tests are skipped unless `BATCHPAD_UI_TESTS=1` is set: they start the
+real app, take the foreground and type into it, so run them only when you
+aren't using the desktop. CI (GitHub Actions) builds, runs all the tests
+including the UI ones, packages the exe and checks that it starts. Package versions live in `Directory.Packages.props`, and
 `NuGet.config` restores from nuget.org only.
 
 To release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`.

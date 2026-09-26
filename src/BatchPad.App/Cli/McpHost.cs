@@ -8,8 +8,13 @@ namespace BatchPad.App.Cli;
 /// <summary>Serves <see cref="McpTools"/> over stdio (§4.5); stdout carries only protocol messages.</summary>
 public static class McpHost
 {
-    public static async Task<int> RunAsync(AppPaths paths)
+    public static async Task<int> RunAsync(AppPaths paths, TextWriter error)
     {
+        if (App.LoadSettings(paths, error).Mcp?.Enabled != true)
+        {
+            error.WriteLine(McpSettings.TurnedOff);
+            return CliRunner.Failure;
+        }
         var tools = new McpTools(paths);
         tools.StartTelemetry();
         var options = new McpServerOptions
