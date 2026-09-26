@@ -8,16 +8,29 @@ jobs:
   build-and-test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       - run: dotnet build -c Release
       # UI tests drive a real window and need an interactive desktop.
-      - run: dotnet test -c Release --no-build --filter "TestCategory!=UI"
+      - name: Test
+        run: dotnet test -c Release --no-build --filter "TestCategory!=UI" --logger trx --results-directory TestResults
+      - name: Annotate failed tests
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults -Filter *.trx -Recurse | ForEach-Object {
+            [xml]$trx = Get-Content $_.FullName -Raw
+            $trx.TestRun.Results.UnitTestResult | Where-Object outcome -eq 'Failed' | ForEach-Object {
+              $title = $_.testName -replace '%', '%25' -replace "`r?`n", ' ' -replace ':', '%3A' -replace ',', '%2C'
+              $detail = "$($_.Output.ErrorInfo.Message)`n$($_.Output.ErrorInfo.StackTrace)" -replace '%', '%25' -replace "`r?`n", '%0A'
+              Write-Output "::error title=${title}::$detail"
+            }
+          }
       - name: Package
         shell: cmd
         run: tools\publish.bat
@@ -31,7 +44,7 @@ jobs:
           if ($p.ExitCode -ne 0 -or $version -notmatch '^BatchPad \S') { throw "BatchPad.exe --version failed (exit $($p.ExitCode))" }
       - name: Upload BatchPad.exe
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BatchPad-win-x64
           path: dist/BatchPad.exe
