@@ -20,6 +20,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+# Without this, Windows lets a second server bind the same port silently.
+http.server.HTTPServer.allow_reuse_address = False
 server = http.server.HTTPServer(("127.0.0.1", port), Handler)
 print(f"Serving on http://127.0.0.1:{port}/", flush=True)
 print("Press Ctrl+C to stop.", flush=True)

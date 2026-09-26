@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
+using BatchPad.Core.Trust;
 using BatchPad.Core.Workflows;
 using BatchPad.Core.Workspace;
 
@@ -214,6 +215,25 @@ public sealed class LockTests
     }
 
     [TestMethod]
+    public async Task ALockHandedOnWithinAProcessIsTakenAgainAcrossProcesses()
+    {
+        using var temp = new TempDir();
+        var locks = new LockManager(temp.Root);
+        var elsewhere = new LockManager(temp.Root);
+        var first = await locks.AcquireAsync(["x"], new object(), holder: "first");
+        var second = locks.AcquireAsync(["x"], new object(), holder: "second");
+        var third = elsewhere.AcquireAsync(["x"], new object(), holder: "third");
+
+        first.Dispose();
+        var next = await Task.WhenAny(second, third).WaitAsync(Limit);
+
+        StringAssert.StartsWith(new LockManager(temp.Root).DescribeHolder("x"), next == second ? "held by second" : "held by third");
+        (await next).Dispose();
+        (await (next == second ? third : second).WaitAsync(Limit)).Dispose();
+        Assert.IsNull(new LockManager(temp.Root).DescribeHolder("x"));
+    }
+
+    [TestMethod]
     public async Task ANoWaitAcquireFailsFastWhereverTheLockIsHeld()
     {
         using var temp = new TempDir();
@@ -238,6 +258,55 @@ public sealed class LockTests
 
         Assert.ThrowsExactly<LockBusyException>(() => test.Workspace.Gate.Start(test.Workspace.Request("b"), RunWorkspace.Interpreters, waitForLocks: false));
         await first.Completion.WaitAsync(Limit);
+    }
+
+    [TestMethod]
+    public async Task SingleInstanceIsPerWorkspaceEvenWithinOneCheckoutOrMachineWide()
+    {
+        using var temp = new TempDir();
+        Directory.CreateDirectory(temp.Path(".git"));
+        var paths = new AppPaths(temp.Path("data"));
+        var trust = TrustStore.Load(paths);
+        trust.Trust(temp.Root);
+        var gate = new RunGate(trust, locks: new LockManager(temp.Path("locks")));
+        RunHandle Start(string workspaceId, string scriptId)
+        {
+            var folder = Directory.CreateDirectory(temp.Path(workspaceId)).FullName;
+            File.WriteAllText(Path.Combine(folder, "nap.py"), "import time\ntime.sleep(0.2)\n");
+            File.WriteAllText(Path.Combine(folder, "batchpad.json"), $$"""
+                { "id": "{{workspaceId}}", "scripts": [
+                  { "id": "single", "path": "nap.py", "singleInstance": true },
+                  { "id": "serve", "path": "nap.py", "singleInstance": true, "lockScope": "machine" }
+                ] }
+                """);
+            var workspace = WorkspaceLoader.Load(Path.Combine(folder, "batchpad.json"), paths, trust);
+            return gate.Start(new RunRequest(workspace, workspace.Workspace, (ScriptNode)workspace.References.Resolve(scriptId, TreeKind.Workspace)!),
+                RunWorkspace.Interpreters);
+        }
+
+        using var first = Start("one", "single");
+        using var second = Start("two", "single");
+        using var firstServe = Start("one", "serve");
+        using var secondServe = Start("two", "serve");
+
+        Assert.IsNull(second.WaitingForLock);
+        Assert.IsNull(secondServe.WaitingForLock);
+        await Task.WhenAll(first.Completion, second.Completion, firstServe.Completion, secondServe.Completion).WaitAsync(Limit);
+    }
+
+    [TestMethod]
+    public async Task ARunWhoseLockCannotBeTakenFailsToStart()
+    {
+        using var test = new LockTest();
+        var blocked = test.Workspace.Temp.Path("locks-is-a-file");
+        File.WriteAllText(blocked, "");
+        var gate = new RunGate(TrustStore.Load(new AppPaths(test.Workspace.Temp.Path("data"))), locks: new LockManager(blocked));
+
+        using var run = gate.Start(test.Workspace.Request("a"), RunWorkspace.Interpreters);
+        var result = await run.Completion.WaitAsync(Limit);
+
+        Assert.AreEqual(RunOutcome.FailedToStart, result.Outcome);
+        Assert.IsTrue(run.Output.Any(l => l.Text.Contains("Could not take its lock")), string.Join('\n', run.Output.Select(l => l.Text)));
     }
 
     private static DateTimeOffset EndOf(RunHandle run) => run.StartedAt + run.Completion.Result.Duration;

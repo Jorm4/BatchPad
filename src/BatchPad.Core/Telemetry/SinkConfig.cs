@@ -56,6 +56,7 @@ public sealed partial class SinkConfig : ExtensibleObject
     }
 
     /// <summary>A copy with <c>${env:NAME}</c> references (and <c>%NAME%</c> in a path) expanded.</summary>
+    /// <exception cref="TelemetrySendException">A referenced variable is not set.</exception>
     public SinkConfig Resolve(Func<string, string?>? environment = null)
     {
         environment ??= Environment.GetEnvironmentVariable;
@@ -80,7 +81,8 @@ public sealed partial class SinkConfig : ExtensibleObject
 
     [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(value))]
     public static string? Expand(string? value, Func<string, string?> environment) =>
-        value is null ? null : EnvReference().Replace(value, m => environment(m.Groups[1].Value) ?? "");
+        value is null ? null : EnvReference().Replace(value, m => environment(m.Groups[1].Value)
+            ?? throw new TelemetrySendException($"Environment variable {m.Groups[1].Value} is not set."));
 
     [GeneratedRegex(@"\$\{env:([^}]+)\}")]
     private static partial Regex EnvReference();

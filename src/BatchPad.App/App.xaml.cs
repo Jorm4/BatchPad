@@ -17,10 +17,12 @@ public partial class App : Application
     public const string DataDirectoryVariable = "BATCHPAD_DATA_DIR";
 
     private readonly TrayService _tray = new();
+    private MainViewModel? _main;
 
     protected override void OnExit(ExitEventArgs e)
     {
         _tray.Dispose();
+        _main?.Shutdown();
         base.OnExit(e);
     }
 
@@ -28,7 +30,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         var paths = ResolvePaths();
-        var main = new MainViewModel(paths, LoadSettings(paths), dispatcher: new WpfDispatcher(Dispatcher), tray: _tray);
+        var main = _main = new MainViewModel(paths, LoadSettings(paths), dispatcher: new WpfDispatcher(Dispatcher), tray: _tray);
         main.OpenInitial(e.Args.FirstOrDefault(), Environment.CurrentDirectory);
         main.EnableFileWatching();
         new MainWindow { DataContext = main }.Show();

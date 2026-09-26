@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using BatchPad.Core.Running;
 using BatchPad.Core.Workspace;
+using BatchPad.Core.IO;
 
 namespace BatchPad.Core.History;
 
@@ -46,18 +47,6 @@ public sealed class HistoryStore
 
     public static HistoryStore For(AppPaths paths, string workspaceId, TimeProvider? time = null) =>
         new(System.IO.Path.Combine(RootOf(paths), workspaceId), time);
-
-    /// <summary>The store of whichever workspace recorded <paramref name="runId"/>, or null.</summary>
-    public static HistoryStore? Containing(AppPaths paths, string runId)
-    {
-        if (string.IsNullOrWhiteSpace(runId) || runId.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 || runId.Trim('.').Length == 0
-            || !System.IO.Directory.Exists(RootOf(paths)))
-            return null;
-        return System.IO.Directory.EnumerateDirectories(RootOf(paths))
-            .FirstOrDefault(directory => File.Exists(System.IO.Path.Combine(directory, runId + ".json"))) is { } found
-            ? new HistoryStore(found)
-            : null;
-    }
 
     private static string RootOf(AppPaths paths) => System.IO.Path.Combine(paths.LocalDirectory, "history");
 
@@ -110,12 +99,9 @@ public sealed class HistoryStore
             var records = Records();
             System.IO.Directory.CreateDirectory(Directory);
             File.WriteAllLines(LogPath(saved), log);
-            var temporary = RecordPath(saved) + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(saved, Json));
-            File.Move(temporary, RecordPath(saved), overwrite: true);
+            AtomicFile.WriteAllText(RecordPath(saved), JsonSerializer.Serialize(saved, Json));
             _known.Add(saved.Id);
-            var index = records.BinarySearch(saved, NewestFirstComparer);
-            records.Insert(index < 0 ? ~index : index, saved);
+            InsertNewestFirst(records, saved);
             Prune(records);
             handlers = _runRecorded;
         }
@@ -124,84 +110,86 @@ public sealed class HistoryStore
         return saved;
     }
 
-    public IReadOnlyList<RunRecord> Recent(int count = int.MaxValue)
-    {
-        List<RunRecord> recent;
-        IReadOnlyList<RunRecord> external;
-        lock (_lock)
-        {
-            external = Refresh();
-            recent = [.. Records().Take(count)];
-        }
-        Announce(external);
-        return recent;
-    }
+    public IReadOnlyList<RunRecord> Recent(int count = int.MaxValue) => Read<IReadOnlyList<RunRecord>>(records => [.. records.Take(count)]);
+
+    public RunRecord? Find(string id) => Find(r => r.Id == id);
+
+    /// <summary>The newest record that matches <paramref name="match"/>, or null.</summary>
+    public RunRecord? Find(Func<RunRecord, bool> match) => Read(records => records.FirstOrDefault(match));
 
     /// <summary>Each node's latest run that was not stopped, since stopping a server is not a result.</summary>
-    public IReadOnlyDictionary<string, RunRecord> LastResults()
+    public IReadOnlyDictionary<string, RunRecord> LastResults() => Read(records =>
     {
         var last = new Dictionary<string, RunRecord>();
-        IReadOnlyList<RunRecord> external;
-        lock (_lock)
-        {
-            external = Refresh();
-            foreach (var record in Records().Where(r => r.Outcome != RunOutcome.Stopped))
-                last.TryAdd(record.NodeKey, record);
-        }
-        Announce(external);
+        foreach (var record in records.Where(r => r.Outcome != RunOutcome.Stopped))
+            last.TryAdd(record.NodeKey, record);
         return last;
-    }
+    });
 
     private string RecordPath(RunRecord record) => System.IO.Path.Combine(Directory, record.Id + ".json");
 
+    private T Read<T>(Func<List<RunRecord>, T> read, bool force = false)
+    {
+        T result;
+        IReadOnlyList<RunRecord> external;
+        lock (_lock)
+        {
+            external = Refresh(force);
+            result = read(Records());
+        }
+        Announce(external);
+        return result;
+    }
+
     private List<RunRecord> Records()
     {
-        if (_newestFirst is not null)
-            return _newestFirst;
-        _scannedWriteTime = DirectoryWriteTime();
-        _newestFirst = [];
-        foreach (var (id, file) in RecordFiles() ?? [])
+        if (_newestFirst is null)
         {
-            _known.Add(id);
-            if (Load(id, file) is { } record)
-                _newestFirst.Add(record);
+            _newestFirst = [];
+            TakeIn(force: true);
         }
-        _newestFirst.Sort(NewestFirst);
-        Prune(_newestFirst);
         return _newestFirst;
     }
 
     /// <summary>Takes in what other processes added or pruned since the last look; returns the added records to announce.</summary>
-    private List<RunRecord> Refresh(bool force = false)
+    private List<RunRecord> Refresh(bool force)
     {
         if (_newestFirst is null)
         {
             Records();
             return [];
         }
+        return TakeIn(force);
+    }
+
+    private List<RunRecord> TakeIn(bool force)
+    {
         var writeTime = DirectoryWriteTime();
         if (writeTime == _scannedWriteTime && !force || RecordFiles() is not { } files)
             return [];
-        _scannedWriteTime = writeTime;
 
         var added = new List<RunRecord>();
+        var unreadable = false;
         foreach (var (id, file) in files)
         {
             if (_known.Contains(id))
                 continue;
-            if (Load(id, file) is not { } record)
+            if (!TryLoad(id, file, out var record))
+            {
+                unreadable = true;
                 continue;
+            }
             _known.Add(id);
-            added.Add(record);
+            if (record is not null)
+                added.Add(record);
         }
-        _newestFirst.RemoveAll(r => !files.ContainsKey(r.Id));
+        // Rescan on the next look, so a file another process briefly holds isn't missed until the folder changes again.
+        if (!unreadable)
+            _scannedWriteTime = writeTime;
+        _newestFirst!.RemoveAll(r => !files.ContainsKey(r.Id));
         foreach (var record in added)
-        {
-            var index = _newestFirst.BinarySearch(record, NewestFirstComparer);
-            _newestFirst.Insert(index < 0 ? ~index : index, record);
-        }
-        Prune(_newestFirst);
-        return [.. added.Where(_newestFirst.Contains).OrderBy(r => r.StartedAt)];
+            InsertNewestFirst(_newestFirst, record);
+        return [.. added.OrderBy(r => r.StartedAt)];
     }
 
     private void Announce(IReadOnlyList<RunRecord> external)
@@ -230,15 +218,22 @@ public sealed class HistoryStore
         }
     }
 
-    private static RunRecord? Load(string id, string file)
+    /// <returns>False when the file can't be read right now; one that isn't a valid record reads as null.</returns>
+    private static bool TryLoad(string id, string file, out RunRecord? record)
     {
+        record = null;
         try
         {
-            return JsonSerializer.Deserialize<RunRecord>(File.ReadAllText(file), Json) is { } record ? record with { Id = id } : null;
+            record = JsonSerializer.Deserialize<RunRecord>(File.ReadAllText(file), Json) is { } loaded ? loaded with { Id = id } : null;
+            return true;
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        catch (JsonException)
         {
-            return null;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
@@ -281,17 +276,7 @@ public sealed class HistoryStore
         _watcher = null;
     }
 
-    private void OnChanged(object? sender, FileSystemEventArgs? change)
-    {
-        IReadOnlyList<RunRecord> external;
-        lock (_lock)
-        {
-            if (_watcher is null)
-                return;
-            external = Refresh(force: true);
-        }
-        Announce(external);
-    }
+    private void OnChanged(object? sender, FileSystemEventArgs? change) => Read(_ => 0, force: true);
 
     private void Prune(List<RunRecord> newestFirst)
     {
@@ -315,6 +300,12 @@ public sealed class HistoryStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
+    }
+
+    private static void InsertNewestFirst(List<RunRecord> records, RunRecord record)
+    {
+        var index = records.BinarySearch(record, NewestFirstComparer);
+        records.Insert(index < 0 ? ~index : index, record);
     }
 
     private static readonly Comparer<RunRecord> NewestFirstComparer = Comparer<RunRecord>.Create(NewestFirst);

@@ -83,13 +83,17 @@ public static class HistoryRecorder
         }, output.Select(l => Mask(l.Text, secrets)));
     }
 
-    private static RunRecord Describe(RunRecord record, ScriptTree tree, RunnableNode node, string directory) => record with
+    private static RunRecord Describe(RunRecord record, ScriptTree tree, RunnableNode node, string directory)
     {
-        Folder = tree.FolderOf(node),
-        Tags = node.Tags is { Count: > 0 } tags ? [.. tags] : null,
-        Git = GitInfo.Read(directory),
-        Checkout = Checkout.Read(directory),
-    };
+        var checkout = Checkout.Read(directory);
+        return record with
+        {
+            Folder = tree.FolderOf(node),
+            Tags = node.Tags is { Count: > 0 } tags ? [.. tags] : null,
+            Git = checkout is { Branch: var branch, Commit: var commit } && (branch ?? commit) is not null ? new GitInfo(branch, commit) : null,
+            Checkout = checkout,
+        };
+    }
 
     private static TestSummary? Summarize(JUnitReport? report)
     {
@@ -102,7 +106,9 @@ public static class HistoryRecorder
                 .Select(c => new TestTiming(QualifiedName(c), c.Seconds))]);
     }
 
-    private static string QualifiedName(TestCaseResult test) => test.ClassName.Length > 0 ? $"{test.ClassName}.{test.Name}" : test.Name;
+    private static string QualifiedName(TestCaseResult test) => Shorten(test.ClassName.Length > 0 ? $"{test.ClassName}.{test.Name}" : test.Name);
+
+    private static string Shorten(string text) => text.Length > RunRecord.MaxTextLength ? text[..RunRecord.MaxTextLength] + "…" : text;
 
     private static List<ErrorLine>? ErrorsIn(IReadOnlyList<OutputLine> output, RunRequest request, IReadOnlyCollection<string>? secrets)
     {
@@ -113,11 +119,12 @@ public static class HistoryRecorder
         {
             if (line.Stream == OutputStream.Info)
                 continue;
-            var parsed = parser.Parse(Mask(line.Text, secrets));
+            var parsed = parser.Parse(line.Text);
             if (line.Stream != OutputStream.Stderr && !parsed.IsErrorMatch || string.IsNullOrWhiteSpace(parsed.Text))
                 continue;
-            var location = SourceLocationParser.Find(parsed.Text)?.Select(resolver.Resolve).FirstOrDefault(l => l is not null);
-            errors.Add(location is null ? new ErrorLine(parsed.Text) : new ErrorLine(parsed.Text, location.Path, location.Line, location.Column));
+            var text = Mask(parsed.Text, secrets);
+            var location = SourceLocationParser.Find(text)?.Select(resolver.Resolve).FirstOrDefault(l => l is not null);
+            errors.Add(location is null ? new ErrorLine(Shorten(text)) : new ErrorLine(Shorten(text), location.Path, location.Line, location.Column));
             if (errors.Count == RunRecord.MaxErrors)
                 break;
         }

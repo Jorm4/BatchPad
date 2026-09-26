@@ -12,10 +12,19 @@ public sealed record Checkout(string Directory, CheckoutKind Kind, string Name, 
     public string Describe() => Branch is { } branch ? $"{Name} ({branch})" : Name;
 
     /// <summary>The folder of the checkout containing <paramref name="directory"/>, else the directory itself.</summary>
-    public static string DirectoryOf(string directory) => Read(directory)?.Directory ?? PathIdentity.Normalize(directory);
+    public static string DirectoryOf(string directory) => Locate(directory)?.Directory ?? PathIdentity.Normalize(directory);
 
     /// <summary>The checkout containing <paramref name="directory"/>, or null when it isn't in one or can't be read.</summary>
     public static Checkout? Read(string directory)
+    {
+        if (Locate(directory) is not { } located)
+            return null;
+        var git = located.GitDirectory is null ? null : GitInfo.FromGitDirectory(located.GitDirectory);
+        return new Checkout(located.Directory, located.Kind, located.Name, git?.Branch, git?.Commit, located.Repository);
+    }
+
+    /// <summary>Where the checkout containing <paramref name="directory"/> is, without reading its branch or commit.</summary>
+    internal static Located? Locate(string directory)
     {
         try
         {
@@ -23,7 +32,7 @@ public sealed record Checkout(string Directory, CheckoutKind Kind, string Name, 
             {
                 var dotGit = Path.Combine(current.FullName, ".git");
                 if (System.IO.Directory.Exists(dotGit))
-                    return Create(current.FullName, CheckoutKind.Main, MainName, dotGit, current.FullName);
+                    return new Located(current.FullName, CheckoutKind.Main, MainName, dotGit, current.FullName);
                 if (File.Exists(dotGit))
                     return FromGitFile(current.FullName, dotGit);
             }
@@ -35,12 +44,12 @@ public sealed record Checkout(string Directory, CheckoutKind Kind, string Name, 
         }
     }
 
-    private static Checkout FromGitFile(string directory, string dotGit)
+    private static Located FromGitFile(string directory, string dotGit)
     {
         var gitDirectory = GitInfo.GitDirectoryNamedBy(dotGit);
         return gitDirectory is not null && VerifiedRepository(dotGit, gitDirectory) is { } repository
-            ? Create(directory, CheckoutKind.Worktree, Path.GetFileName(directory), gitDirectory, repository)
-            : Create(directory, CheckoutKind.Main, MainName, gitDirectory, directory);
+            ? new Located(directory, CheckoutKind.Worktree, Path.GetFileName(directory), gitDirectory, repository)
+            : new Located(directory, CheckoutKind.Main, MainName, gitDirectory, directory);
     }
 
     /// <summary>
@@ -50,20 +59,19 @@ public sealed record Checkout(string Directory, CheckoutKind Kind, string Name, 
     private static string? VerifiedRepository(string dotGit, string gitDirectory)
     {
         var backPointer = Path.Combine(gitDirectory, "gitdir");
-        if (!File.Exists(backPointer) || !File.Exists(Path.Combine(gitDirectory, "commondir")))
+        var commonFile = Path.Combine(gitDirectory, "commondir");
+        if (!File.Exists(backPointer) || !File.Exists(commonFile))
             return null;
-        if (!PathIdentity.Same(Path.GetFullPath(File.ReadAllText(backPointer).Trim(), gitDirectory), dotGit))
+        if (GitInfo.LocalPathNamedIn(backPointer, File.ReadAllText(backPointer).Trim()) is not { } pointedAt || !PathIdentity.Same(pointedAt, dotGit))
             return null;
-        var common = GitInfo.CommonDirectory(gitDirectory);
-        if (!PathIdentity.Same(Path.GetDirectoryName(PathIdentity.Normalize(gitDirectory))!, Path.Combine(common, "worktrees")))
+        if (GitInfo.LocalPathNamedIn(commonFile, File.ReadAllText(commonFile).Trim()) is not { } commonDirectory)
             return null;
-        var normalized = PathIdentity.Normalize(common);
-        return Path.GetFileName(normalized).Equals(".git", StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(normalized)! : normalized;
+        var common = PathIdentity.Normalize(commonDirectory);
+        if (!string.Equals(Path.GetDirectoryName(PathIdentity.Normalize(gitDirectory)), Path.Combine(common, "worktrees"), StringComparison.OrdinalIgnoreCase))
+            return null;
+        return Path.GetFileName(common).Equals(".git", StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(common)! : common;
     }
 
-    private static Checkout Create(string directory, CheckoutKind kind, string name, string? gitDirectory, string repository)
-    {
-        var git = gitDirectory is null ? null : GitInfo.FromGitDirectory(gitDirectory);
-        return new Checkout(directory, kind, name, git?.Branch, git?.Commit, repository);
-    }
+    /// <param name="GitDirectory">Null when the <c>.git</c> file names no directory BatchPad will read.</param>
+    internal sealed record Located(string Directory, CheckoutKind Kind, string Name, string? GitDirectory, string Repository);
 }

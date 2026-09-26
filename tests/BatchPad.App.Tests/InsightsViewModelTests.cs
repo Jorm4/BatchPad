@@ -16,7 +16,7 @@ public sealed class InsightsViewModelTests
         var hello = main.Tree!.Find("Workspace/Hello/hello.bat")!.Key;
         var build = main.Tree.Find("Workspace/Build & run")!.Key;
         var now = main.Time.GetUtcNow();
-        Record(main, hello, "hello.bat", now.AddMinutes(-50), 10, "Hello");
+        Record(main, hello, "hello.bat", now.AddMinutes(-50), 10, "Hello", tests: new TestSummary(4, 0, 0, [], []));
         Record(main, hello, "hello.bat", now.AddMinutes(-40), 20, "Hello", exitCode: 1,
             tests: new TestSummary(3, 1, 0, ["Suite.Flaky"], [new TestTiming("Suite.Slow", 4.5)]));
         Record(main, hello, "hello.bat", now.AddMinutes(-30), 30, "Hello", trigger: "agent:claude-code",

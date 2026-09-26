@@ -38,7 +38,7 @@ public sealed class InfluxSink(SinkConfig config, HttpMessageHandler? handler = 
             text.Append(CultureInfo.InvariantCulture, $" duration_ms={e.DurationMs}i,queued_ms={e.QueuedMs}i,exit_code={e.ExitCode}i");
             if (e.Tests is { } tests)
                 text.Append(CultureInfo.InvariantCulture, $",tests_failed={tests.Failed}i");
-            text.Append(' ').Append((e.Time.UtcTicks - DateTimeOffset.UnixEpoch.UtcTicks) * 100).Append('\n');
+            text.Append(' ').Append(TelemetryTime.UnixNanoseconds(e.Time)).Append('\n');
         }
         return text.ToString();
     }

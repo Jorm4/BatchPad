@@ -31,13 +31,25 @@ internal static class TestHelpers
         }
     }
 
+    // Below Windows' ephemeral range (49152+): a port from bind(0) is the next one the OS hands an outgoing connection.
     public static int FreePort()
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
+        while (true)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, Random.Shared.Next(20000, 45000)) { ExclusiveAddressUse = true };
+            try
+            {
+                listener.Start();
+                return ((IPEndPoint)listener.LocalEndpoint).Port;
+            }
+            catch (SocketException)
+            {
+            }
+            finally
+            {
+                listener.Stop();
+            }
+        }
     }
 
     public static void CopyTree(string source, string target)

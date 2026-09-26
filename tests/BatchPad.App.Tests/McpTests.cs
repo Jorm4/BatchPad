@@ -4,8 +4,10 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using BatchPad.App.Cli;
 using BatchPad.Core.History;
+using BatchPad.Core.Running;
 using BatchPad.Core.Trust;
 using BatchPad.Core.Workspace;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 
 namespace BatchPad.App.Tests;
@@ -27,15 +29,46 @@ public sealed class McpTests
     {
         using var test = new TestWorkspace();
         var directory = Path.GetDirectoryName(WriteWorkspace(test))!;
-        var tools = new McpTools(test.Paths);
+        await using var tools = new McpTools(test.Paths);
 
-        foreach (var result in new[] { await tools.ListScripts(directory), await tools.GetStats(Path.Combine(directory, "src")) })
+        foreach (var result in new[]
+                 {
+                     await tools.ListScripts(directory), await tools.GetStats(Path.Combine(directory, "src")),
+                     await tools.GetLog(directory, "any"), await tools.GetLog(directory, @"..\..\settings"),
+                 })
         {
             Assert.IsTrue(result.IsError);
             StringAssert.Contains(((TextContentBlock)result.Content.Single()).Text, "until you trust this workspace folder");
         }
-        Assert.IsTrue((await tools.GetLog("any")).IsError);
-        Assert.IsTrue((await tools.GetLog(@"..\..\settings")).IsError);
+    }
+
+    [TestMethod]
+    public async Task OnlyALocalDriveDirectoryIsAccepted()
+    {
+        using var test = new TestWorkspace();
+        await using var tools = new McpTools(test.Paths);
+
+        foreach (var directory in new[] { @"\\host\share\repo", "//host/share/repo", @"\\?\C:\repo", @"\\.\C:\repo", @"C:repo", @"repo", "" })
+        {
+            var refusal = await Assert.ThrowsAsync<McpException>(() => tools.ListScripts(directory));
+            StringAssert.Contains(refusal.Message, "local drive", directory);
+        }
+    }
+
+    [TestMethod]
+    public async Task TheCheckoutReportedIsTheWorkspacesNotTheDirectorysOwn()
+    {
+        using var repo = GitRepo.WithWhichScript();
+        using var test = new TestWorkspace();
+        new TrustStore(new Settings(), test.Paths.SettingsFile).Trust(repo.Main);
+        var nested = Directory.CreateDirectory(Path.Combine(repo.Main, "vendor", "lib")).FullName;
+        GitRepo.Git(nested, "init", "-q", "-b", "trunk");
+        await using var tools = new McpTools(test.Paths);
+
+        var listed = JsonNode.Parse(((TextContentBlock)(await tools.ListScripts(nested)).Content[0]).Text)!;
+
+        Assert.AreEqual("repo", Path.GetFileName(listed["checkout"]!["directory"]!.GetValue<string>()));
+        Assert.AreEqual("main", listed["checkout"]!["branch"]!.GetValue<string>());
     }
 
     [TestMethod]
@@ -83,11 +116,15 @@ public sealed class McpTests
         var workspace = Path.GetDirectoryName(WriteWorkspace(test))!;
         var settings = new Settings();
         new TrustStore(settings, test.Paths.SettingsFile).Trust(workspace);
-        settings.Update(test.Paths.SettingsFile, s => s.Mcp = new McpSettings { AllowIds = ["pass", "fail"] });
+        settings.Update(test.Paths.SettingsFile, s => s.Mcp = new McpSettings { AllowIds = ["pass", "fail", "long"] });
         await using var client = await McpClient.StartInitializedAsync(test, test.Root);
 
         var tools = (await client.CallAsync("tools/list"))["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Order();
         CollectionAssert.AreEqual(new[] { "get_log", "get_stats", "list_scripts", "run_script" }, tools.ToArray());
+
+        var listed = JsonNode.Parse(TextOf(await client.CallToolAsync("list_scripts", new JsonObject { ["directory"] = workspace })))!;
+        CollectionAssert.AreEqual(new[] { "pass", "fail", "long" },
+            listed["scripts"]!.AsArray().Select(s => s!["id"]!.GetValue<string>()).ToArray());
 
         var passed = await client.RunScriptAsync(workspace, "pass");
         Assert.AreEqual(0, passed["exitCode"]!.GetValue<int>());
@@ -102,16 +139,46 @@ public sealed class McpTests
         Assert.AreEqual(3, error["line"]!.GetValue<int>());
         Assert.IsTrue(File.Exists(failed["logPath"]!.GetValue<string>()));
 
-        var log = await client.CallToolAsync("get_log", new JsonObject { ["runId"] = runId, ["tail"] = 2 });
+        var log = await client.CallToolAsync("get_log", new JsonObject { ["directory"] = workspace, ["runId"] = runId, ["tail"] = 2 });
         Assert.AreEqual("two" + Environment.NewLine + "three", TextOf(log));
-        var range = await client.CallToolAsync("get_log", new JsonObject { ["runId"] = runId, ["fromLine"] = 1, ["toLine"] = 1 });
+        var range = await client.CallToolAsync("get_log",
+            new JsonObject { ["directory"] = workspace, ["runId"] = runId, ["fromLine"] = 1, ["toLine"] = 1 });
         Assert.AreEqual("one", TextOf(range));
+
+        var withLog = await client.CallToolAsync("run_script", new JsonObject { ["directory"] = workspace, ["id"] = "long", ["errorsOnly"] = false });
+        var lines = withLog["content"]![1]!["text"]!.GetValue<string>().Split(Environment.NewLine);
+        Assert.HasCount(McpTools.MaxLogLines + 1, lines);
+        StringAssert.Contains(lines[0], "100 earlier lines left out");
+        Assert.AreEqual("101", lines[1]);
+        Assert.AreEqual("2100", lines[^1]);
 
         var refused = await client.CallToolAsync("run_script", new JsonObject { ["directory"] = workspace, ["id"] = "blocked" });
         Assert.IsTrue(refused["isError"]!.GetValue<bool>());
         StringAssert.Contains(TextOf(refused), "allowIds");
 
         Assert.AreEqual(0, await client.CloseAsync());
+    }
+
+    [TestMethod]
+    public async Task ClosingTheServerStopsARunInFlightAndRecordsItAsStopped()
+    {
+        using var test = new TestWorkspace();
+        var workspace = Path.GetDirectoryName(WriteWorkspace(test))!;
+        new TrustStore(new Settings(), test.Paths.SettingsFile).Trust(workspace);
+        await using var client = await McpClient.StartInitializedAsync(test, test.Root);
+
+        await client.SendAsync(new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["id"] = 99,
+            ["method"] = "tools/call",
+            ["params"] = new JsonObject { ["name"] = "run_script", ["arguments"] = new JsonObject { ["directory"] = workspace, ["id"] = "sleep" } },
+        });
+        await Eventually(() => File.Exists(Path.Combine(workspace, "started.txt")));
+
+        Assert.AreEqual(0, await client.CloseAsync(expectNoOutput: false));
+        var record = HistoryStore.For(test.Paths, "mcp-fixture").Recent().Single();
+        Assert.AreEqual(RunOutcome.Stopped, record.Outcome);
     }
 
     private static string TextOf(JsonNode result) => result["content"]![0]!["text"]!.GetValue<string>();
@@ -123,6 +190,8 @@ public sealed class McpTests
         File.WriteAllText(Path.Combine(directory, "src", "thing.cs"), "");
         File.WriteAllText(Path.Combine(directory, "pass.bat"), "@echo off\r\necho one\r\necho two\r\necho three\r\n");
         File.WriteAllText(Path.Combine(directory, "fail.bat"), "@echo off\r\necho src\\thing.cs(3,5): error CS1002: ; expected\r\nexit /b 1\r\n");
+        File.WriteAllText(Path.Combine(directory, "long.bat"), "@echo off\r\nfor /L %%i in (1,1,2100) do echo %%i\r\n");
+        File.WriteAllText(Path.Combine(directory, "sleep.bat"), "@echo off\r\necho started> \"%~dp0started.txt\"\r\nping -n 60 127.0.0.1 >nul\r\n");
         File.WriteAllText(Path.Combine(directory, "batchpad.json"), """
             {
               "id": "mcp-fixture",
@@ -130,7 +199,9 @@ public sealed class McpTests
               "scripts": [
                 { "id": "pass", "name": "Pass", "path": "pass.bat" },
                 { "id": "fail", "name": "Fail", "path": "fail.bat", "errorPatterns": [ "error CS\\d+" ] },
-                { "id": "blocked", "name": "Blocked", "path": "pass.bat" }
+                { "id": "blocked", "name": "Blocked", "path": "pass.bat" },
+                { "id": "long", "name": "Long", "path": "long.bat" },
+                { "id": "sleep", "name": "Sleep", "path": "sleep.bat" }
               ]
             }
             """);
@@ -214,16 +285,17 @@ public sealed class McpTests
             return JsonNode.Parse(TextOf(result))!;
         }
 
-        public async Task<int> CloseAsync()
+        public async Task<int> CloseAsync(bool expectNoOutput = true)
         {
             _process.StandardInput.Close();
             var rest = await _process.StandardOutput.ReadToEndAsync().WaitAsync(Limit);
             await _process.WaitForExitAsync().WaitAsync(Limit);
-            Assert.AreEqual("", rest.Trim());
+            if (expectNoOutput)
+                Assert.AreEqual("", rest.Trim());
             return _process.ExitCode;
         }
 
-        private Task SendAsync(JsonObject message) => _process.StandardInput.WriteLineAsync(message.ToJsonString());
+        public Task SendAsync(JsonObject message) => _process.StandardInput.WriteLineAsync(message.ToJsonString());
 
         public ValueTask DisposeAsync()
         {

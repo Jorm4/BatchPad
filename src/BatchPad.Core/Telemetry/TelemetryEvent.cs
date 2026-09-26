@@ -48,7 +48,7 @@ public sealed record TelemetryEvent
             DateTimeOffset.Parse(reader.GetString()!, CultureInfo.InvariantCulture);
 
         public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options) =>
-            writer.WriteStringValue(value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture));
+            writer.WriteStringValue(TelemetryTime.UtcMilliseconds(value));
     }
 }
 

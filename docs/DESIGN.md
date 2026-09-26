@@ -574,7 +574,8 @@ and report only the exit code.
 `singleInstance` is set. Runs sharing a `lock` name wait in a visible queue.
 Locks are re-entrant within one workflow run, so a workflow holding
 `native-build` can run a step that takes `native-build` too. `singleInstance`
-is not: two parallel steps running the same script still take turns. A queued run
+is not: two parallel steps running the same script still take turns, and it
+is per workspace, so another workspace's script with the same id never waits. A queued run
 shows "waiting for lock X" on its tab and its tree badge, and Stop takes it
 out of the queue without starting it. Locks and `singleInstance` hold across
 processes (the app, command-line runs and agents all share them; §4.5) and,
@@ -861,7 +862,7 @@ sink is off until you add it:
 "telemetry": {
   "machine": true, "user": false,           // include the machine and user names
   "includeValues": false,                   // parameter values (secrets are never sent)
-  "hashNames": false,                       // hash script, folder and workspace names
+  "hashNames": false,                       // hash the names in each event (below)
   "sinks": [
     { "type": "jsonl", "path": "%LOCALAPPDATA%\\BatchPad\\telemetry\\runs.jsonl", "maxSizeMb": 50 },
     { "type": "otlp", "endpoint": "http://localhost:4318", "headers": { "Authorization": "${env:OTEL_TOKEN}" } },
@@ -880,7 +881,17 @@ sink is off until you add it:
 | `http` | A JSON array of events, POSTed | Generic webhook |
 
 Credentials come from `${env:…}` (or later from Windows Credential Manager),
-never written in plain text by the app.
+never written in plain text by the app. An unset variable fails the send as
+retryable, as do 401 and 403, so a missing or expired key loses nothing;
+other 4xx answers drop the batch. Redirects are not followed, so headers
+never reach another host.
+
+`hashNames` replaces user-chosen names with a salted hash (HMAC-SHA256 with a
+per-install salt in `telemetry\salt`): workspace, script, folder and checkout
+names, script id, branch, step id and tags, and the schedule or step a
+trigger names, keeping its kind (`schedule:<hash>`, `afterRun:<hash>`,
+`resume:<hash>`). Agent triggers (`agent:claude-code`) and plain ones (`cli`,
+`manual`) are sent as is.
 
 **Delivery never slows a run.** Events go to a local outbox
 (`LocalDirectory\telemetry\outbox\`, one file per batch). A background sender
@@ -888,7 +899,8 @@ posts batches with exponential backoff and drops the oldest when the outbox
 passes its cap (default 20 MB). Every sink shows its state on the Settings
 page (toolbar): last success, last error, and how many events are waiting.
 **Send test event** checks a configuration. The command line and the scheduler write events the
-same way, and delivery resumes the next time any BatchPad process runs.
+same way; a sender idle for a minute rechecks the outbox, so what a process
+could not deliver before exiting goes out from any other that is running.
 Each process enqueues only the runs it recorded itself (the history store
 tells its own saves apart from records another process wrote), so a
 command-line run the app also shows is sent once.
@@ -931,7 +943,9 @@ commands at once, next to a person using the app. So named locks and
   for exclusive use for the run. Windows closes it when the process dies, so
   a crashed run never leaves a lock behind. A `<hash>.owner` file next to it
   names the holder. The process's in-memory queue keeps FIFO order within
-  the process, and other processes poll for the file.
+  the process, and other processes poll for the file. A released file is
+  closed even when a run in the same process is next; that run then takes
+  it again like any other waiter.
 - A queued command-line run prints "waiting for lock native-build (held by
   <script> since 09:12)" to stderr, so an agent sees why it is waiting.
 - `--no-wait` fails fast instead of queueing. It applies to a single script;
@@ -942,21 +956,27 @@ tools:
 
 | Tool | Does |
 |---|---|
-| `list_scripts` | the runnable entries with their parameters |
-| `run_script` | runs one entry and returns the same result object as `run --json` (errors only, plus the log path) |
-| `get_log` | a recorded run's log: tail, errors only, or a line range (ranges are MCP-only; `batchpad log` has tail and errors) |
+| `list_scripts` | the runnable entries with their parameters (only the `mcp.allowIds` ones when that is set) |
+| `run_script` | runs one entry and returns the same result object as `run --json` (errors only, plus the log path; `errorsOnly: false` adds the log's last 2000 lines); `noWait` fails at once when a lock is held |
+| `get_log` | a recorded run's log by run id, from the directory's workspace only: tail, errors only, or a line range (ranges are MCP-only; `batchpad log` has tail and errors) |
 | `get_stats` | the Insights figures for a period |
 
-`list_scripts`, `run_script` and `get_stats` take a **required `directory`**:
-the agent's own working folder, from which the workspace is found as the
-command line finds it. The server has no default workspace, because one MCP
+Every tool takes a **required `directory`**: the agent's own working folder,
+from which the workspace is found as the command line finds it. It must be a
+local drive path; a UNC or device path is refused before anything touches it. The server has no default workspace, because one MCP
 server serves a whole agent session, including subagents that work in other
 git worktrees. A default taken from where the server was started would
 quietly run the main checkout's scripts for a worktree agent.
 
+A cancelled tool call stops its run, recorded as stopped. When the client
+closes the server, runs still in flight are stopped and recorded before it
+exits. The server shares one telemetry pipeline, delivering in the
+background, instead of flushing after every run.
+
 Register it with `claude mcp add batchpad -- batchpad.com mcp`. Agents then
 get typed tools, and the permission system can allow `run_script` for chosen
-ids only (`mcp.allowIds` in settings.json).
+ids only (`mcp.allowIds` in settings.json). Allowing an id allows everything
+that entry runs, including its prerequisites and workflow steps.
 
 **Git worktrees.** Agents often work in worktrees (`git worktree add`), one
 checkout per task. BatchPad makes sure a script always runs in the checkout
@@ -964,17 +984,23 @@ the agent is working in:
 - **Resolution.** The command line resolves the workspace from its current
   folder, and the MCP tools from `directory`. Either way the worktree's own
   `batchpad.json` is found first; the file is committed, so every worktree
-  has it.
-- **Every result says where it ran.** Run and list results carry
-  `checkout: { directory, kind: "main" | "worktree", name, branch, commit,
-  repository }`. The command line also prints "in <checkout>" on stderr in
+  has it. The search never goes above a worktree's root: a worktree without
+  its own file (not yet committed) reports that no workspace was found
+  rather than using the main checkout's around it.
+- **Every result says where it ran.** Run and list results carry the
+  checkout of the workspace used, `checkout: { directory, kind: "main" |
+  "worktree", name, branch, commit, repository }`. The command line also prints "in <checkout>" on stderr in
   text mode, so a run in the wrong checkout is visible at once.
 - **Trust follows the repository.** A worktree of a trusted repository is
   trusted. BatchPad reads git's own files in both directions: the worktree's
   `.git` file points at `<repo>/.git/worktrees/<name>`, whose `gitdir` file
   must point back at that worktree, and whose `commondir` leads to the
   repository. A hand-made `.git` file that points at a trusted repository is
-  not enough.
+  not enough. Paths in these files are followed only on the same drive, never
+  to a network or device path, so checking an untrusted folder cannot reach
+  out to a server. A deleted worktree that git has not pruned still verifies
+  until `git worktree prune`; recreating a folder at that exact path needs
+  write access there, which is accepted.
 - **Locks are per checkout** by default (§4 Locks), so agents in separate
   worktrees build in parallel, and `lockScope: machine` covers shared ports
   and devices.

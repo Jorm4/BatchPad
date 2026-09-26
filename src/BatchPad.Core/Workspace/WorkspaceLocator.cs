@@ -18,13 +18,18 @@ public static class WorkspaceLocator
         return FindUpwards(currentDirectory) ?? recentWorkspaces.FirstOrDefault(File.Exists);
     }
 
+    /// <summary>The nearest <c>batchpad.json</c> upwards, never above a linked worktree's root: a worktree without one must not use the main checkout's.</summary>
     public static string? FindUpwards(string startDirectory)
     {
-        for (var dir = new DirectoryInfo(Path.GetFullPath(startDirectory)); dir is not null; dir = dir.Parent)
+        var start = Path.GetFullPath(startDirectory);
+        var worktreeRoot = Checkout.Read(start) is { Kind: CheckoutKind.Worktree } worktree ? worktree.Directory : null;
+        for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
         {
             var candidate = Path.Combine(dir.FullName, FileName);
             if (File.Exists(candidate))
                 return candidate;
+            if (worktreeRoot is not null && PathIdentity.Same(dir.FullName, worktreeRoot))
+                break;
         }
         return null;
     }

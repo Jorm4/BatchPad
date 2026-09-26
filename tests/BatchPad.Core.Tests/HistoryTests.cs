@@ -110,6 +110,41 @@ public sealed class HistoryTests
     }
 
     [TestMethod]
+    public void ReadingNeverPrunesButTheNextAddDoes()
+    {
+        using var dir = new TempDir();
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+        var writer = new HistoryStore(dir.Root, time);
+        for (var i = 0; i < 3; i++)
+            writer.Add(Record($"run{i}", time.GetUtcNow().AddMinutes(i)), []);
+        var reader = new HistoryStore(dir.Root, time, maxRecords: 1);
+
+        Assert.HasCount(3, reader.Recent());
+        Assert.IsNotNull(reader.Find(r => r.Name == "run0"));
+        Assert.HasCount(6, Directory.GetFiles(dir.Root));
+
+        reader.Add(Record("run3", time.GetUtcNow().AddMinutes(3)), []);
+
+        CollectionAssert.AreEqual(new[] { "run3" }, reader.Recent().Select(r => r.Name).ToArray());
+        Assert.HasCount(2, Directory.GetFiles(dir.Root));
+    }
+
+    [TestMethod]
+    public void ARecordThatWasLockedWhenFirstSeenIsReadOnTheNextLook()
+    {
+        using var dir = new TempDir();
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+        var reader = new HistoryStore(dir.Root, time);
+        Assert.IsEmpty(reader.Recent());
+        var written = new HistoryStore(dir.Root, time).Add(Record("build", time.GetUtcNow()), []);
+
+        using (new FileStream(Path.Combine(dir.Root, written.Id + ".json"), FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.IsNull(reader.Find(written.Id));
+
+        Assert.AreEqual("build", reader.Find(written.Id)?.Name);
+    }
+
+    [TestMethod]
     public void TheLastResultPerNodeSurvivesANewStore()
     {
         using var dir = new TempDir();

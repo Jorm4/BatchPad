@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using BatchPad.Core.Config;
 using BatchPad.Core.History;
+using BatchPad.Core.IO;
 using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Telemetry;
@@ -16,6 +17,7 @@ public sealed class TelemetryPipeline : IAsyncDisposable
     public static readonly TimeSpan ExitFlushLimit = TimeSpan.FromSeconds(2);
     public static readonly TimeSpan FirstRetry = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan LongestRetry = TimeSpan.FromMinutes(10);
+    public static readonly TimeSpan IdleRecheck = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan BusyRetry = TimeSpan.FromSeconds(10);
 
     private readonly Func<TelemetryOptions?> _options;
@@ -63,17 +65,17 @@ public sealed class TelemetryPipeline : IAsyncDisposable
 
     public void Enqueue(RunRecord record, TelemetryWorkspace workspace)
     {
-        if (_options() is not { } options || Enabled(options) is not { Count: > 0 } sinks)
-            return;
         try
         {
+            if (_options() is not { } options || Enabled(options) is not { Count: > 0 } sinks)
+                return;
             TelemetryEvent[] events = [TelemetryEvents.From(record, workspace, options, options.HashNames ? Salt() : "")];
             foreach (var sink in sinks)
                 Outbox.Add(sink.Key, events);
         }
         catch (Exception)
         {
-            // A full disk or an unwritable folder costs the event, never the run.
+            // Bad settings, a full disk or an unwritable folder cost the event, never the run.
         }
         Wake();
     }
@@ -102,8 +104,11 @@ public sealed class TelemetryPipeline : IAsyncDisposable
     {
         var saved = StatusFile.Load();
         return [.. (_options()?.Sinks ?? []).Select(sink =>
-            (saved.GetValueOrDefault(sink.Key) ?? new SinkStatus(sink.Key, sink.Type, sink.Target))
-                with { Type = sink.Type, Target = sink.Target, Pending = Outbox.Pending(sink.Key) })];
+        {
+            var key = sink.Key;
+            return (saved.GetValueOrDefault(key) ?? new SinkStatus(key, sink.Type, sink.Target))
+                with { Type = sink.Type, Target = sink.Target, Pending = Outbox.Pending(key) };
+        })];
     }
 
     /// <summary>Sends one test event straight to <paramref name="sink"/>, bypassing the outbox.</summary>
@@ -152,8 +157,19 @@ public sealed class TelemetryPipeline : IAsyncDisposable
         await _stop.CancelAsync().ConfigureAwait(false);
         if (_loop is not null)
             await _loop.ConfigureAwait(false);
-        foreach (var (_, sink) in _sinks.Values)
-            (sink as IDisposable)?.Dispose();
+        // A flush still sending past the wait keeps its sinks rather than having them disposed under it.
+        if (!await _delivering.WaitAsync(ExitFlushLimit).ConfigureAwait(false))
+            return;
+        try
+        {
+            foreach (var (_, sink) in _sinks.Values)
+                (sink as IDisposable)?.Dispose();
+            _sinks.Clear();
+        }
+        finally
+        {
+            _delivering.Release();
+        }
     }
 
     private static List<SinkConfig> Enabled(TelemetryOptions options) => [.. options.Sinks.Where(s => s.Enabled)];
@@ -190,9 +206,9 @@ public sealed class TelemetryPipeline : IAsyncDisposable
 
             using var waiting = CancellationTokenSource.CreateLinkedTokenSource(stop);
             var woken = _wake.WaitAsync(waiting.Token);
-            var timer = next is { } due
-                ? Task.Delay(Max(TimeSpan.Zero, due - Time.GetUtcNow()), Time, waiting.Token)
-                : Task.Delay(Timeout.Infinite, waiting.Token);
+            // Rechecking while idle picks up what other processes queued but could not deliver.
+            var delay = next is { } due ? Max(TimeSpan.Zero, due - Time.GetUtcNow()) : IdleRecheck;
+            var timer = Task.Delay(delay < IdleRecheck ? delay : IdleRecheck, Time, waiting.Token);
             await Task.WhenAny(woken, timer).ConfigureAwait(false);
             await waiting.CancelAsync().ConfigureAwait(false);
         }
@@ -203,7 +219,7 @@ public sealed class TelemetryPipeline : IAsyncDisposable
     /// <returns>When a sink next needs another try; null when nothing is waiting on a retry.</returns>
     private async Task<DateTimeOffset?> DeliverAsync(bool ignoreBackoff, CancellationToken cancellationToken)
     {
-        if (_options() is not { } options || Enabled(options) is not { Count: > 0 } sinks)
+        if (_options() is not { } options || !options.Sinks.Any(s => s.Enabled))
             return null;
         await _delivering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -212,11 +228,12 @@ public sealed class TelemetryPipeline : IAsyncDisposable
             using var sender = LockSender();
             if (sender is null)
                 return Time.GetUtcNow() + BusyRetry;
-            Outbox.KeepOnly(options.Sinks.Select(s => s.Key));
+            var configured = options.Sinks.Select(s => (Sink: s, Key: s.Key)).ToList();
+            Outbox.KeepOnly(configured.Select(c => c.Key));
             DateTimeOffset? next = null;
-            foreach (var sink in sinks)
+            foreach (var (sink, key) in configured.Where(c => c.Sink.Enabled))
             {
-                if (await DeliverAsync(sink, ignoreBackoff, cancellationToken).ConfigureAwait(false) is { } due && (next is null || due < next))
+                if (await DeliverAsync(sink, key, ignoreBackoff, cancellationToken).ConfigureAwait(false) is { } due && (next is null || due < next))
                     next = due;
             }
             return next;
@@ -228,57 +245,94 @@ public sealed class TelemetryPipeline : IAsyncDisposable
         }
     }
 
-    private async Task<DateTimeOffset?> DeliverAsync(SinkConfig sink, bool ignoreBackoff, CancellationToken cancellationToken)
+    private async Task<DateTimeOffset?> DeliverAsync(SinkConfig sink, string key, bool ignoreBackoff, CancellationToken cancellationToken)
     {
-        if (!ignoreBackoff && _backoff.TryGetValue(sink.Key, out var waiting) && Time.GetUtcNow() < waiting.NotBefore)
+        if (!ignoreBackoff && _backoff.TryGetValue(key, out var waiting) && Time.GetUtcNow() < waiting.NotBefore)
             return waiting.NotBefore;
-        while (true)
+        Queue<OutboxBatch> queue;
+        try
         {
-            var (batches, events) = NextBatches(sink.Key);
-            if (batches.Count == 0)
-                return null;
-            try
+            queue = new Queue<OutboxBatch>(Outbox.Batches(key));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Time.GetUtcNow() + BusyRetry;
+        }
+        List<OutboxBatch> sending = [];
+        DateTimeOffset? next = null;
+        DateTimeOffset? succeeded = null;
+        (string Message, DateTimeOffset At)? error = null;
+        try
+        {
+            ITelemetrySink? instance = null;
+            while (true)
             {
-                await SinkFor(sink).SendAsync(events, cancellationToken).ConfigureAwait(false);
-                batches.ForEach(TelemetryOutbox.Remove);
-                _backoff.Remove(sink.Key);
-                StatusFile.Update(sink, s => s with { LastSuccess = Time.GetUtcNow(), Pending = Outbox.Pending(sink.Key) });
-            }
-            catch (TelemetrySendException ex) when (!ex.Retry)
-            {
-                batches.ForEach(TelemetryOutbox.Remove);
-                Failed(sink, $"{ex.Message} ({events.Count} events dropped)");
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                var failures = (_backoff.TryGetValue(sink.Key, out var previous) ? previous.Failures : 0) + 1;
-                var notBefore = Time.GetUtcNow() + RetryDelay(failures);
-                _backoff[sink.Key] = (failures, notBefore);
-                Failed(sink, ex.Message);
-                return notBefore;
+                (sending, var events, var busy) = NextBatches(queue);
+                if (busy)
+                    next = Time.GetUtcNow() + BusyRetry;
+                if (sending.Count == 0)
+                    break;
+                try
+                {
+                    instance ??= SinkFor(sink, key);
+                    await instance.SendAsync(events, cancellationToken).ConfigureAwait(false);
+                    sending.ForEach(TelemetryOutbox.Remove);
+                    _backoff.Remove(key);
+                    succeeded = Time.GetUtcNow();
+                }
+                catch (TelemetrySendException ex) when (!ex.Retry)
+                {
+                    sending.ForEach(TelemetryOutbox.Remove);
+                    error = ($"{ex.Message} ({events.Count} events dropped)", Time.GetUtcNow());
+                }
+                sending = [];
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var failures = (_backoff.TryGetValue(key, out var previous) ? previous.Failures : 0) + 1;
+            next = Time.GetUtcNow() + RetryDelay(failures);
+            _backoff[key] = (failures, next.Value);
+            error = (ex.Message, Time.GetUtcNow());
+        }
+        finally
+        {
+            if (succeeded is not null || error is not null)
+            {
+                var pending = queue.Sum(b => b.Count) + sending.Sum(b => b.Count);
+                StatusFile.Update(sink, s => (error is { } failed ? s with { LastError = failed.Message, LastErrorAt = failed.At } : s)
+                    with { LastSuccess = succeeded ?? s.LastSuccess, Pending = pending });
+            }
+        }
+        return next;
     }
 
     public static TimeSpan RetryDelay(int failures) =>
         TimeSpan.FromTicks(Math.Min(LongestRetry.Ticks, FirstRetry.Ticks << Math.Clamp(failures - 1, 0, 16)));
 
-    private void Failed(SinkConfig sink, string error) =>
-        StatusFile.Update(sink, s => s with { LastError = error, LastErrorAt = Time.GetUtcNow(), Pending = Outbox.Pending(sink.Key) });
-
-    private (List<OutboxBatch> Batches, List<TelemetryEvent> Events) NextBatches(string sinkKey)
+    /// <summary>Takes up to <see cref="MaxBatchEvents"/> events' worth of batches off <paramref name="queue"/>, removing corrupt ones.</summary>
+    /// <returns>Busy when the first batch is open elsewhere (a virus scanner, say), so it waits for a retry instead of being lost.</returns>
+    private static (List<OutboxBatch> Batches, List<TelemetryEvent> Events, bool Busy) NextBatches(Queue<OutboxBatch> queue)
     {
         var batches = new List<OutboxBatch>();
         var events = new List<TelemetryEvent>();
-        foreach (var batch in Outbox.Batches(sinkKey))
+        while (events.Count < MaxBatchEvents && queue.TryPeek(out var batch))
         {
-            if (events.Count >= MaxBatchEvents)
-                break;
-            if (TelemetryOutbox.Read(batch) is not { } read)
+            List<TelemetryEvent>? read;
+            try
+            {
+                read = TelemetryOutbox.Read(batch);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return (batches, events, batches.Count == 0);
+            }
+            queue.Dequeue();
+            if (read is null)
             {
                 TelemetryOutbox.Remove(batch);
                 continue;
@@ -286,17 +340,17 @@ public sealed class TelemetryPipeline : IAsyncDisposable
             batches.Add(batch);
             events.AddRange(read);
         }
-        return (batches, events);
+        return (batches, events, false);
     }
 
-    private ITelemetrySink SinkFor(SinkConfig sink)
+    private ITelemetrySink SinkFor(SinkConfig sink, string key)
     {
         var config = ConfigJson.Serialize(sink);
-        if (_sinks.TryGetValue(sink.Key, out var cached) && cached.Config == config)
+        if (_sinks.TryGetValue(key, out var cached) && cached.Config == config)
             return cached.Sink;
         (cached.Sink as IDisposable)?.Dispose();
         var created = _createSink(sink);
-        _sinks[sink.Key] = (config, created);
+        _sinks[key] = (config, created);
         return created;
     }
 
@@ -323,22 +377,21 @@ public sealed class TelemetryPipeline : IAsyncDisposable
             if (!File.Exists(file))
             {
                 System.IO.Directory.CreateDirectory(Directory);
-                var temporary = file + "." + Environment.ProcessId + ".tmp";
-                File.WriteAllText(temporary, Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)));
                 try
                 {
-                    File.Move(temporary, file);
+                    AtomicFile.WriteAllText(file, Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)), overwrite: false);
                 }
                 catch (IOException)
                 {
-                    File.Delete(temporary);
+                    // Another process wrote it first.
                 }
             }
             return _salt = File.ReadAllText(file).Trim();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return _salt = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+            // Not cached: the shared salt is tried again next time, and names still never go out in clear.
+            return Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         }
     }
 }

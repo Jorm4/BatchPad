@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json.Nodes;
 using BatchPad.Core.History;
 using BatchPad.Core.Telemetry;
+using BatchPad.Core.Workspace;
 using Microsoft.Extensions.Time.Testing;
 
 namespace BatchPad.Core.Tests;
@@ -136,6 +137,154 @@ public sealed class TelemetryPipelineTests
         var status = pipeline.Statuses().Single();
         Assert.AreEqual(0, status.Pending);
         StringAssert.Contains(status.LastError, "400 Bad Request");
+    }
+
+    [TestMethod]
+    public async Task ABatchSomeoneElseHasOpenWaitsInsteadOfBeingDropped()
+    {
+        using var dir = new TempDir();
+        var sink = new FakeSink();
+        var store = new HistoryStore(dir.Path("history"));
+        await using var pipeline = Pipeline(dir, Fake, sink);
+        using var subscription = pipeline.Attach(store, TelemetryEventTests.Workspace);
+        store.Add(Record(), []);
+
+        using (new FileStream(pipeline.Outbox.Batches(Fake.Key).Single().File, FileMode.Open, FileAccess.Read, FileShare.Delete))
+            await pipeline.FlushAsync(Limit);
+        Assert.AreEqual(0, sink.Attempts);
+        Assert.AreEqual(1, pipeline.Outbox.Pending(Fake.Key));
+
+        await pipeline.FlushAsync(Limit);
+        Assert.HasCount(1, sink.Received);
+    }
+
+    [TestMethod]
+    public async Task ABatchSomeoneElseHasOpenHoldsUpOnlyItsOwnSink()
+    {
+        using var dir = new TempDir();
+        var other = new SinkConfig { Type = "fake", Url = "https://other.example.com" };
+        var (held, free) = (new FakeSink(), new FakeSink());
+        await using var pipeline = new TelemetryPipeline(dir.Path("telemetry"), () => new TelemetryOptions { Sinks = [Fake, other] },
+            createSink: c => c == Fake ? held : free);
+        pipeline.Enqueue(Record(), TelemetryEventTests.Workspace);
+
+        using (new FileStream(pipeline.Outbox.Batches(Fake.Key).Single().File, FileMode.Open, FileAccess.Read, FileShare.Delete))
+            await pipeline.FlushAsync(Limit);
+
+        Assert.AreEqual(0, held.Attempts);
+        Assert.HasCount(1, free.Received);
+        Assert.AreEqual(1, pipeline.Outbox.Pending(Fake.Key));
+    }
+
+    [TestMethod]
+    public async Task ABacklogIsSentInFullBatches()
+    {
+        using var dir = new TempDir();
+        var sink = new FakeSink();
+        await using var pipeline = Pipeline(dir, Fake, sink);
+        var telemetryEvent = TelemetryEvents.From(Record(), TelemetryEventTests.Workspace, new TelemetryOptions());
+        for (var i = 0; i < 250; i++)
+            pipeline.Outbox.Add(Fake.Key, [telemetryEvent with { RunId = $"run-{i}" }]);
+
+        await pipeline.FlushAsync(Limit);
+
+        Assert.AreEqual(3, sink.Attempts);
+        CollectionAssert.AreEqual(Enumerable.Range(0, 250).Select(i => $"run-{i}").ToList(), sink.Received.Select(e => e.RunId).ToList());
+        Assert.AreEqual(0, pipeline.Statuses().Single().Pending);
+    }
+
+    [TestMethod]
+    public async Task WhatAnotherProcessQueuedIsDeliveredWhileIdle()
+    {
+        using var dir = new TempDir();
+        var time = new FakeTimeProvider(DateTimeOffset.Now);
+        var sink = new FakeSink();
+        await using var pipeline = Pipeline(dir, Fake, sink, time);
+        var firstPass = new TaskCompletionSource();
+        pipeline.StatusChanged += () => firstPass.TrySetResult();
+        pipeline.Start();
+        await firstPass.Task.WaitAsync(Limit);
+
+        pipeline.Outbox.Add(Fake.Key, [TelemetryEvents.From(Record("Elsewhere"), TelemetryEventTests.Workspace, new TelemetryOptions())]);
+        await Task.Delay(200);
+        Assert.AreEqual(0, sink.Attempts);
+
+        var deadline = DateTime.UtcNow + Limit;
+        while (sink.Received.Count == 0 && DateTime.UtcNow < deadline)
+        {
+            time.Advance(TelemetryPipeline.IdleRecheck);
+            await Task.Delay(50);
+        }
+        Assert.AreEqual("Elsewhere", sink.Received.Single().Script.Name);
+    }
+
+    [TestMethod]
+    public void NullSinksInSettingsReadAsNone()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.Path("settings.json"), """{ "telemetry": { "sinks": null } }""");
+        File.WriteAllText(dir.Path("other.json"), """{ "telemetry": { "sinks": [ null, { "type": "jsonl", "path": "runs.jsonl" } ] } }""");
+
+        Assert.IsEmpty(Settings.Load(dir.Path("settings.json")).Telemetry!.Sinks);
+        Assert.AreEqual(SinkTypes.Jsonl, Settings.Load(dir.Path("other.json")).Telemetry!.Sinks.Single().Type);
+    }
+
+    [TestMethod]
+    public async Task BadTelemetrySettingsNeverFailARun()
+    {
+        using var dir = new TempDir();
+        var path = System.Text.Json.JsonSerializer.Serialize(dir.Path("runs.jsonl"));
+        File.WriteAllText(dir.Path("settings.json"), $$"""{ "telemetry": { "sinks": [ null, { "type": "jsonl", "path": {{path}} } ] } }""");
+        var settings = Settings.Load(dir.Path("settings.json"));
+        var store = new HistoryStore(dir.Path("history"));
+        await using var pipeline = new TelemetryPipeline(dir.Path("telemetry"), () => settings.Telemetry);
+        await using var broken = new TelemetryPipeline(dir.Path("broken"), () => throw new InvalidOperationException("unreadable settings"));
+        using var subscription = pipeline.Attach(store, TelemetryEventTests.Workspace);
+        using var brokenSubscription = broken.Attach(store, TelemetryEventTests.Workspace);
+
+        store.Add(Record(), []);
+        await pipeline.FlushAsync(Limit);
+
+        Assert.HasCount(1, File.ReadAllLines(dir.Path("runs.jsonl")));
+        Assert.AreEqual(SinkTypes.Jsonl, pipeline.Statuses().Single().Type);
+    }
+
+    [TestMethod]
+    public async Task AnUnreadableSaltIsNotRemembered()
+    {
+        using var dir = new TempDir();
+        var salt = dir.Path("telemetry", "salt");
+        Directory.CreateDirectory(salt);
+        await using var pipeline = new TelemetryPipeline(dir.Path("telemetry"), () => new TelemetryOptions { HashNames = true, Sinks = [Fake] });
+
+        pipeline.Enqueue(Record("Build"), TelemetryEventTests.Workspace);
+        Directory.Delete(salt);
+        File.WriteAllText(salt, "shared-salt");
+        pipeline.Enqueue(Record("Build"), TelemetryEventTests.Workspace);
+
+        var names = pipeline.Outbox.Batches(Fake.Key).Select(b => TelemetryOutbox.Read(b)!.Single().Script.Name).ToList();
+        Assert.HasCount(2, names);
+        Assert.AreNotEqual("Build", names[0]);
+        Assert.AreEqual(TelemetryEvents.Hash("Build", "shared-salt"), names[1]);
+    }
+
+    [TestMethod]
+    public void TheOutboxCleansUpAbandonedTemporaryFiles()
+    {
+        using var dir = new TempDir();
+        var outbox = new TelemetryOutbox(dir.Path("outbox"));
+        Directory.CreateDirectory(dir.Path("outbox", "sink"));
+        var abandoned = dir.Path("outbox", "sink", "old.json.tmp");
+        var inProgress = dir.Path("outbox", "sink", "new.json.tmp");
+        File.WriteAllText(abandoned, "[");
+        File.SetLastWriteTimeUtc(abandoned, DateTime.UtcNow.AddMinutes(-2));
+        File.WriteAllText(inProgress, "[");
+
+        outbox.Add("sink", [TelemetryEvents.From(TelemetryEventTests.SampleRecord(), TelemetryEventTests.Workspace, new TelemetryOptions())]);
+
+        Assert.IsFalse(File.Exists(abandoned));
+        Assert.IsTrue(File.Exists(inProgress));
+        Assert.AreEqual(1, outbox.Pending("sink"));
     }
 
     [TestMethod]

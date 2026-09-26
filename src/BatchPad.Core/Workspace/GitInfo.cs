@@ -12,7 +12,7 @@ public sealed record GitInfo(string? Branch, string? Commit)
     {
         try
         {
-            return FindGitDirectory(directory) is { } gitDirectory ? FromGitDirectory(gitDirectory) : null;
+            return Checkout.Locate(directory)?.GitDirectory is { } gitDirectory ? FromGitDirectory(gitDirectory) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -20,23 +20,25 @@ public sealed record GitInfo(string? Branch, string? Commit)
         }
     }
 
-    private static string? FindGitDirectory(string directory)
-    {
-        for (var current = new DirectoryInfo(Path.GetFullPath(directory)); current is not null; current = current.Parent)
-        {
-            var dotGit = Path.Combine(current.FullName, ".git");
-            if (Directory.Exists(dotGit))
-                return dotGit;
-            if (File.Exists(dotGit))
-                return GitDirectoryNamedBy(dotGit);
-        }
-        return null;
-    }
-
     internal static string? GitDirectoryNamedBy(string dotGitFile) =>
         File.ReadLines(dotGitFile).FirstOrDefault(l => l.StartsWith("gitdir:", StringComparison.Ordinal)) is { } line
-            ? Path.GetFullPath(line["gitdir:".Length..].Trim(), Path.GetDirectoryName(dotGitFile)!)
+            ? LocalPathNamedIn(dotGitFile, line["gitdir:".Length..].Trim())
             : null;
+
+    /// <summary>
+    /// A path written in <paramref name="file"/>, when it is on that file's own drive. Never a UNC or device path: merely
+    /// looking one up would send the user's credentials to whatever server an untrusted folder names.
+    /// </summary>
+    internal static string? LocalPathNamedIn(string file, string path)
+    {
+        var fileRoot = Path.GetPathRoot(file)!;
+        var full = Path.GetFullPath(path, Path.GetDirectoryName(file)!);
+        return IsUncOrDevice(full) || IsUncOrDevice(fileRoot) || !string.Equals(Path.GetPathRoot(full), fileRoot, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : full;
+    }
+
+    private static bool IsUncOrDevice(string path) => path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal);
 
     internal static GitInfo? FromGitDirectory(string gitDirectory)
     {
@@ -56,11 +58,13 @@ public sealed record GitInfo(string? Branch, string? Commit)
     internal static string CommonDirectory(string gitDirectory)
     {
         var file = Path.Combine(gitDirectory, "commondir");
-        return File.Exists(file) ? Path.GetFullPath(File.ReadAllText(file).Trim(), gitDirectory) : gitDirectory;
+        return File.Exists(file) ? LocalPathNamedIn(file, File.ReadAllText(file).Trim()) ?? gitDirectory : gitDirectory;
     }
 
     private static string? ResolveRef(string gitDirectory, string reference)
     {
+        if (!reference.StartsWith("refs/", StringComparison.Ordinal) || reference.Contains("..", StringComparison.Ordinal))
+            return null;
         var loose = Path.Combine(gitDirectory, reference.Replace('/', Path.DirectorySeparatorChar));
         if (File.Exists(loose) && File.ReadAllText(loose).Trim() is { Length: > 0 } commit)
             return commit;

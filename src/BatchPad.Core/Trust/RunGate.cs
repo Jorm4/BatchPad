@@ -70,7 +70,8 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
 
     /// <summary>
     /// The script's <c>lock</c>, held for the request's owner, plus a lock of its own when it is <c>singleInstance</c>, held for
-    /// this run alone so two parallel steps of one workflow don't share it. Both are keyed by the script's <c>lockScope</c>.
+    /// this run alone so two parallel steps of one workflow don't share it and named for the workspace, which its worktrees
+    /// share (§4.5). Both are keyed by the script's <c>lockScope</c>.
     /// </summary>
     public static IReadOnlyList<(string Name, object Owner)> LocksFor(RunRequest request)
     {
@@ -81,7 +82,7 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
         if (!string.IsNullOrWhiteSpace(script.Lock))
             locks.Add((Key(script.Lock), request.LockOwner ?? run));
         if (script.SingleInstance == true)
-            locks.Add((Key($"single instance of {request.Tree.Kind}:{script.Id ?? script.Path}"), run));
+            locks.Add((Key($"single instance of {request.Workspace.Id}/{request.Tree.Kind}:{script.Id ?? script.Path}"), run));
         return locks;
     }
 
@@ -100,6 +101,11 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
         }
         catch (OperationCanceledException)
         {
+            return;
+        }
+        catch (Exception ex)
+        {
+            handle.FailToStart($"Could not take its lock: {ex.Message}");
             return;
         }
         try

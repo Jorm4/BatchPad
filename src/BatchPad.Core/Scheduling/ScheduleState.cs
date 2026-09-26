@@ -1,5 +1,6 @@
 using System.Text.Json;
 using BatchPad.Core.Workspace;
+using BatchPad.Core.IO;
 
 namespace BatchPad.Core.Scheduling;
 
@@ -68,12 +69,10 @@ public sealed class ScheduleStateStore(string filePath)
         {
             if (!_changed || !_writable)
                 return;
-            var temp = FilePath + ".tmp";
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-                File.WriteAllText(temp, JsonSerializer.Serialize(_states, Json));
-                File.Move(temp, FilePath, overwrite: true);
+                AtomicFile.WriteAllText(FilePath, JsonSerializer.Serialize(_states, Json));
                 _changed = false;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -34,6 +34,7 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
 
     private readonly TimeProvider _time = main.Time;
     private TelemetrySubscription? _telemetry;
+    private Action<RunRecord>? _onRecorded;
 
     public HistoryStore? Store { get; private set; }
     public ObservableCollection<HistoryEntryViewModel> Runs { get; } = [];
@@ -53,9 +54,10 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
         if (Store?.Directory == store.Directory)
             return;
         if (Store is not null)
-            Store.RunRecorded -= OnRecorded;
+            Store.RunRecorded -= _onRecorded;
         Store = store;
-        store.RunRecorded += OnRecorded;
+        _onRecorded = record => OnRecorded(store, record);
+        store.RunRecorded += _onRecorded;
         _telemetry?.Dispose();
         _telemetry = main.Telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
         Runs.Clear();
@@ -107,7 +109,7 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
 
     public string? LastLog(string nodeKey)
     {
-        if (Store?.Recent().FirstOrDefault(r => r.NodeKey == nodeKey) is not { } record)
+        if (Store?.Find(r => r.NodeKey == nodeKey) is not { } record)
             return null;
         try
         {
@@ -136,8 +138,10 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
     internal static string KeyOf(RunRequest request) =>
         request.Tree.NodeKey(request.Script, request.Script.Path) ?? $"{request.Tree.Kind}:{request.Script.Name}";
 
-    private void OnRecorded(RunRecord record) => main.Services.Dispatcher.Post(() =>
+    private void OnRecorded(HistoryStore source, RunRecord record) => main.Services.Dispatcher.Post(() =>
     {
+        if (Store != source)
+            return;
         Runs.Insert(0, new HistoryEntryViewModel(record, this));
         if (Runs.Count > Shown)
             Runs.RemoveAt(Runs.Count - 1);

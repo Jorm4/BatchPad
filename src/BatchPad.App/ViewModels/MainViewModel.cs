@@ -396,6 +396,23 @@ public sealed partial class MainViewModel : ObservableObject
         ShowWindowRequested?.Invoke();
     }
 
+    /// <summary>Delivers what telemetry it can within <see cref="TelemetryPipeline.ExitFlushLimit"/>, then stops it.</summary>
+    public void Shutdown()
+    {
+        var stopping = Task.Run(async () =>
+        {
+            await Telemetry.FlushAsync(TelemetryPipeline.ExitFlushLimit).ConfigureAwait(false);
+            await Telemetry.DisposeAsync().ConfigureAwait(false);
+        });
+        try
+        {
+            stopping.Wait(TelemetryPipeline.ExitFlushLimit);
+        }
+        catch (AggregateException)
+        {
+        }
+    }
+
     private void Exit()
     {
         if (Output.Tabs.Any(t => t.IsRunning))

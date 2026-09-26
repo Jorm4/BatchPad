@@ -11,6 +11,7 @@ public static class McpHost
     public static async Task<int> RunAsync(AppPaths paths)
     {
         var tools = new McpTools(paths);
+        tools.StartTelemetry();
         var options = new McpServerOptions
         {
             ServerInfo = new Implementation
@@ -25,7 +26,11 @@ public static class McpHost
 
         await using var transport = new StdioServerTransport(options);
         await using var server = McpServer.Create(transport, options);
-        await server.RunAsync();
+        var running = server.RunAsync();
+        // The server waits for calls in flight before it returns, so stop their runs as soon as stdin closes.
+        await Task.WhenAny(running, transport.MessageReader.Completion);
+        await tools.DisposeAsync();
+        await running;
         return 0;
     }
 }

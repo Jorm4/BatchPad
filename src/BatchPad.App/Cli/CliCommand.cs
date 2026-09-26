@@ -23,6 +23,9 @@ public sealed record CliCommand(CliVerb Verb)
     public int? LastLine { get; init; }
     public TimeSpan Since { get; init; } = TimeSpan.FromDays(7);
 
+    /// <summary>Wraps list and stats JSON with the workspace's git checkout, as the MCP tools return them.</summary>
+    public bool WithCheckout { get; init; }
+
     public const string Usage = """
         Usage:
           batchpad run <id|name> [--workspace <path>] [--set name=value]... [--yes]
@@ -64,7 +67,7 @@ public sealed record CliCommand(CliVerb Verb)
                 ("--agent", CliVerb.Run) => command with { Agent = ValueAfter(args, ref i) },
                 ("--tail", CliVerb.Log) => command with { Tail = Count(ValueAfter(args, ref i)) },
                 ("--errors", CliVerb.Log) => command with { ErrorsOnly = true },
-                ("--since", CliVerb.Stats) => command with { Since = Period(ValueAfter(args, ref i)) },
+                ("--since", CliVerb.Stats) => command with { Since = ParsePeriod(ValueAfter(args, ref i), "--since", m => new CliUsageException(m)) },
                 (var option, _) when option.StartsWith('-') => throw new CliUsageException($"Unknown option '{option}'."),
                 (var positional, CliVerb.Run or CliVerb.Log) when command.Target is null => command with { Target = positional },
                 _ => throw new CliUsageException($"Unexpected argument '{args[i]}'."),
@@ -93,10 +96,10 @@ public sealed record CliCommand(CliVerb Verb)
             ? count
             : throw new CliUsageException($"--tail expects a positive number, not '{text}'.");
 
-    private static TimeSpan Period(string text) =>
+    public static TimeSpan ParsePeriod(string text, string option, Func<string, Exception> error) =>
         RunStats.TryParsePeriod(text, out var period)
             ? period
-            : throw new CliUsageException($"--since expects a period such as 1d, 7d, 30d or 12h, not '{text}'.");
+            : throw error($"{option} expects a period such as 1d, 7d, 30d or 12h, not '{text}'.");
 
     private static string ValueAfter(IReadOnlyList<string> args, ref int i) =>
         ++i < args.Count ? args[i] : throw new CliUsageException($"{args[i - 1]} needs a value.");

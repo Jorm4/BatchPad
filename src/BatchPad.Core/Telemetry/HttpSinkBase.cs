@@ -8,8 +8,9 @@ public abstract class HttpSinkBase(SinkConfig config, HttpMessageHandler? handle
 {
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    // Not following redirects keeps credential headers from reaching another host.
     private readonly HttpClient _client = handler is null
-        ? new HttpClient { Timeout = Timeout }
+        ? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout }
         : new HttpClient(handler, disposeHandler: false) { Timeout = Timeout };
 
     public async Task SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken)
@@ -21,6 +22,10 @@ public abstract class HttpSinkBase(SinkConfig config, HttpMessageHandler? handle
                 request.Content?.Headers.TryAddWithoutValidation(name, value);
         using var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if ((int)response.StatusCode is >= 300 and < 400)
+            throw new TelemetrySendException(
+                $"{(int)response.StatusCode} {response.ReasonPhrase}: redirected to {response.Headers.Location}; set the sink's URL to the final address.",
+                retry: false);
         if (!response.IsSuccessStatusCode)
             throw new TelemetrySendException($"{(int)response.StatusCode} {response.ReasonPhrase}: {Shorten(body)}".TrimEnd(' ', ':'),
                 retry: IsTransient(response.StatusCode));
@@ -34,8 +39,10 @@ public abstract class HttpSinkBase(SinkConfig config, HttpMessageHandler? handle
     {
     }
 
+    /// <remarks>401 and 403 count: a missing or expired key is fixed without losing what is queued.</remarks>
     public static bool IsTransient(HttpStatusCode status) =>
-        status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests || (int)status >= 500;
+        status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+        || (int)status >= 500;
 
     protected static Uri BaseUrl(string? url, string setting)
     {

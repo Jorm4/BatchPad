@@ -113,6 +113,27 @@ public sealed class TelemetryEventTests
     }
 
     [TestMethod]
+    public void HashNamesAlsoHashesTagsBranchStepAndTheNamesATriggerCarries()
+    {
+        var options = new TelemetryOptions { HashNames = true };
+        string Hash(string name) => TelemetryEvents.Hash(name, "salt-1");
+        TelemetryEvent From(string trigger) => TelemetryEvents.From(SampleRecord() with { Trigger = trigger }, Workspace, options, "salt-1");
+
+        var hashed = From(RunTriggers.Schedule("5c0f:nightly"));
+
+        CollectionAssert.AreEqual(new[] { Hash("native") }, hashed.Script.Tags);
+        Assert.AreEqual(Hash("main"), hashed.Workspace.Branch);
+        Assert.AreEqual(Hash("build"), hashed.StepId);
+        Assert.AreEqual("3f9a1c2", hashed.Workspace.Commit);
+        Assert.AreEqual(RunTriggers.Schedule(Hash("5c0f:nightly")), hashed.Trigger);
+        Assert.AreEqual(RunTriggers.AfterRunOf(Hash("5c0f:deploy")), From(RunTriggers.AfterRunOf("5c0f:deploy")).Trigger);
+        Assert.AreEqual(RunTriggers.ResumedFrom(Hash("test")), From(RunTriggers.ResumedFrom("test")).Trigger);
+        foreach (var plain in new[] { RunTriggers.Agent("claude-code"), RunTriggers.Cli, RunTriggers.Manual, RunTriggers.AfterRun })
+            Assert.AreEqual(plain, From(plain).Trigger);
+        Assert.AreEqual(RunTriggers.Schedule("5c0f:nightly"), TelemetryEvents.From(SampleRecord() with { Trigger = RunTriggers.Schedule("5c0f:nightly") }, Workspace, new TelemetryOptions()).Trigger);
+    }
+
+    [TestMethod]
     public void AWorkflowRecordIsAWorkflowEvent()
     {
         var record = SampleRecord() with { Path = null, Command = "", ParentRunId = null, StepId = null };

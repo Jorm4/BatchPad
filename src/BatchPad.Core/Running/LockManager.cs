@@ -56,10 +56,7 @@ public sealed class LockManager(string? machineDirectory = null)
             if (_holders.TryGetValue(name, out var holder) && holder.Machine is { IsCompletedSuccessfully: true })
                 return holder.Describe(checkout);
         }
-        if (MachineDirectory is null)
-            return null;
-        using var probe = MachineLock.TryAcquire(MachineDirectory, name, null, null);
-        return probe is null ? MachineLock.DescribeHolder(MachineDirectory, name, checkout) : null;
+        return MachineDirectory is null ? null : MachineLock.DescribeIfHeld(MachineDirectory, name, checkout);
     }
 
     internal bool IsHeld(string name)
@@ -71,7 +68,8 @@ public sealed class LockManager(string? machineDirectory = null)
     private async Task AcquireOneAsync(Request request, CancellationToken cancellation)
     {
         TaskCompletionSource? waiter = null;
-        Task? machine = null;
+        Task<MachineLock?>? machine = null;
+        MachineStart? start = null;
         lock (_lock)
         {
             if (!_holders.TryGetValue(request.Name, out var holder))
@@ -86,15 +84,16 @@ public sealed class LockManager(string? machineDirectory = null)
                 holder.Queue.AddLast((request.Owner, request.HolderName, request.Checkout, waiter));
             }
             if (waiter is null)
-                machine = MachineFor(holder, request);
+                machine = MachineFor(holder, out start);
         }
         if (waiter is not null)
         {
             request.Waiting?.Invoke(LockKeys.NameOf(request.Name));
             await WaitAsync(request, waiter, cancellation);
             lock (_lock)
-                machine = MachineFor(_holders[request.Name], request);
+                machine = MachineFor(_holders[request.Name], out start);
         }
+        start?.Run(MachineDirectory!, request);
         if (machine!.IsCompletedSuccessfully)
             return;
         try
@@ -110,15 +109,18 @@ public sealed class LockManager(string? machineDirectory = null)
         }
     }
 
-    private Task MachineFor(Holder holder, Request request)
+    /// <summary>The holder's lock across processes, reserved here and taken by <paramref name="start"/> outside <see cref="_lock"/>.</summary>
+    private Task<MachineLock?> MachineFor(Holder holder, out MachineStart? start)
     {
+        start = null;
         if (holder.Machine is not null)
             return holder.Machine;
         if (MachineDirectory is null)
             return holder.Machine = Task.FromResult<MachineLock?>(null);
         holder.MachineCancel = new CancellationTokenSource();
-        return holder.Machine = MachineLock.AcquireAsync(MachineDirectory, request.Name, request.HolderName, request.Checkout,
-            request.Waiting, request.Wait, holder.MachineCancel.Token);
+        start = new MachineStart(new TaskCompletionSource<MachineLock?>(TaskCreationOptions.RunContinuationsAsynchronously),
+            holder.MachineCancel.Token);
+        return holder.Machine = start.Result.Task;
     }
 
     private async Task WaitAsync(Request request, TaskCompletionSource waiter, CancellationToken cancellation)
@@ -134,45 +136,61 @@ public sealed class LockManager(string? machineDirectory = null)
         await waiter.Task;
     }
 
+    /// <summary>Closes the lock file even when a waiter here is next, so waiters in other processes get a turn too.</summary>
     internal void Release(string name, object owner)
     {
+        Task<MachineLock?>? machine;
+        CancellationTokenSource? machineCancel;
+        TaskCompletionSource? next = null;
         lock (_lock)
         {
             if (!_holders.TryGetValue(name, out var holder) || !ReferenceEquals(holder.Owner, owner) || --holder.Count > 0)
                 return;
-            var next = holder.Queue.First;
-            if (next is null || holder.Machine is not { IsCompletedSuccessfully: true })
-                ReleaseMachine(holder);
-            if (next is null)
+            (machine, machineCancel, holder.Machine, holder.MachineCancel) = (holder.Machine, holder.MachineCancel, null, null);
+            if (holder.Queue.First is { } first)
             {
-                _holders.Remove(name);
-                return;
+                holder.Queue.RemoveFirst();
+                (holder.Owner, holder.HolderName, holder.Checkout, holder.Count, holder.Since) =
+                    (first.Value.Owner, first.Value.HolderName, first.Value.Checkout, 1, DateTimeOffset.Now);
+                next = first.Value.Waiter;
             }
-            holder.Queue.RemoveFirst();
-            (holder.Owner, holder.HolderName, holder.Checkout, holder.Count, holder.Since) =
-                (next.Value.Owner, next.Value.HolderName, next.Value.Checkout, 1, DateTimeOffset.Now);
-            holder.Machine?.Result?.Hand(holder.HolderName, holder.Checkout);
-            next.Value.Waiter.SetResult();
+            else
+                _holders.Remove(name);
         }
+        ReleaseMachine(machine, machineCancel);
+        next?.SetResult();
     }
 
-    private static void ReleaseMachine(Holder holder)
+    private static void ReleaseMachine(Task<MachineLock?>? machine, CancellationTokenSource? cancel)
     {
-        if (holder.Machine is not { } machine)
+        if (machine is null)
             return;
         if (machine.IsCompletedSuccessfully)
-            machine.Result?.Dispose();
-        else
         {
-            holder.MachineCancel?.Cancel();
-            machine.ContinueWith(static t =>
-            {
-                if (t.IsCompletedSuccessfully)
-                    t.Result?.Dispose();
-            }, TaskScheduler.Default);
+            machine.Result?.Dispose();
+            cancel?.Dispose();
+            return;
         }
-        holder.MachineCancel?.Dispose();
-        (holder.Machine, holder.MachineCancel) = (null, null);
+        cancel?.Cancel();
+        machine.ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully)
+                t.Result?.Dispose();
+            cancel?.Dispose();
+        }, TaskScheduler.Default);
+    }
+
+    private sealed record MachineStart(TaskCompletionSource<MachineLock?> Result, CancellationToken Cancel)
+    {
+        public void Run(string directory, Request request)
+        {
+            var acquiring = MachineLock.AcquireAsync(directory, request.Name, request.HolderName, request.Checkout, request.Waiting,
+                request.Wait, Cancel);
+            if (acquiring.IsCompleted)
+                Result.TrySetFromTask(acquiring);
+            else
+                acquiring.ContinueWith(t => Result.TrySetFromTask(t), TaskScheduler.Default);
+        }
     }
 
     private sealed record Request(string Name, object Owner, string? HolderName, string? Checkout, Action<string>? Waiting, bool Wait);

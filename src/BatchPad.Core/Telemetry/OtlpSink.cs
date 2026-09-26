@@ -51,7 +51,7 @@ public sealed class OtlpSink(SinkConfig config, HttpMessageHandler? handler = nu
 
     private static JsonNode Span(TelemetryEvent e)
     {
-        var start = UnixNanoseconds(e.Time);
+        var start = TelemetryTime.UnixNanoseconds(e.Time);
         var span = new JsonObject
         {
             ["traceId"] = TraceId(e),
@@ -105,8 +105,6 @@ public sealed class OtlpSink(SinkConfig config, HttpMessageHandler? handler = nu
     private static JsonObject? Text(string? value) => value is null ? null : new JsonObject { ["stringValue"] = value };
 
     private static JsonObject Integer(long value) => new() { ["intValue"] = value.ToString(CultureInfo.InvariantCulture) };
-
-    private static long UnixNanoseconds(DateTimeOffset time) => (time.UtcTicks - DateTimeOffset.UnixEpoch.UtcTicks) * 100;
 
     private static string HexId(string seed, int bytes) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(seed))[..bytes]);
 }

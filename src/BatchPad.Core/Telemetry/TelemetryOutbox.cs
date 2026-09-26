@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
+using BatchPad.Core.IO;
 
 namespace BatchPad.Core.Telemetry;
 
@@ -14,7 +16,13 @@ public sealed class TelemetryOutbox(string directory, long maxBytes = TelemetryO
 {
     public const long DefaultMaxBytes = 20L * 1024 * 1024;
 
+    private static readonly TimeSpan AbandonedAfter = TimeSpan.FromMinutes(1);
     private static long _sequence;
+
+    private readonly Lock _sizeLock = new();
+
+    // Only this process's additions since the last trim; others' show up at the next one.
+    private long? _approximateBytes;
 
     public string Directory { get; } = directory;
 
@@ -23,10 +31,14 @@ public sealed class TelemetryOutbox(string directory, long maxBytes = TelemetryO
         var folder = Path.Combine(Directory, sinkKey);
         System.IO.Directory.CreateDirectory(folder);
         var name = $"{DateTime.UtcNow.Ticks:D19}-{Interlocked.Increment(ref _sequence):D8}{Environment.ProcessId:X8}.{events.Count}.json";
-        var temporary = Path.Combine(folder, name + ".tmp");
-        File.WriteAllText(temporary, JsonSerializer.Serialize(events, TelemetryEvent.Json));
-        File.Move(temporary, Path.Combine(folder, name));
-        Trim();
+        var json = JsonSerializer.Serialize(events, TelemetryEvent.Json);
+        AtomicFile.WriteAllText(Path.Combine(folder, name), json, overwrite: false);
+        lock (_sizeLock)
+        {
+            _approximateBytes = _approximateBytes is { } size ? size + Encoding.UTF8.GetByteCount(json) : Trim();
+            if (_approximateBytes > maxBytes)
+                _approximateBytes = Trim();
+        }
     }
 
     public IReadOnlyList<OutboxBatch> Batches(string sinkKey)
@@ -39,14 +51,15 @@ public sealed class TelemetryOutbox(string directory, long maxBytes = TelemetryO
 
     public int Pending(string sinkKey) => Batches(sinkKey).Sum(b => b.Count);
 
-    /// <summary>The batch's events; null when it is gone or unreadable.</summary>
+    /// <summary>The batch's events; null when it is gone or corrupt.</summary>
+    /// <exception cref="IOException">Someone else (a virus scanner, say) has it open; try again later.</exception>
     public static List<TelemetryEvent>? Read(OutboxBatch batch)
     {
         try
         {
             return JsonSerializer.Deserialize<List<TelemetryEvent>>(File.ReadAllText(batch.File), TelemetryEvent.Json);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException)
         {
             return null;
         }
@@ -74,20 +87,29 @@ public sealed class TelemetryOutbox(string directory, long maxBytes = TelemetryO
         }
     }
 
-    private void Trim()
+    /// <summary>Drops the oldest batches past the cap and temporary files a crashed writer left.</summary>
+    /// <returns>The size of what is left.</returns>
+    private long Trim()
     {
-        var files = System.IO.Directory.EnumerateFiles(Directory, "*.json", SearchOption.AllDirectories)
-            .Select(f => new FileInfo(f))
-            .OrderBy(f => f.Name, StringComparer.Ordinal)
-            .ToList();
-        var total = files.Sum(f => f.Length);
-        foreach (var file in files)
+        var abandoned = DateTime.UtcNow - AbandonedAfter;
+        var batches = new List<FileInfo>();
+        foreach (var file in new DirectoryInfo(Directory).EnumerateFiles("*", SearchOption.AllDirectories))
+        {
+            if (file.Extension == ".json")
+                batches.Add(file);
+            else if (file.Extension == AtomicFile.TemporaryExtension && file.LastWriteTimeUtc < abandoned)
+                Delete(file.FullName);
+        }
+        batches.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+        var total = batches.Sum(f => f.Length);
+        foreach (var file in batches)
         {
             if (total <= maxBytes)
                 break;
             total -= file.Length;
             Delete(file.FullName);
         }
+        return total;
     }
 
     private static int CountOf(string file) =>

@@ -30,22 +30,27 @@ public sealed class CliRunner
     private readonly IRunLauncher _launcher;
     private readonly IWorkflowLauncher _workflows;
     private readonly TelemetryPipeline _telemetry;
+    private readonly bool _flushTelemetryAfterRun;
 
+    /// <param name="telemetry">A long-lived caller's pipeline, delivering in the background; else this runner's own, flushed after each run.</param>
     public CliRunner(AppPaths paths, Settings settings, TextWriter output, TextWriter error,
-        IRunLauncher? launcher = null, IWorkflowLauncher? workflows = null)
+        IRunLauncher? launcher = null, IWorkflowLauncher? workflows = null, TelemetryPipeline? telemetry = null)
     {
         _paths = paths;
         _out = output;
         _error = error;
         var interpreters = new InterpreterLocator(settings.Interpreters);
         _trust = new TrustStore(settings, paths.SettingsFile);
-        _telemetry = TelemetryPipeline.For(paths, settings);
+        _telemetry = telemetry ?? TelemetryPipeline.For(paths, settings);
+        _flushTelemetryAfterRun = telemetry is null;
         var gate = new RunGate(_trust, locks: LockManager.For(paths));
         _launcher = launcher ?? new GatedRunLauncher(gate, interpreters);
         _workflows = workflows ?? new GatedWorkflowLauncher(gate, interpreters, new ShellOpener(new ShellService()));
     }
 
     public Func<string, string?> EnvironmentVariable { get; init; } = Environment.GetEnvironmentVariable;
+
+    internal RunSummary? LastSummary { get; private set; }
 
     public async Task<int> RunAsync(IReadOnlyList<string> args, string currentDirectory)
     {
@@ -66,7 +71,9 @@ public sealed class CliRunner
     }
 
     /// <param name="trustedOnly">Refuses every verb, not only runs, in a workspace that isn't trusted.</param>
-    internal async Task<int> RunAsync(CliCommand command, string currentDirectory, bool trustedOnly = false)
+    /// <param name="cancellation">Stops the run, which is then recorded as stopped.</param>
+    internal async Task<int> RunAsync(CliCommand command, string currentDirectory, bool trustedOnly = false,
+        CancellationToken cancellation = default)
     {
         LoadedWorkspace workspace;
         try
@@ -96,25 +103,29 @@ public sealed class CliRunner
             CliVerb.List => List(command, workspace),
             CliVerb.Log => ShowLog(command, HistoryStore.For(_paths, workspace.Id)),
             CliVerb.Stats => ShowStats(command, workspace),
-            _ => await RunAsync(command, workspace),
+            _ => await RunAsync(command, workspace, cancellation),
         };
     }
 
     private int List(CliCommand command, LoadedWorkspace workspace)
     {
+        var entries = Entries(workspace).Where(e => command.AllowedIds?.Contains(e.Reference) != false);
         if (command.Json)
         {
-            _out.WriteLine(JsonSerializer.Serialize(Entries(workspace).Select(e => CliListing.Describe(e, workspace)), RunResultJson.Options));
+            var scripts = entries.Select(e => CliListing.Describe(e, workspace));
+            _out.WriteLine(command.WithCheckout
+                ? JsonSerializer.Serialize(new { checkout = Checkout.Read(workspace.Directory), scripts }, RunResultJson.Options)
+                : JsonSerializer.Serialize(scripts, RunResultJson.Options));
             return 0;
         }
-        foreach (var entry in Entries(workspace))
+        foreach (var entry in entries)
             _out.WriteLine($"{entry.Reference}\t{entry.Name}");
         return 0;
     }
 
-    internal int ShowLog(CliCommand command, HistoryStore store)
+    private int ShowLog(CliCommand command, HistoryStore store)
     {
-        if (store.Recent().FirstOrDefault(r => r.Id == command.Target) is not { } record)
+        if (store.Find(command.Target!) is not { } record)
         {
             _error.WriteLine($"No run '{command.Target}' in this workspace's history.");
             return UsageError;
@@ -141,7 +152,13 @@ public sealed class CliRunner
     private int ShowStats(CliCommand command, LoadedWorkspace workspace)
     {
         var stats = RunStats.Compute(HistoryStore.For(_paths, workspace.Id).Recent(), command.Since, DateTimeOffset.Now);
-        if (command.Json)
+        if (command.Json && command.WithCheckout)
+        {
+            var json = JsonSerializer.SerializeToNode(stats, RunResultJson.Options)!.AsObject();
+            json["checkout"] = JsonSerializer.SerializeToNode(Checkout.Read(workspace.Directory), RunResultJson.Options);
+            _out.WriteLine(json.ToJsonString(RunResultJson.Options));
+        }
+        else if (command.Json)
             _out.WriteLine(JsonSerializer.Serialize(stats, RunResultJson.Options));
         else
             CliStatsFormatter.Write(stats, _out);
@@ -153,7 +170,7 @@ public sealed class CliRunner
         : EnvironmentVariable("CLAUDECODE") == "1" ? RunTriggers.Agent(ClaudeCodeAgent)
         : RunTriggers.Cli;
 
-    private async Task<int> RunAsync(CliCommand command, LoadedWorkspace workspace)
+    private async Task<int> RunAsync(CliCommand command, LoadedWorkspace workspace, CancellationToken cancellation)
     {
         var matches = Find(workspace, command.Target!);
         if (matches.Count != 1)
@@ -175,7 +192,9 @@ public sealed class CliRunner
         foreach (var (name, value) in command.Values)
             values[name] = JsonValue.Create(value);
         var store = HistoryStore.For(_paths, workspace.Id);
-        await using var telemetry = _telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
+        var telemetry = _telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
+        await using var flushedTelemetry = _flushTelemetryAfterRun ? telemetry : null;
+        using var sharedTelemetry = _flushTelemetryAfterRun ? null : telemetry;
         var run = new CliRun(command, TriggerFor(command), store, target);
         if (!command.Json && Checkout.Read(workspace.Directory) is { } checkout)
             _error.WriteLine($"in {checkout.Describe()}");
@@ -191,7 +210,7 @@ public sealed class CliRunner
                     Unattended = true,
                     Confirmed = command.Yes,
                 };
-                return await RunWorkflowAsync(workspace, request, run, recordAs: target);
+                return await RunWorkflowAsync(workspace, request, run, recordAs: target, cancellation);
             }
 
             var runRequest = new RunRequest(workspace, target.Tree, (ScriptNode)target.Definition)
@@ -203,9 +222,10 @@ public sealed class CliRunner
             };
             RunPlanner.CheckUnattended(runRequest);
             if (Prerequisites.WorkflowFor(runRequest) is { } withPrerequisites)
-                return await RunWorkflowAsync(workspace, withPrerequisites, run, recordAs: null);
+                return await RunWorkflowAsync(workspace, withPrerequisites, run, recordAs: null, cancellation);
 
             using var process = _launcher.Start(runRequest, waitForLocks: !command.NoWait);
+            await using var stop = cancellation.Register(() => _ = process.StopAsync());
             var reportWaiting = WaitingReporter(() => process.WaitingForLock);
             process.WaitingChanged += reportWaiting;
             reportWaiting();
@@ -229,7 +249,8 @@ public sealed class CliRunner
         }
     }
 
-    private async Task<int> RunWorkflowAsync(LoadedWorkspace workspace, WorkflowRequest request, CliRun cli, Entry? recordAs)
+    private async Task<int> RunWorkflowAsync(LoadedWorkspace workspace, WorkflowRequest request, CliRun cli, Entry? recordAs,
+        CancellationToken cancellation)
     {
         if (cli.Command.NoWait)
         {
@@ -261,7 +282,9 @@ public sealed class CliRunner
             : HistoryRecorder.AttachWorkflow(run, cli.Store,
                 new RunRecord { NodeKey = recordAs.Key, Tree = recordAs.Tree.Kind, Name = recordAs.Name, Trigger = cli.Trigger },
                 HistoryViewModel.KeyOf, cli.Trigger);
-        var result = await run.Completion;
+        WorkflowResult result;
+        await using (cancellation.Register(() => _ = run.StopAsync()))
+            result = await run.Completion;
         if (workflowRecord is not null)
             Report(cli, RunSummary.From(await workflowRecord, cli.Store, cli.Target.Reference));
         else if (await steps! is { Count: > 0 } records)
@@ -294,6 +317,7 @@ public sealed class CliRunner
 
     private void Report(CliRun run, RunSummary summary)
     {
+        LastSummary = summary;
         if (run.Command.Json)
         {
             lock (_out)

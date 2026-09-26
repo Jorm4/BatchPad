@@ -93,6 +93,34 @@ public sealed class RunRecordTests
     }
 
     [TestMethod]
+    public async Task ErrorLinesAreMaskedAndLongErrorsAndTestNamesAreCut()
+    {
+        using var workspace = new RunWorkspace("""
+            { "id": "build", "path": "build.py", "errorPatterns": [ ": error " ], "testReport": "report.xml",
+              "params": [ { "name": "token", "type": "secret" } ] }
+            """);
+        File.WriteAllText(workspace.Temp.Path("build.py"), """
+            import os, sys
+            print("x: error " + sys.argv[1] + " " + "y" * 1000)
+            name = "t" * 1000
+            with open(os.path.join(os.path.dirname(__file__), "report.xml"), "w") as report:
+                report.write(f'<testsuite tests="1" failures="1"><testcase classname="c" name="{name}"><failure message="m"/></testcase></testsuite>')
+            """);
+        var store = new HistoryStore(workspace.Temp.Path("history"));
+        var request = workspace.Request("build", new() { ["token"] = "hunter2" });
+        using var run = workspace.Gate.Start(request, RunWorkspace.Interpreters);
+
+        var record = await HistoryRecorder.Attach(run, store, request, "Workspace:id:build").WaitAsync(Limit);
+
+        var error = record.Errors!.Single().Text;
+        StringAssert.StartsWith(error, $"x: error {RunRecord.Masked} y");
+        StringAssert.EndsWith(error, "…");
+        Assert.AreEqual(RunRecord.MaxTextLength + 1, error.Length);
+        Assert.AreEqual(RunRecord.MaxTextLength + 1, record.Tests!.FailedNames.Single().Length);
+        Assert.DoesNotContain("hunter2", File.ReadAllText(Path.Combine(store.Directory, record.Id + ".json")));
+    }
+
+    [TestMethod]
     public void ARecordAnotherStoreWritesIsAnnouncedAndListed()
     {
         using var dir = new TempDir();

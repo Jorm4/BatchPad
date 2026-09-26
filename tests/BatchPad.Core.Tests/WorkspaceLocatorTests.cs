@@ -40,6 +40,22 @@ public sealed class WorkspaceLocatorTests
     }
 
     [TestMethod]
+    public void AWorktreeWithoutItsOwnWorkspaceFileDoesNotUseTheMainCheckouts()
+    {
+        using var repo = new GitRepo(new Dictionary<string, string> { ["readme.txt"] = "" });
+        File.WriteAllText(Path.Combine(repo.Main, "batchpad.json"), "{}");
+        var nested = Path.Combine(repo.Main, ".claude", "worktrees", "feat");
+        GitRepo.Git(repo.Main, "worktree", "add", "-q", "-b", "feat", nested);
+        var sub = Directory.CreateDirectory(Path.Combine(nested, "src")).FullName;
+
+        Assert.IsNull(WorkspaceLocator.FindUpwards(sub));
+        Assert.AreEqual(Path.Combine(repo.Main, "batchpad.json"), WorkspaceLocator.FindUpwards(Path.Combine(repo.Main, ".claude")));
+
+        File.WriteAllText(Path.Combine(nested, "batchpad.json"), "{}");
+        Assert.AreEqual(Path.Combine(nested, "batchpad.json"), WorkspaceLocator.FindUpwards(sub));
+    }
+
+    [TestMethod]
     public void PortableMarkerMovesDataNextToExe()
     {
         using var dir = new TempDir();

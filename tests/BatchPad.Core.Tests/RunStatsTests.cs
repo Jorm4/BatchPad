@@ -193,12 +193,30 @@ public sealed class RunStatsTests
     }
 
     [TestMethod]
-    public void ATestThatFailedAndLaterPassedIsFlaky()
+    public void StoppedRunsCountAsTimeSpentButNotInTheFailureRateOrTimings()
+    {
+        var records = new[] { 10.0, 20, 30, 40 }.Select((s, i) => Run("serve", 60 - i * 10, s, exitCode: i == 0 ? 1 : 0)).ToList();
+        records.Add(Run("serve", 5, 1000) with { Outcome = RunOutcome.Stopped, ExitCode = 1 });
+
+        var serve = RunStats.Compute(records, TimeSpan.FromDays(1), Now).Scripts.Single();
+
+        Assert.AreEqual(5, serve.Runs);
+        Assert.AreEqual(1, serve.Failures);
+        Assert.AreEqual(0.25, serve.FailureRate, 1e-9);
+        Assert.AreEqual(1100, serve.TotalSeconds);
+        Assert.AreEqual(25, serve.MedianSeconds);
+        Assert.AreEqual(40, serve.P95Seconds);
+        Assert.AreEqual(35.0 / 15 - 1, serve.Trend!.Value, 1e-9);
+        Assert.AreEqual(Now.AddMinutes(-5), serve.LastRun);
+    }
+
+    [TestMethod]
+    public void ATestThatFailsAgainAfterPassingIsFlakyButOneThatWasFixedIsNot()
     {
         List<RunRecord> records =
         [
-            Run("tests", 50, 1, exitCode: 1, tests: Tests(8, "A.Flaky", "A.Broken")),
-            Run("tests", 40, 1, exitCode: 1, tests: Tests(9, "A.Broken")),
+            Run("tests", 50, 1, exitCode: 1, tests: Tests(8, "A.Flaky", "A.Broken", "A.Fixed")),
+            Run("tests", 40, 1, exitCode: 1, tests: Tests(9, "A.Broken", "A.Fixed")),
             Run("tests", 30, 1, exitCode: 1, tests: Tests(8, "A.Flaky", "A.Broken")),
             Run("tests", 20, 1, exitCode: 1, tests: new(5, 60, 0, ["A.Broken"], [])),
             Run("other", 30, 1, tests: Tests(3, "B.NeverPassed")),
@@ -209,6 +227,23 @@ public sealed class RunStatsTests
         Assert.AreEqual("A.Flaky", flaky.Name);
         Assert.AreEqual("tests", flaky.NodeKey);
         Assert.AreEqual(2, flaky.Failures);
+        Assert.AreEqual(1, flaky.Passes);
+    }
+
+    [TestMethod]
+    public void ATestThatPassedFailedAndPassedAgainIsFlaky()
+    {
+        List<RunRecord> records =
+        [
+            Run("tests", 30, 1, tests: Tests(10)),
+            Run("tests", 20, 1, exitCode: 1, tests: Tests(9, "A.Regressed")),
+            Run("tests", 10, 1, tests: Tests(10)),
+        ];
+
+        var flaky = RunStats.Compute(records, TimeSpan.FromDays(1), Now).FlakyTests.Single();
+
+        Assert.AreEqual("A.Regressed", flaky.Name);
+        Assert.AreEqual(1, flaky.Failures);
         Assert.AreEqual(1, flaky.Passes);
     }
 

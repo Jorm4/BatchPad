@@ -18,6 +18,7 @@ public static class TriggerClasses
         : You;
 }
 
+/// <summary>A script's figures; stopped runs count in <see cref="Runs"/> and <see cref="TotalSeconds"/> only, since stopping is not a result.</summary>
 /// <param name="Trend">The median of the later half of the runs against the earlier half: 0.25 is 25% slower; null under four runs.</param>
 public sealed record ScriptStats(string NodeKey, string Name, string? Folder, int Runs, int Failures, double FailureRate, double TotalSeconds,
     double MedianSeconds, double P95Seconds, double? Trend, DateTimeOffset LastRun);
@@ -30,6 +31,7 @@ public sealed record RepeatedRun(string NodeKey, string Name, Dictionary<string,
 
 public sealed record SlowTest(string Name, string NodeKey, string Script, double Seconds);
 
+/// <summary>A test that failed again after passing; one that failed until it was fixed is not flaky.</summary>
 /// <param name="Passes">Complete test reports of the script, after its first failure, that don't list it as failed.</param>
 public sealed record FlakyTest(string Name, string NodeKey, string Script, int Failures, int Passes);
 
@@ -93,10 +95,12 @@ public sealed record RunStats(DateTimeOffset Since, DateTimeOffset Until, int Ru
     {
         var inOrder = runs.ToList();
         var latest = inOrder[^1];
-        var sorted = inOrder.Select(r => r.Duration.TotalSeconds).Order().ToList();
-        var failures = inOrder.Count(r => r.Outcome != RunOutcome.Stopped && !r.Succeeded);
-        return new ScriptStats(runs.Key, latest.Name, latest.Folder, inOrder.Count, failures, (double)failures / inOrder.Count, sorted.Sum(),
-            Median(sorted), Percentile(sorted, 0.95), Trend(inOrder), latest.StartedAt);
+        var finished = inOrder.Where(r => r.Outcome != RunOutcome.Stopped).ToList();
+        var sorted = SortedSeconds(finished);
+        var failures = finished.Count(r => !r.Succeeded);
+        return new ScriptStats(runs.Key, latest.Name, latest.Folder, inOrder.Count, failures,
+            finished.Count > 0 ? (double)failures / finished.Count : 0, inOrder.Sum(r => r.Duration.TotalSeconds),
+            Median(sorted), Percentile(sorted, 0.95), Trend(finished), latest.StartedAt);
     }
 
     private static double? Trend(List<RunRecord> inOrder)
@@ -104,10 +108,12 @@ public sealed record RunStats(DateTimeOffset Since, DateTimeOffset Until, int Ru
         if (inOrder.Count < 4)
             return null;
         var half = inOrder.Count / 2;
-        var earlier = Median([.. inOrder.Take(half).Select(r => r.Duration.TotalSeconds).Order()]);
-        var later = Median([.. inOrder.TakeLast(half).Select(r => r.Duration.TotalSeconds).Order()]);
+        var earlier = Median(SortedSeconds(inOrder.Take(half)));
+        var later = Median(SortedSeconds(inOrder.TakeLast(half)));
         return earlier > 0 ? later / earlier - 1 : null;
     }
+
+    private static List<double> SortedSeconds(IEnumerable<RunRecord> runs) => [.. runs.Select(r => r.Duration.TotalSeconds).Order()];
 
     private static List<TimeShare> Shares(List<RunRecord> counted, Func<RunRecord, IEnumerable<string>> keysOf, double total) =>
     [
@@ -163,20 +169,22 @@ public sealed record RunStats(DateTimeOffset Since, DateTimeOffset Until, int Ru
         foreach (var script in inPeriod.Where(r => r.Tests is not null).GroupBy(r => r.NodeKey))
         {
             var runs = script.ToList();
-            var failures = new Dictionary<string, (int Failures, int Passes)>();
+            var tests = runs.SelectMany(r => r.Tests!.FailedNames).Distinct()
+                .ToDictionary(name => name, _ => (Failures: 0, Passes: 0, HasPassed: false, IsFlaky: false));
             foreach (var run in runs)
             {
-                var tests = run.Tests!;
-                var failed = tests.FailedNames.ToHashSet();
-                var complete = tests.Failed <= tests.FailedNames.Count && tests.Passed > 0;
-                foreach (var (name, counts) in failures.ToList())
-                    if (complete && !failed.Contains(name))
-                        failures[name] = counts with { Passes = counts.Passes + 1 };
-                foreach (var name in failed)
-                    failures[name] = failures.TryGetValue(name, out var counts) ? counts with { Failures = counts.Failures + 1 } : (1, 0);
+                var failed = run.Tests!.FailedNames.ToHashSet();
+                var complete = run.Tests.Failed <= run.Tests.FailedNames.Count && run.Tests.Passed > 0;
+                foreach (var (name, counts) in tests.ToList())
+                {
+                    if (failed.Contains(name))
+                        tests[name] = counts with { Failures = counts.Failures + 1, IsFlaky = counts.IsFlaky || counts.HasPassed };
+                    else if (complete)
+                        tests[name] = counts with { Passes = counts.Failures > 0 ? counts.Passes + 1 : 0, HasPassed = true };
+                }
             }
-            flaky.AddRange(failures.Where(f => f.Value.Passes > 0)
-                .Select(f => new FlakyTest(f.Key, script.Key, runs[^1].Name, f.Value.Failures, f.Value.Passes)));
+            flaky.AddRange(tests.Where(t => t.Value.IsFlaky)
+                .Select(t => new FlakyTest(t.Key, script.Key, runs[^1].Name, t.Value.Failures, t.Value.Passes)));
         }
         return [.. flaky.OrderByDescending(f => f.Failures).ThenBy(f => f.Name, StringComparer.Ordinal)];
     }

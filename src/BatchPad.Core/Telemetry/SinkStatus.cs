@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BatchPad.Core.IO;
 
 namespace BatchPad.Core.Telemetry;
 
@@ -43,14 +44,13 @@ public sealed class SinkStatusFile(string path)
         lock (_lock)
         {
             var all = Load();
-            var current = all.GetValueOrDefault(sink.Key) ?? new SinkStatus(sink.Key, sink.Type, sink.Target);
-            all[sink.Key] = change(current with { Type = sink.Type, Target = sink.Target });
+            var key = sink.Key;
+            var current = all.GetValueOrDefault(key) ?? new SinkStatus(key, sink.Type, sink.Target);
+            all[key] = change(current with { Type = sink.Type, Target = sink.Target });
             try
             {
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-                var temporary = Path + "." + Environment.ProcessId + ".tmp";
-                File.WriteAllText(temporary, JsonSerializer.Serialize(all, TelemetryEvent.Json));
-                File.Move(temporary, Path, overwrite: true);
+                AtomicFile.WriteAllText(Path, JsonSerializer.Serialize(all, TelemetryEvent.Json));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

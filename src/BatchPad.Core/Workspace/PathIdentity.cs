@@ -14,13 +14,22 @@ internal static class PathIdentity
     public static bool Same(string first, string second) =>
         string.Equals(Normalize(first), Normalize(second), StringComparison.OrdinalIgnoreCase);
 
-    private static unsafe string LongForm(string path)
+    private static string LongForm(string path)
     {
-        var buffer = new char[short.MaxValue];
+        var needed = TryLongForm(path, stackalloc char[260], out var result);
+        if (result is null && needed is > 0 and <= (uint)short.MaxValue)
+            TryLongForm(path, new char[needed], out result);
+        return result ?? path;
+    }
+
+    /// <returns>The buffer length needed, when <paramref name="buffer"/> was too small.</returns>
+    private static unsafe uint TryLongForm(string path, Span<char> buffer, out string? result)
+    {
         fixed (char* start = buffer)
         {
             var length = NativeMethods.GetLongPathName(path, start, (uint)buffer.Length);
-            return length > 0 && length < buffer.Length ? new string(start, 0, (int)length) : path;
+            result = length > 0 && length < buffer.Length ? new string(start, 0, (int)length) : null;
+            return length;
         }
     }
 }

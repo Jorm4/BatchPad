@@ -1,8 +1,11 @@
 using System.Text.Json.Nodes;
+using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
+using BatchPad.App.ViewModels.History;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.History;
 using BatchPad.Core.Running;
+using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -67,6 +70,39 @@ public sealed class HistoryViewModelTests
         Assert.AreEqual("params-demo", request.Script.Id);
         Assert.AreEqual("Gamma", request.Values!["game"]!.GetValue<string>());
         Assert.AreEqual("Parameters demo", reopened.SelectedNode!.Name);
+    }
+
+    [TestMethod]
+    public void ARunThePreviousWorkspaceRecordedIsNotListedAfterSwitching()
+    {
+        using var test = new TestWorkspace();
+        var dispatcher = new HeldDispatcher();
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, dispatcher: dispatcher);
+        var history = new HistoryViewModel(main);
+        history.Show(main.Workspace!);
+        var other = Directory.CreateDirectory(Path.Combine(test.Root, "other")).FullName;
+        File.WriteAllText(Path.Combine(other, "batchpad.json"), """{ "id": "other", "scripts": [] }""");
+
+        history.Store!.Add(new RunRecord { NodeKey = "Workspace:id:hello", Name = "hello", StartedAt = DateTimeOffset.Now }, []);
+        history.Show(WorkspaceLoader.Load(Path.Combine(other, "batchpad.json"), test.Paths));
+        dispatcher.RunAll();
+
+        Assert.IsEmpty(history.Runs);
+    }
+
+    private sealed class HeldDispatcher : IUiDispatcher
+    {
+        private readonly Queue<Action> _posted = new();
+
+        public void Post(Action action) => _posted.Enqueue(action);
+
+        public void Background<T>(Func<T> work, Action<T> apply, TimeSpan delay = default) => Post(() => apply(work()));
+
+        public void RunAll()
+        {
+            while (_posted.TryDequeue(out var next))
+                next();
+        }
     }
 
     private static MainViewModel Open(TestWorkspace test, FakeLauncher launcher, string node, Action<MainViewModel>? beforeSelecting = null)

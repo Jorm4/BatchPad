@@ -30,6 +30,7 @@ public sealed record RunRecord
 {
     public const string Masked = SecretMasker.Placeholder;
     public const int MaxErrors = 50;
+    public const int MaxTextLength = 500;
 
     public string Id { get; init; } = "";
 

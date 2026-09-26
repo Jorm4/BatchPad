@@ -148,10 +148,11 @@ public sealed class TelemetrySinkTests
     [DataRow(503, true)]
     [DataRow(429, true)]
     [DataRow(408, true)]
+    [DataRow(401, true)]
+    [DataRow(403, true)]
     [DataRow(400, false)]
-    [DataRow(401, false)]
     [DataRow(404, false)]
-    public async Task ServerErrorsAndThrottlingAreRetriedOtherClientErrorsAreNot(int status, bool retry)
+    public async Task ServerErrorsThrottlingAndAuthFailuresAreRetriedOtherClientErrorsAreNot(int status, bool retry)
     {
         foreach (var type in SinkTypes.All.Where(t => t != SinkTypes.Jsonl))
         {
@@ -174,6 +175,47 @@ public sealed class TelemetrySinkTests
         var failure = await Assert.ThrowsAsync<TelemetrySendException>(() => sink.SendAsync(Workflow(), default));
 
         Assert.IsFalse(failure.Retry);
+        Assert.IsEmpty(handler.Sent);
+    }
+
+    [TestMethod]
+    public async Task ARedirectIsAFailureNotFollowed()
+    {
+        var port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        listener.Start();
+        var answering = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            context.Response.StatusCode = (int)HttpStatusCode.Found;
+            context.Response.RedirectLocation = "http://localhost:1/elsewhere";
+            context.Response.Close();
+        });
+        using var sink = new HttpSink(new SinkConfig { Type = SinkTypes.Http, Url = $"http://localhost:{port}/runs", Headers = new() { ["X-Api-Key"] = "k1" } });
+
+        var failure = await Assert.ThrowsAsync<TelemetrySendException>(() => sink.SendAsync(Workflow(), default));
+
+        await answering;
+        Assert.IsFalse(failure.Retry);
+        StringAssert.Contains(failure.Message, "redirected to http://localhost:1/elsewhere");
+    }
+
+    [TestMethod]
+    public async Task AnUnsetEnvReferenceKeepsTheEventsQueued()
+    {
+        using var dir = new TempDir();
+        var handler = new FakeHandler();
+        var config = new SinkConfig { Type = SinkTypes.Http, Url = "https://hooks.example.com/runs", Headers = new() { ["X-Api-Key"] = "${env:BP_TELEMETRY_UNSET_KEY}" } };
+        await using var pipeline = new TelemetryPipeline(dir.Path("telemetry"), () => new TelemetryOptions { Sinks = [config] },
+            createSink: c => SinkFactory.Create(c, handler));
+        pipeline.Enqueue(TelemetryEventTests.SampleRecord(), Workspace);
+
+        await pipeline.FlushAsync(Limit);
+
+        var status = pipeline.Statuses().Single();
+        Assert.AreEqual("Environment variable BP_TELEMETRY_UNSET_KEY is not set.", status.LastError);
+        Assert.AreEqual(1, status.Pending);
         Assert.IsEmpty(handler.Sent);
     }
 

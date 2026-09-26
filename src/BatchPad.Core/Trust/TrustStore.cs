@@ -14,25 +14,25 @@ public sealed class TrustStore(Settings settings, string settingsFile)
     public IReadOnlyList<string> TrustedFolders => settings.TrustedFolders;
 
     /// <summary>A trusted folder or one under it, or the same place in a verified worktree of a trusted repository (§4.5).</summary>
-    public bool IsTrusted(string folder) =>
-        IsUnderTrustedFolder(folder)
-        || Checkout.Read(folder) is { Kind: CheckoutKind.Worktree } worktree
-        && IsUnderTrustedFolder(Path.Combine(worktree.Repository, Path.GetRelativePath(worktree.Directory, PathIdentity.Normalize(folder))));
-
-    private bool IsUnderTrustedFolder(string folder)
+    public bool IsTrusted(string folder)
     {
-        var candidate = Normalize(folder);
-        return NormalizedTrustedFolders().Any(trusted =>
+        var candidate = PathIdentity.Normalize(folder);
+        return IsUnderTrustedFolder(candidate)
+            || Checkout.Locate(candidate) is { Kind: CheckoutKind.Worktree } worktree
+            && IsUnderTrustedFolder(Path.Combine(worktree.Repository, Path.GetRelativePath(worktree.Directory, candidate)));
+    }
+
+    private bool IsUnderTrustedFolder(string candidate) =>
+        NormalizedTrustedFolders().Any(trusted =>
             candidate.Equals(trusted, StringComparison.OrdinalIgnoreCase)
             || candidate.StartsWith(trusted.EndsWith(Path.DirectorySeparatorChar) ? trusted : trusted + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase));
-    }
 
     public void Trust(string folder)
     {
         if (IsTrusted(folder))
             return;
-        var normalized = Normalize(folder);
+        var normalized = PathIdentity.Normalize(folder);
         settings.Update(settingsFile, s =>
         {
             if (!s.TrustedFolders.Contains(normalized, StringComparer.OrdinalIgnoreCase))
@@ -42,8 +42,8 @@ public sealed class TrustStore(Settings settings, string settingsFile)
 
     public void Revoke(string folder)
     {
-        var normalized = Normalize(folder);
-        bool Matches(string trusted) => Normalize(trusted).Equals(normalized, StringComparison.OrdinalIgnoreCase);
+        var normalized = PathIdentity.Normalize(folder);
+        bool Matches(string trusted) => PathIdentity.Normalize(trusted).Equals(normalized, StringComparison.OrdinalIgnoreCase);
         if (settings.TrustedFolders.Any(Matches))
             settings.Update(settingsFile, s => s.TrustedFolders.RemoveAll(Matches));
     }
@@ -55,11 +55,9 @@ public sealed class TrustStore(Settings settings, string settingsFile)
             if (!settings.TrustedFolders.SequenceEqual(_normalizedFrom))
             {
                 _normalizedFrom = [.. settings.TrustedFolders];
-                _normalized = [.. _normalizedFrom.Select(Normalize)];
+                _normalized = [.. _normalizedFrom.Select(PathIdentity.Normalize)];
             }
             return _normalized;
         }
     }
-
-    private static string Normalize(string folder) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
 }

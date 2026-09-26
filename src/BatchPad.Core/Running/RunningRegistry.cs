@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using BatchPad.Core.Workspace;
+using BatchPad.Core.IO;
 
 namespace BatchPad.Core.Running;
 
@@ -110,8 +111,6 @@ public sealed class RunningRegistry(string filePath)
             return;
         }
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        var temporary = FilePath + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(entries, Json));
-        File.Move(temporary, FilePath, overwrite: true);
+        AtomicFile.WriteAllText(FilePath, JsonSerializer.Serialize(entries, Json));
     }
 }

@@ -14,6 +14,7 @@ internal sealed class MachineLock : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan LongestPoll = TimeSpan.FromMilliseconds(250);
+    private static readonly string ProcessName = CurrentProcessName();
 
     private readonly FileStream _file;
     private readonly string _ownerPath;
@@ -50,12 +51,31 @@ internal sealed class MachineLock : IDisposable
         }
     }
 
+    /// <summary>Who holds the lock, when another handle has its file open; takes nothing and writes nothing.</summary>
+    public static string? DescribeIfHeld(string directory, string name, string? waiterCheckout)
+    {
+        try
+        {
+            using (new FileStream(PathFor(directory, name), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                return null;
+        }
+        catch (IOException ex) when (IsSharingViolation(ex))
+        {
+            return DescribeHolder(directory, name, waiterCheckout);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>"held by Build since 09:12", from the owner file; vaguer when that file is missing or unreadable.</summary>
     public static string DescribeHolder(string directory, string name, string? waiterCheckout)
     {
         try
         {
-            var owner = JsonSerializer.Deserialize<Owner>(File.ReadAllText(OwnerPathFor(directory, name)), Json);
+            using var stream = new FileStream(OwnerPathFor(directory, name), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var owner = JsonSerializer.Deserialize<Owner>(stream, Json);
             if (owner is not null)
                 return LockKeys.DescribeHolder(owner.Holder ?? $"{owner.Process} (process {owner.ProcessId})", owner.Checkout, waiterCheckout,
                     owner.Since.ToLocalTime());
@@ -78,37 +98,61 @@ internal sealed class MachineLock : IDisposable
         {
             return null;
         }
-        var taken = new MachineLock(file, OwnerPathFor(directory, name));
-        taken.Hand(holder, checkout);
-        return taken;
-    }
-
-    /// <summary>Names a new holder, for a lock handed on within this process.</summary>
-    public void Hand(string? holder, string? checkout)
-    {
-        try
-        {
-            using var process = Process.GetCurrentProcess();
-            File.WriteAllText(_ownerPath, JsonSerializer.Serialize(
-                new Owner(Environment.ProcessId, process.ProcessName, holder, checkout, DateTimeOffset.Now), Json));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
+        var ownerPath = OwnerPathFor(directory, name);
+        WriteOwner(ownerPath, new Owner(Environment.ProcessId, ProcessName, holder, checkout, DateTimeOffset.Now));
+        return new MachineLock(file, ownerPath);
     }
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _released, 1) != 0)
             return;
+        Retrying(() => File.Delete(_ownerPath));
+        _file.Dispose();
+    }
+
+    // Written aside and moved into place, so a waiter reading it never sees half a file or blocks the write.
+    private static void WriteOwner(string ownerPath, Owner owner)
+    {
+        var temporary = $"{ownerPath}.{Guid.NewGuid():N}.tmp";
         try
         {
-            File.Delete(_ownerPath);
+            File.WriteAllText(temporary, JsonSerializer.Serialize(owner, Json));
+            Retrying(() => File.Move(temporary, ownerPath, overwrite: true));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
-        _file.Dispose();
+        finally
+        {
+            Retrying(() => File.Delete(temporary));
+        }
+    }
+
+    private static void Retrying(Action change)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                change();
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 3)
+            {
+                Thread.Sleep(10);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return;
+            }
+        }
+    }
+
+    private static string CurrentProcessName()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.ProcessName;
     }
 
     private static string OwnerPathFor(string directory, string name) => Path.Combine(directory, Hash(name) + ".owner");

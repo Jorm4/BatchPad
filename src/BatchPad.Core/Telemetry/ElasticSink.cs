@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -31,9 +30,8 @@ public sealed class ElasticSink(SinkConfig config, HttpMessageHandler? handler =
         foreach (var e in batch)
         {
             var action = new JsonObject { ["index"] = new JsonObject { ["_index"] = index, ["_id"] = e.EventId } };
-            var document = new JsonObject { ["@timestamp"] = e.Time.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) };
-            foreach (var (name, value) in JsonSerializer.SerializeToNode(e, TelemetryEvent.Json)!.AsObject())
-                document[name] = value?.DeepClone();
+            var document = JsonSerializer.SerializeToNode(e, TelemetryEvent.Json)!.AsObject();
+            document.Insert(0, "@timestamp", TelemetryTime.UtcMilliseconds(e.Time));
             text.Append(action.ToJsonString(TelemetryEvent.Json)).Append('\n').Append(document.ToJsonString(TelemetryEvent.Json)).Append('\n');
         }
         return text.ToString();

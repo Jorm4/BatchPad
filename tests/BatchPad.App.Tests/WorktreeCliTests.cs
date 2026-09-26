@@ -44,6 +44,20 @@ public sealed class WorktreeCliTests
         Assert.AreEqual("main", output.ToString().Trim());
     }
 
+    [TestMethod]
+    public async Task AWorktreeWithoutAWorkspaceFileDoesNotFallBackToTheMainCheckouts()
+    {
+        using var test = new TestWorkspace();
+        var (runner, _, error) = TrustedRunner(test);
+        var nested = Path.Combine(s_repo.Main, ".claude", "worktrees", "no-workspace");
+        GitRepo.Git(s_repo.Main, "worktree", "add", "-q", "-b", "no-workspace", nested);
+        File.Delete(Path.Combine(nested, WorkspaceLocator.FileName));
+
+        Assert.AreEqual(CliRunner.UsageError, await runner.RunAsync(["list"], nested));
+
+        StringAssert.Contains(error.ToString(), "No batchpad.json found");
+    }
+
     private static (CliRunner Runner, StringWriter Output, StringWriter Error) TrustedRunner(TestWorkspace test)
     {
         var settings = new Settings();

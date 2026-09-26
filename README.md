@@ -152,11 +152,11 @@ To try it without a project of your own, open the demo workspace:
 ### Coding agents
 
 `batchpad mcp` runs an MCP server over stdio with four tools: `list_scripts`,
-`run_script` (id, values, `errorsOnly`; returns the same result object as
-`run --json`), `get_log` (tail, errors only or a line range) and `get_stats`.
-`list_scripts`, `run_script` and `get_stats` take a required `directory`, the
-agent's working folder, and find the workspace from it as the command line
-does. The server has no workspace of its own, because one server serves a
+`run_script` (id, values, `errorsOnly`, `noWait`; returns the same result
+object as `run --json`), `get_log` (run id, then tail, errors only or a line
+range) and `get_stats`. Every tool takes a required `directory`, the agent's
+working folder on a local drive, and finds the workspace from it as the
+command line does; `get_log` reads only that workspace's history. The server has no workspace of its own, because one server serves a
 whole session, including subagents working in other git worktrees; every
 result names the checkout it ran in. Runs are recorded as
 `agent:<client name>`, for example `agent:claude-code`. Register it with
@@ -172,6 +172,9 @@ entries, list their ids in your `settings.json` (never in a workspace file):
 ```json
 { "mcp": { "allowIds": ["build", "test"] } }
 ```
+
+`list_scripts` then lists only those. Allowing an id allows everything that
+entry runs, including its prerequisites and workflow steps.
 
 To steer an agent to BatchPad, paste this into the project's `CLAUDE.md`:
 
@@ -232,12 +235,17 @@ file, so a cloned repository can't send data anywhere). Credentials are
   line protocol, and `http` POSTs a JSON array of events to any URL.
 
 By default events carry the machine name but not the user name or parameter
-values, and names are sent as is; the switches above change that. Secret
-values are never sent. Events wait in an outbox under
+values, and names are sent as is; the switches above change that.
+`hashNames` replaces workspace, script, folder, checkout, branch, step and
+tag names with salted hashes, as well as the schedule or step a trigger
+names (`schedule:<hash>`); agent names and plain triggers such as `cli` stay
+readable. Secret values are never sent. Events wait in an outbox under
 `%LOCALAPPDATA%\BatchPad\telemetry\outbox` (capped at 20 MB) and a
 background sender delivers them, so a slow or unreachable backend never
-delays a run. The Settings page shows each sink's last success, last error
-and pending count, and can send a test event.
+delays a run. A credential variable that is not set, or a 401/403 answer,
+keeps the events queued until it is fixed. The Settings page shows each
+sink's last success, last error and pending count, and can send a test
+event.
 
 ## Under the hood
 
