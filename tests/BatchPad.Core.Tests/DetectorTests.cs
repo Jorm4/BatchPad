@@ -1,5 +1,8 @@
 using BatchPad.Core.Detection;
 using BatchPad.Core.Model;
+using BatchPad.Core.Running;
+using BatchPad.Core.Trust;
+using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Tests;
 
@@ -66,5 +69,57 @@ public sealed class DetectorTests
         Assert.IsTrue(Detect("serve_site.py").LongRunning);
         Assert.IsTrue(Detector.Detect("run.bat", "echo Press Ctrl+C to stop.").LongRunning);
         Assert.IsFalse(Detect("build.bat").LongRunning);
+    }
+
+    private static ScriptProbes Probes(bool trusted) =>
+        new(new TrustStore(new Settings { TrustedFolders = trusted ? [Fixtures.Path("detect")] : [] }, Fixtures.Path("detect", "unused.json")),
+            new InterpreterLocator());
+
+    [TestMethod]
+    public void ArgparseCallsBecomeParameters()
+    {
+        var parameters = Detector.Detect(Fixtures.Path("detect", "tool.py"), Probes(trusted: true)).Parameters;
+
+        var jobs = parameters.Single(p => p.Arg == "--jobs");
+        Assert.AreEqual(ParameterType.Int, jobs.Type);
+        Assert.AreEqual(4, jobs.Default!.GetValue<long>());
+        Assert.AreEqual("parallel jobs", jobs.Description);
+        Assert.AreEqual(ParameterType.Flag, parameters.Single(p => p.Arg == "--gated").Type);
+        var mode = parameters.Single(p => p.Arg == "--mode");
+        Assert.AreEqual(ParameterType.Choice, mode.Type);
+        CollectionAssert.AreEqual(new[] { "fast", "full" }, mode.Choices!.Select(c => c.Value).ToList());
+        Assert.AreEqual("fast", mode.Default!.GetValue<string>());
+        var inputs = parameters.Single(p => p.Name == "inputs");
+        Assert.IsNull(inputs.Arg);
+        Assert.AreEqual(ParameterType.Text, inputs.Type);
+        Assert.IsTrue(inputs.Split);
+        Assert.AreEqual("end", inputs.Position);
+        Assert.HasCount(4, parameters);
+    }
+
+    [TestMethod]
+    public void PowerShellParamBlockBecomesParameters()
+    {
+        var parameters = Detector.Detect(Fixtures.Path("detect", "tool.ps1"), Probes(trusted: true)).Parameters;
+
+        var force = parameters.Single(p => p.Name == "Force");
+        Assert.AreEqual(ParameterType.Flag, force.Type);
+        Assert.AreEqual("-Force", force.Arg);
+        var target = parameters.Single(p => p.Name == "Target");
+        Assert.AreEqual(ParameterType.Choice, target.Type);
+        CollectionAssert.AreEqual(new[] { "dev", "prod" }, target.Choices!.Select(c => c.Value).ToList());
+        var retries = parameters.Single(p => p.Name == "Retries");
+        Assert.AreEqual(ParameterType.Int, retries.Type);
+        Assert.AreEqual(3, retries.Default!.GetValue<long>());
+    }
+
+    [TestMethod]
+    public void UntrustedFolderDetectsNothingAndStartsNoProcess()
+    {
+        var probes = Probes(trusted: false);
+
+        Assert.IsEmpty(Detector.Detect(Fixtures.Path("detect", "tool.py"), probes).Parameters);
+        Assert.IsEmpty(Detector.Detect(Fixtures.Path("detect", "tool.ps1"), probes).Parameters);
+        Assert.AreEqual(0, probes.ProcessesStarted);
     }
 }

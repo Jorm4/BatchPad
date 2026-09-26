@@ -44,14 +44,18 @@ public sealed class WorkspaceLocatorTests
         using var dir = new TempDir();
         var exeDir = Directory.CreateDirectory(dir.Path("app")).FullName;
         var appData = dir.Path("roaming");
+        var localAppData = dir.Path("local");
 
-        Assert.AreEqual(Path.Combine(appData, "BatchPad"), AppPaths.Resolve(exeDir, appData).DataDirectory);
+        var installed = AppPaths.Resolve(exeDir, appData, localAppData);
+        Assert.AreEqual(Path.Combine(appData, "BatchPad"), installed.DataDirectory);
+        Assert.AreEqual(Path.Combine(localAppData, "BatchPad"), installed.LocalDirectory);
 
         File.WriteAllText(Path.Combine(exeDir, AppPaths.PortableMarker), "");
-        var portable = AppPaths.Resolve(exeDir, appData);
+        var portable = AppPaths.Resolve(exeDir, appData, localAppData);
 
         Assert.IsTrue(portable.IsPortable);
         Assert.AreEqual(Path.Combine(exeDir, "data", "settings.json"), portable.SettingsFile);
+        Assert.AreEqual(Path.Combine(exeDir, "data", "local"), portable.LocalDirectory);
     }
 
     [TestMethod]

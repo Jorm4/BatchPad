@@ -45,7 +45,7 @@ public sealed class EditorTests
         app.WaitFor(window, "SourceCard_Lines").AsListBoxItem().Select();
 
         Assert.IsNotNull(app.WaitFor(window, "PickerFile"));
-        Assert.IsFalse(app.WaitFor(window, "SourceCard_Script").IsEnabled);
+        Assert.IsTrue(app.WaitFor(window, "SourceCard_Script").IsEnabled);
         app.WaitFor(window, "PickerCancelButton").AsButton().Invoke();
         app.WaitFor(window, "EditorCancelButton").AsButton().Invoke();
     }

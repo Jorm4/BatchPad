@@ -8,6 +8,7 @@ public interface IShellService
 {
     void CopyText(string text);
     void Open(string target);
+    void RunCommand(string commandLine);
 }
 
 public sealed class ShellService : IShellService
@@ -15,6 +16,9 @@ public sealed class ShellService : IShellService
     public void CopyText(string text) => Clipboard.SetText(text);
 
     public void Open(string target) => Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
+
+    public void RunCommand(string commandLine) =>
+        Process.Start(new ProcessStartInfo("cmd.exe", $"/d /s /c \"{commandLine}\"") { UseShellExecute = false, CreateNoWindow = true })?.Dispose();
 }
 
 public sealed class ShellOpener(IShellService shell) : IShellOpener

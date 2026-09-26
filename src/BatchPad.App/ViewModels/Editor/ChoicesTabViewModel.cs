@@ -11,7 +11,8 @@ namespace BatchPad.App.ViewModels.Editor;
 public sealed record ChoicePreviewRow(string Label, string Value);
 
 /// <summary>What the choice editors need from their surroundings: where paths are relative to, and how to resolve.</summary>
-public sealed record ChoiceEnvironment(string BaseDirectory, Func<ParameterDefinition, ResolvedChoices> Resolve, IFileDialogService Dialogs);
+public sealed record ChoiceEnvironment(string BaseDirectory, Func<ParameterDefinition, ResolvedChoices> Resolve, IFileDialogService Dialogs,
+    CommandChoiceSource? Commands = null);
 
 public sealed partial class ChoiceFieldCell(string name, string value, Action changed) : ObservableObject
 {

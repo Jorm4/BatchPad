@@ -167,4 +167,38 @@ public sealed class ArgumentAssemblerTests
 
         Assert.ThrowsExactly<ArgumentAssemblyException>(() => Assemble(script));
     }
+
+    private static ScriptNode TemplatedServer => new()
+    {
+        Path = "serve.py",
+        Args = ["-u"],
+        ArgsTemplate = ["{config}", "--port", "{port}", "{targets...}"],
+        Params =
+        [
+            new() { Name = "config", Type = ParameterType.Text, Arg = "--config" },
+            new() { Name = "port", Type = ParameterType.Text },
+            new() { Name = "targets", Type = ParameterType.Multichoice },
+        ],
+    };
+
+    [TestMethod]
+    public void ArgsTemplateSetsTheOrderAfterFixedArgs()
+    {
+        var arguments = Arguments(TemplatedServer, new()
+        {
+            ["config"] = "dev.json",
+            ["port"] = "8080",
+            ["targets"] = new JsonArray("a", "b", "c"),
+        });
+
+        CollectionAssert.AreEqual(new[] { "-u", "dev.json", "--port", "8080", "a", "b", "c" }, arguments);
+    }
+
+    [TestMethod]
+    public void ArgsTemplateDropsAnElementThatExpandsToNothing()
+    {
+        var arguments = Arguments(TemplatedServer, new() { ["port"] = "80", ["targets"] = new JsonArray("x") });
+
+        CollectionAssert.AreEqual(new[] { "-u", "--port", "80", "x" }, arguments);
+    }
 }

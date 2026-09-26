@@ -40,3 +40,23 @@ public static class AutoScroll
         }
     }
 }
+
+public static class ScrollSelection
+{
+    public static readonly DependencyProperty IntoViewProperty = DependencyProperty.RegisterAttached(
+        "IntoView", typeof(bool), typeof(ScrollSelection), new PropertyMetadata(false, OnIntoViewChanged));
+
+    public static bool GetIntoView(DependencyObject element) => (bool)element.GetValue(IntoViewProperty);
+
+    public static void SetIntoView(DependencyObject element, bool value) => element.SetValue(IntoViewProperty, value);
+
+    private static void OnIntoViewChanged(DependencyObject element, DependencyPropertyChangedEventArgs e)
+    {
+        if (element is ListBox list && (bool)e.NewValue)
+            list.SelectionChanged += (_, _) =>
+            {
+                if (list.SelectedItem is { } item)
+                    list.ScrollIntoView(item);
+            };
+    }
+}

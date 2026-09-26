@@ -2,6 +2,7 @@ using System.Diagnostics;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Workspace;
+using Microsoft.Extensions.Time.Testing;
 
 namespace BatchPad.Core.Tests;
 
@@ -32,6 +33,17 @@ public sealed class ProcessRunnerTests
         Assert.AreEqual(3, result.ExitCode);
         Assert.IsFalse(result.Succeeded);
         Assert.IsGreaterThan(TimeSpan.Zero, result.Duration);
+    }
+
+    [TestMethod]
+    public async Task RunTimesComeFromTheGivenClock()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 3, 1, 9, 30, 0, TimeSpan.Zero));
+        using var run = ProcessRunner.Start(Spec(Script("exit3.bat")), time);
+        var result = await run.Completion.WaitAsync(Limit);
+
+        Assert.AreEqual(time.GetLocalNow(), run.StartedAt);
+        Assert.AreEqual(TimeSpan.Zero, result.Duration);
     }
 
     [TestMethod]

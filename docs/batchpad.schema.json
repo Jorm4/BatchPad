@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Jorm4/BatchPad/main/docs/batchpad.schema.json",
+  "title": "BatchPad configuration",
+  "description": "batchpad.json. For global.json use #/$defs/globalFile, for user.json #/$defs/userFile.",
+  "$ref": "#/$defs/workspaceFile",
+  "$defs": {
+    "workspaceFile": {
+      "$ref": "#/$defs/configFile",
+      "properties": {
+        "libraries": { "not": {}, "description": "Only global.json imports libraries." },
+        "schedules": { "not": {}, "description": "Schedules are personal: they live in user.json or global.json." }
+      }
+    },
+    "globalFile": {
+      "$ref": "#/$defs/configFile",
+      "properties": {
+        "libraries": {
+          "description": "Library files, each shown as a sub-folder of Global and referenced as global:<file name>:<id>.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "schedules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/schedule",
+            "if": { "properties": { "target": { "pattern": "^workspace:" } }, "required": ["target"] },
+            "then": { "required": ["workspace"] }
+          }
+        }
+      }
+    },
+    "userFile": {
+      "$ref": "#/$defs/configFile",
+      "properties": {
+        "schedules": { "type": "array", "items": { "$ref": "#/$defs/schedule" } },
+        "seenPaths": { "type": "array", "items": { "type": "string" } },
+        "dismissedProposals": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } }
+      }
+    },
+    "configFile": {
+      "type": "object",
+      "properties": {
+        "$schema": { "type": "string" },
+        "id": { "type": "string", "description": "Keys My Scripts storage; written when BatchPad creates the file." },
+        "name": { "type": "string" },
+        "variables": { "$ref": "#/$defs/stringMap" },
+        "defaults": { "$ref": "#/$defs/script", "description": "Defaults for every script in this file." },
+        "env": { "$ref": "#/$defs/stringMap" },
+        "envFile": { "type": "string" },
+        "include": {
+          "description": "Config files merged as sub-trees, relative to this file.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lists": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } }
+        },
+        "sharedParams": { "type": "object", "additionalProperties": { "$ref": "#/$defs/parameter" } },
+        "scriptFolders": { "type": "array", "items": { "$ref": "#/$defs/scriptFolder" } },
+        "scripts": { "$ref": "#/$defs/nodes" }
+      }
+    },
+    "stringMap": { "type": "object", "additionalProperties": { "type": "string" } },
+    "stringList": { "type": "array", "items": { "type": "string" } },
+    "values": {
+      "description": "Parameter values by name.",
+      "type": "object"
+    },
+    "scriptFolder": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string" },
+        "include": { "$ref": "#/$defs/stringList" },
+        "exclude": { "$ref": "#/$defs/stringList" },
+        "recurse": { "type": "boolean" },
+        "groupByPrefix": { "type": "boolean" }
+      }
+    },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "node": {
+      "description": "A folder (items), a workflow (steps), a link (url), else a script.",
+      "type": "object",
+      "if": { "required": ["items"] },
+      "then": { "$ref": "#/$defs/folder" },
+      "else": {
+        "if": { "required": ["steps"] },
+        "then": { "$ref": "#/$defs/workflow" },
+        "else": {
+          "if": { "required": ["url"] },
+          "then": { "$ref": "#/$defs/link" },
+          "else": { "$ref": "#/$defs/script" }
+        }
+      }
+    },
+    "folder": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "folder": { "type": "string" },
+        "collapsed": { "type": "boolean" },
+        "items": { "$ref": "#/$defs/nodes" }
+      }
+    },
+    "link": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "url": { "type": "string" },
+        "icon": { "type": "string" },
+        "tags": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "runnable": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Stable id, unique in its tree." },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "params": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+        "env": { "$ref": "#/$defs/stringMap" },
+        "lock": { "type": "string" },
+        "confirm": { "type": "string" },
+        "nameTemplate": { "type": "string" },
+        "hidden": { "type": "boolean" },
+        "tags": { "$ref": "#/$defs/stringList" },
+        "icon": { "type": "string" },
+        "hotkey": { "type": "string" }
+      }
+    },
+    "script": {
+      "$ref": "#/$defs/runnable",
+      "properties": {
+        "base": { "type": "string", "description": "user.json: the script or workflow this entry customises." },
+        "path": { "type": "string" },
+        "command": { "type": "string" },
+        "module": { "type": "string", "description": "Run as python -m <module>." },
+        "runner": { "enum": ["auto", "batch", "python", "csharp", "powershell", "exe", "shell"] },
+        "workingDir": { "type": "string" },
+        "args": { "$ref": "#/$defs/stringList" },
+        "argsTemplate": { "$ref": "#/$defs/stringList" },
+        "envFile": { "type": "string" },
+        "console": { "enum": ["captured", "window", "windowKeepOpen"] },
+        "longRunning": { "type": "boolean" },
+        "ready": {
+          "type": "object",
+          "properties": { "pattern": { "type": "string" }, "open": { "type": "string" } }
+        },
+        "stop": { "type": "string" },
+        "errorPatterns": { "$ref": "#/$defs/stringList" },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string" },
+              "open": { "enum": ["never", "onSuccess", "always"] }
+            }
+          }
+        },
+        "dependsOn": { "$ref": "#/$defs/stringList" },
+        "testReport": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string" },
+                "rerunParam": { "type": "string" },
+                "rerunBy": { "enum": ["case", "suite"] }
+              }
+            }
+          ]
+        },
+        "singleInstance": { "type": "boolean" },
+        "timeout": { "type": "string", "examples": ["30m", "1h30m"] },
+        "elevated": { "type": "boolean" },
+        "values": { "$ref": "#/$defs/values" },
+        "extraArgs": { "type": "string" },
+        "stepValues": { "type": "object", "additionalProperties": { "$ref": "#/$defs/values" } }
+      }
+    },
+    "workflow": {
+      "$ref": "#/$defs/runnable",
+      "required": ["steps"],
+      "properties": {
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } }
+      }
+    },
+    "step": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "run": { "type": "string" },
+        "values": { "$ref": "#/$defs/values" },
+        "when": { "enum": ["success", "failure", "always"] },
+        "forEach": { "type": "string" },
+        "parallel": {
+          "description": "A group of steps run at once, or with forEach the number of items run at once.",
+          "oneOf": [
+            { "type": "array", "items": { "$ref": "#/$defs/step" } },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "emptyArgs": { "$ref": "#/$defs/stringList" },
+        "confirm": { "type": "boolean" },
+        "continueOnError": { "type": "boolean" },
+        "failFast": { "type": "boolean" },
+        "retry": {
+          "type": "object",
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "delaySeconds": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "use": { "type": "string", "description": "A sharedParams entry to use." },
+        "label": { "type": "string" },
+        "type": { "enum": ["flag", "choice", "multichoice", "text", "int", "path", "secret"] },
+        "description": { "type": "string" },
+        "required": { "type": "boolean" },
+        "default": {},
+        "arg": { "type": "string" },
+        "choices": { "type": "array", "items": { "$ref": "#/$defs/choice" } },
+        "choicesFrom": {
+          "oneOf": [
+            { "$ref": "#/$defs/choiceSource" },
+            { "type": "array", "items": { "$ref": "#/$defs/choiceSource" } }
+          ]
+        },
+        "valueTransform": { "type": "string", "examples": ["lower", "upper"] },
+        "min": { "type": "integer" },
+        "max": { "type": "integer" },
+        "split": { "type": "boolean" },
+        "mode": { "type": "string", "examples": ["file", "folder"] },
+        "position": { "type": "string", "examples": ["end"] },
+        "emit": { "type": "boolean" },
+        "envVar": { "type": "string" },
+        "emptyMeans": { "type": "string", "examples": ["all"] },
+        "emptyArgs": { "$ref": "#/$defs/stringList" },
+        "repeatArg": { "type": "boolean" },
+        "maxPerCall": { "type": "integer", "minimum": 1 },
+        "ask": { "type": "boolean" }
+      }
+    },
+    "choice": {
+      "oneOf": [
+        { "type": ["string", "number", "boolean"] },
+        {
+          "type": "object",
+          "required": ["value"],
+          "properties": {
+            "value": { "type": ["string", "number", "boolean"] },
+            "label": { "type": "string" },
+            "split": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "choiceSource": {
+      "type": "object",
+      "properties": {
+        "glob": { "type": "string" },
+        "stem": { "type": "boolean" },
+        "match": { "type": "string" },
+        "file": { "type": "string" },
+        "regex": { "type": "string" },
+        "split": { "type": "string" },
+        "all": { "type": "boolean" },
+        "command": { "type": "string" },
+        "list": { "type": "string" },
+        "valueTransform": { "type": "string" },
+        "relativeTo": { "type": "string" }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "required": ["target", "trigger"],
+      "properties": {
+        "id": { "type": "string" },
+        "target": { "type": "string", "description": "The script or workflow to run, e.g. workspace:build." },
+        "workspace": { "type": "string", "description": "global.json: the workspace a workspace: target belongs to." },
+        "values": { "$ref": "#/$defs/values" },
+        "trigger": { "$ref": "#/$defs/trigger" },
+        "missed": { "enum": ["skip", "runOnce"] },
+        "overlap": { "enum": ["skip", "queue", "parallel"] },
+        "enabled": { "type": "boolean" },
+        "definitionHash": { "type": "string" }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "properties": {
+        "cron": { "type": "string", "description": "Five fields: minute hour day month weekday." },
+        "every": { "type": "string", "examples": ["30m"] },
+        "between": { "type": "string", "pattern": "^\\d{1,2}:\\d{2}-\\d{1,2}:\\d{2}$" },
+        "at": { "type": "string" },
+        "fileChanged": { "type": "string" },
+        "debounce": { "type": "string" },
+        "onStart": { "const": true },
+        "afterRun": { "type": "string" },
+        "result": { "enum": ["success", "failure", "always"] }
+      },
+      "oneOf": [
+        { "required": ["cron"] },
+        { "required": ["every"] },
+        { "required": ["at"] },
+        { "required": ["fileChanged"] },
+        { "required": ["onStart"] },
+        { "required": ["afterRun"] }
+      ]
+    }
+  }
+}

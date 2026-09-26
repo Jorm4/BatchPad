@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using BatchPad.Core.Choices;
 using BatchPad.Core.Model;
 using BatchPad.Core.Templating;
@@ -28,7 +29,7 @@ public sealed record BoundParameter(ParameterDefinition Definition, TemplateValu
 }
 
 /// <summary>Builds the arguments and environment of a script run (§3.3 argument assembly).</summary>
-public static class ArgumentAssembler
+public static partial class ArgumentAssembler
 {
     public static IReadOnlyList<Invocation> Assemble(AssemblyRequest request)
     {
@@ -137,15 +138,56 @@ public static class ArgumentAssembler
                 }
                 continue;
             }
+            if (script.ArgsTemplate is not null)
+                continue;
 
             var target = definition.Position == "end" ? trailing : arguments;
-            var items = ReferenceEquals(parameter, batched) ? batch! : parameter.Value.AsList();
-            Emit(definition, parameter, items, target);
+            Emit(definition, parameter, ItemsOf(parameter, batched, batch), target);
         }
         arguments.AddRange(trailing);
+        if (script.ArgsTemplate is { } template)
+            arguments.AddRange(ExpandArgsTemplate(template, templates, parameters, batched, batch));
 
         var display = Display(script, templates, arguments, parameterEnvironment.Select(n => $"{n}={environment[n]}"));
         return new Invocation(arguments, environment, display);
+    }
+
+    private static IReadOnlyList<string> ItemsOf(BoundParameter parameter, BoundParameter? batched, IReadOnlyList<string>? batch) =>
+        ReferenceEquals(parameter, batched) ? batch! : parameter.Value.AsList();
+
+    [GeneratedRegex(@"(?<!\$)\{([^{}.]+)(\.\.\.)?\}")]
+    private static partial Regex Placeholder();
+
+    private static IEnumerable<string> ExpandArgsTemplate(IReadOnlyList<string> template, TemplateContext templates,
+        IReadOnlyList<BoundParameter> parameters, BoundParameter? batched, IReadOnlyList<string>? batch)
+    {
+        BoundParameter Find(string name) => parameters.FirstOrDefault(p => p.Definition.Name == name)
+            ?? throw new ArgumentAssemblyException($"argsTemplate names an unknown parameter '{name}'.");
+
+        foreach (var element in template)
+        {
+            var text = TemplateExpander.ExpandText(element, templates);
+            var spread = Placeholder().Matches(text).FirstOrDefault(m => m.Groups[2].Success);
+            if (spread is not null)
+            {
+                var prefix = Substitute(text[..spread.Index]);
+                var suffix = Substitute(text[(spread.Index + spread.Length)..]);
+                foreach (var item in ItemsOf(Find(spread.Groups[1].Value), batched, batch))
+                    yield return prefix + item + suffix;
+                continue;
+            }
+            var expanded = Substitute(text);
+            if (expanded.Length > 0)
+                yield return expanded;
+        }
+
+        string Substitute(string text) => Placeholder().Replace(text, m =>
+        {
+            var parameter = Find(m.Groups[1].Value);
+            if (parameter.Definition.Type == ParameterType.Flag)
+                return parameter.IsOn ? parameter.Definition.Arg ?? "true" : "";
+            return string.Join(' ', ItemsOf(parameter, batched, batch));
+        });
     }
 
     private static void Emit(ParameterDefinition definition, BoundParameter parameter, IReadOnlyList<string> items, List<string> target)

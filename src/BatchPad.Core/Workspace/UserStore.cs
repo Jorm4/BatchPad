@@ -60,6 +60,16 @@ public sealed class UserStore(string filePath)
         });
     }
 
+    public void DismissProposal(string scriptKey, string proposalKey) =>
+        Update(file =>
+        {
+            var all = file.DismissedProposals ??= [];
+            if (!all.TryGetValue(scriptKey, out var dismissed))
+                all[scriptKey] = dismissed = [];
+            if (!dismissed.Contains(proposalKey))
+                dismissed.Add(proposalKey);
+        });
+
     private static List<TreeNode> ItemsOf(WorkspaceFile file, string? folder)
     {
         if (folder is null)

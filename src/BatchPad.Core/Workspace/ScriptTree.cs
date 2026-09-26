@@ -15,17 +15,48 @@ public sealed class ScriptTree(TreeKind kind, string filePath, WorkspaceFile fil
     public WorkspaceFile File { get; } = file;
     public string BaseDirectory => Path.GetDirectoryName(FilePath)!;
 
+    /// <summary>For a <c>global.json</c> library: the name in <c>global:&lt;library&gt;:id</c> references.</summary>
+    public string? Library { get; init; }
+
+    /// <summary>An included file or a library, shown as a sub-folder of its parent tree.</summary>
+    public bool IsPart { get; init; }
+
+    public List<ScriptTree> Parts { get; } = [];
+
+    public string Label => File.Name ?? Path.GetFileNameWithoutExtension(FilePath);
+
+    /// <summary>Where ids are unique: the tree kind, plus the library for a library and its includes.</summary>
+    public string Scope => Library is null ? Kind.ToString() : $"{Kind}:{Library}";
+
+    /// <summary>How the app and history key a node of this tree: its id, else its file; null when it has neither.</summary>
+    public string? NodeKey(TreeNode? node, string? filePath = null) =>
+        node is not null && ReferenceResolver.IdOf(node) is { } id ? $"{Scope}:id:{id}"
+        : filePath is not null ? $"{Kind}:path:" + Path.GetFullPath(filePath, BaseDirectory).ToLowerInvariant()
+        : null;
+
+    public IEnumerable<ScriptTree> SelfAndParts() => Parts.SelectMany(p => p.SelfAndParts()).Prepend(this);
+
     /// <summary>The tree as shown: entries merged with discovered scripts. Filled by <see cref="Rescan"/>.</summary>
     public IReadOnlyList<TreeItem> Items { get; private set; } = [];
 
     public IReadOnlyList<ScriptFolder> ScriptFolders =>
-        File.ScriptFolders ?? (Kind == TreeKind.Workspace ? ScriptFolderScanner.DefaultFolders : []);
+        File.ScriptFolders ?? (Kind == TreeKind.Workspace && !IsPart ? ScriptFolderScanner.DefaultFolders : []);
 
     public IEnumerable<string> ScriptFolderDirectories =>
         ScriptFolders.Select(f => ScriptFolderScanner.FullPath(BaseDirectory, f));
 
-    public void Rescan(IReadOnlySet<string>? seenPaths = null) =>
-        Items = TreeMerger.Merge(File.Scripts, BaseDirectory, ScriptFolderScanner.Scan(BaseDirectory, ScriptFolders), seenPaths);
+    public void Rescan(IReadOnlySet<string>? seenPaths = null)
+    {
+        var items = TreeMerger.Merge(File.Scripts, BaseDirectory, ScriptFolderScanner.Scan(BaseDirectory, ScriptFolders), seenPaths);
+        foreach (var part in Parts)
+        {
+            part.Rescan();
+            var folder = new TreeItem { Node = new FolderNode { Folder = part.Label }, Name = part.Label, Part = part };
+            folder.Children.AddRange(part.Items);
+            items.Add(folder);
+        }
+        Items = items;
+    }
 
     /// <summary>Every node with its folder location, e.g. <c>Build › Build</c>.</summary>
     public IEnumerable<(TreeNode Node, string Location)> AllNodes() => Walk(File.Scripts, "");

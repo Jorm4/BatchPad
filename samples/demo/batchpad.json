@@ -48,6 +48,34 @@
         { "id": "build", "run": "hello-bat" },
         { "id": "run", "run": "params-demo" }
       ]
+    },
+    {
+      "folder": "Pipeline",
+      "items": [
+        { "id": "version", "name": "Version", "path": "version.py" },
+        { "id": "demo-tests", "name": "Run tests", "path": "run_tests.py", "testReport": "out/junit.xml",
+          "description": "Three pretend tests; writes JUnit XML, so the run tab shows a Tests view.",
+          "params": [ { "name": "fail", "label": "Make one fail", "type": "flag", "arg": "--fail" } ] },
+        { "id": "flaky", "name": "Flaky", "path": "flaky.py",
+          "description": "Fails its first runs, then passes: try it with retry and Re-run from the failed step.",
+          "params": [ { "name": "failures", "label": "Failures", "type": "int", "arg": "--failures", "default": 1, "min": 0, "max": 5 } ] },
+        { "id": "package", "name": "Package", "path": "package.bat", "lock": "demo-package",
+          "description": "Runs under the demo-package lock, so two runs take turns.",
+          "params": [ { "name": "version", "label": "Version", "type": "text", "default": "0.0.0" } ] },
+        {
+          "id": "release", "name": "Release pipeline",
+          "description": "Version, then tests and hello.py in parallel, a flaky step with one retry, and a package named after the version.",
+          "params": [ { "name": "failures", "label": "Flaky failures", "type": "int", "default": 1, "min": 0, "max": 5 } ],
+          "steps": [
+            { "id": "version", "run": "version" },
+            { "parallel": [
+                { "id": "tests", "run": "demo-tests" },
+                { "id": "hello", "run": "hello-py" } ] },
+            { "id": "flaky", "run": "flaky", "values": { "failures": "${param:failures}" }, "retry": { "count": 1 } },
+            { "id": "package", "run": "package", "values": { "version": "${steps.version.version}" } }
+          ]
+        }
+      ]
     }
   ]
 }

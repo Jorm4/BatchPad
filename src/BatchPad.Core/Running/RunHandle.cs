@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace BatchPad.Core.Running;
 
 public enum OutputStream { Stdout, Stderr, Info }
@@ -27,15 +25,30 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
     private readonly List<IObserver<OutputLine>> _observers = [];
     private readonly List<StartedProcess> _processes = [];
     private readonly TaskCompletionSource<RunResult> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly Stopwatch _clock = new();
+    private readonly TimeProvider _time;
+    private readonly CancellationTokenSource _stopRequested = new();
+    private LockLease? _locks;
+    private long _startTimestamp;
     private RunOutcome? _stopOutcome;
     private bool _outputEnded;
 
-    internal RunHandle(IReadOnlyList<RunSpec> specs) => Specs = specs;
+    internal RunHandle(IReadOnlyList<RunSpec> specs, TimeProvider time)
+    {
+        Specs = specs;
+        _time = time;
+    }
 
     public IReadOnlyList<RunSpec> Specs { get; }
     public Task<RunResult> Completion => _completion.Task;
     public DateTimeOffset StartedAt { get; private set; }
+
+    /// <summary>The lock this run is queued behind; null once it has started.</summary>
+    public string? WaitingForLock { get; private set; }
+
+    /// <summary>Raised on a worker thread when <see cref="WaitingForLock"/> changes.</summary>
+    public event Action? WaitingChanged;
+
+    internal CancellationToken StopRequested => _stopRequested.Token;
 
     /// <summary>The process currently running (the latest one once finished).</summary>
     public int ProcessId
@@ -86,11 +99,19 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
     /// </summary>
     public async Task StopAsync(RunOutcome outcome, TimeSpan grace, Func<bool>? stopCompanion = null)
     {
-        StartedProcess current;
+        StartedProcess? current = null;
         lock (_lock)
         {
             _stopOutcome ??= outcome;
-            current = _processes[^1];
+            if (_processes.Count == 0)
+                CancelWaiting(_stopOutcome.Value);
+            else
+                current = _processes[^1];
+        }
+        if (current is null)
+        {
+            await Completion;
+            return;
         }
         if (!Completion.IsCompleted && grace > TimeSpan.Zero && AskToStop(current, stopCompanion))
             await Task.WhenAny(current.Exited, Task.Delay(grace));
@@ -106,22 +127,78 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
     private static bool AskToStop(StartedProcess current, Func<bool>? stopCompanion) =>
         stopCompanion?.Invoke() == true || current.Job.CloseWindows() > 0;
 
+    /// <summary>Releases this run's locks before it ends, as a workflow's long-running last step does at ready.</summary>
+    public void ReleaseLocks() => Interlocked.Exchange(ref _locks, null)?.Dispose();
+
     public void Dispose()
     {
         lock (_lock)
         {
+            if (_processes.Count == 0)
+            {
+                _stopOutcome ??= RunOutcome.Stopped;
+                CancelWaiting(_stopOutcome.Value);
+            }
             foreach (var process in _processes)
                 process.Dispose();
         }
         EndOutput();
     }
 
-    internal void Begin()
+    internal void Wait(string lockName)
     {
-        StartedAt = DateTimeOffset.Now;
-        _clock.Start();
-        _processes.Add(ProcessRunner.Launch(Specs[0], Publish));
+        WaitingForLock = lockName;
+        Publish($"Waiting for lock '{lockName}'…", OutputStream.Info);
+        WaitingChanged?.Invoke();
+    }
+
+    /// <exception cref="RunException">The first process could not be started.</exception>
+    internal void Begin(LockLease? locks = null)
+    {
+        var wasWaiting = WaitingForLock is not null;
+        lock (_lock)
+        {
+            if (_stopOutcome is not null)
+            {
+                locks?.Dispose();
+                return;
+            }
+            _locks = locks;
+            WaitingForLock = null;
+            StartedAt = _time.GetLocalNow();
+            _startTimestamp = _time.GetTimestamp();
+            try
+            {
+                _processes.Add(ProcessRunner.Launch(Specs[0], Publish));
+            }
+            catch
+            {
+                ReleaseLocks();
+                throw;
+            }
+        }
+        if (wasWaiting)
+            WaitingChanged?.Invoke();
         _ = RunAsync();
+    }
+
+    internal void FailToStart(string message)
+    {
+        Publish(message, OutputStream.Info);
+        Finish(new RunResult(RunOutcome.FailedToStart, -1, TimeSpan.Zero));
+    }
+
+    private void CancelWaiting(RunOutcome outcome)
+    {
+        _stopRequested.Cancel();
+        _ = Task.Run(() => Finish(new RunResult(outcome, -1, TimeSpan.Zero)));
+    }
+
+    private void Finish(RunResult result)
+    {
+        ReleaseLocks();
+        if (_completion.TrySetResult(result))
+            EndOutput();
     }
 
     private async Task RunAsync()
@@ -133,7 +210,7 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
             lock (_lock)
                 current = _processes[^1];
 
-            using var timeout = Specs[index].Timeout is { } limit ? new CancellationTokenSource(limit) : null;
+            using var timeout = Specs[index].Timeout is { } limit ? new CancellationTokenSource(limit, _time) : null;
             using var timeoutRegistration = timeout?.Token.Register(() =>
             {
                 Publish($"Timed out after {Specs[index].Timeout}; stopping.", OutputStream.Info);
@@ -147,12 +224,12 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
             {
                 if (_stopOutcome is { } stopped)
                 {
-                    result = new RunResult(stopped, exitCode, _clock.Elapsed);
+                    result = new RunResult(stopped, exitCode, Elapsed);
                     break;
                 }
                 if (exitCode != 0 || index == Specs.Count - 1)
                 {
-                    result = new RunResult(RunOutcome.Exited, exitCode, _clock.Elapsed);
+                    result = new RunResult(RunOutcome.Exited, exitCode, Elapsed);
                     break;
                 }
                 try
@@ -162,11 +239,12 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
                 catch (RunException ex)
                 {
                     PublishLocked(ex.Message, OutputStream.Info);
-                    result = new RunResult(RunOutcome.FailedToStart, -1, _clock.Elapsed);
+                    result = new RunResult(RunOutcome.FailedToStart, -1, Elapsed);
                     break;
                 }
             }
         }
+        ReleaseLocks();
         _completion.SetResult(result);
 
         Task[] outputs;
@@ -175,6 +253,8 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
         await Task.WhenAll(outputs);
         EndOutput();
     }
+
+    private TimeSpan Elapsed => _time.GetElapsedTime(_startTimestamp);
 
     private void Publish(string text, OutputStream stream)
     {

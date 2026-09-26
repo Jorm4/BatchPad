@@ -1,5 +1,6 @@
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Config;
+using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Workspace;
 
@@ -46,7 +47,11 @@ public sealed class MainViewModelTests
 
         main.Tree.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
         main.Details.EditCommand.Execute(null);
-        ConfigWriter.Update(file, f => f.Name = "Renamed again");
+        ConfigWriter.Update(file, f =>
+        {
+            f.Name = "Renamed again";
+            f.Scripts.OfType<FolderNode>().SelectMany(g => g.Items).OfType<ScriptNode>().Single(n => n.Id == "hello-bat").Description = "Changed outside";
+        });
         main.CheckForExternalChanges();
         Assert.IsTrue(main.IsReloadPromptVisible);
         Assert.IsNotNull(main.Details.Editor);

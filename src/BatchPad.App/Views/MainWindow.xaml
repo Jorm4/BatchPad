@@ -5,6 +5,7 @@
         xmlns:views="clr-namespace:BatchPad.App.Views"
         xmlns:ws="clr-namespace:BatchPad.App.Views.Workspace"
         xmlns:wizard="clr-namespace:BatchPad.App.Views.Wizard"
+        xmlns:schedules="clr-namespace:BatchPad.App.Views.Schedules"
         Title="BatchPad" Height="760" Width="1200"
         FontFamily="Segoe UI Variable Text, Segoe UI"
         SourceInitialized="OnSourceInitialized" Closing="OnClosing" PreviewKeyDown="OnPreviewKeyDown"
@@ -12,6 +13,8 @@
     <Window.InputBindings>
         <KeyBinding Key="F4" Command="{Binding Details.EditCommand}" />
         <KeyBinding Key="Escape" Command="{Binding EscapeCommand}" />
+        <KeyBinding Key="F8" Command="{Binding Output.SelectedTab.Log.NextErrorCommand}" />
+        <KeyBinding Key="F8" Modifiers="Shift" Command="{Binding Output.SelectedTab.Log.PreviousErrorCommand}" />
     </Window.InputBindings>
     <Grid>
         <Grid.RowDefinitions>
@@ -48,7 +51,14 @@
                     <TextBlock Text="Workspace" />
                 </StackPanel>
             </Button>
-            <Button DockPanel.Dock="Right" Click="OnSearchClick" ToolTip="Search (Ctrl+K)"
+            <Button DockPanel.Dock="Left" Margin="4,0,0,0" Command="{Binding OpenSchedulesCommand}" ToolTip="Schedules"
+                    AutomationProperties.AutomationId="SchedulesButton">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE823;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Schedules" />
+                </StackPanel>
+            </Button>
+            <Button DockPanel.Dock="Right" Command="{Binding Palette.OpenCommand}" ToolTip="Search (Ctrl+K)"
                     AutomationProperties.AutomationId="SearchButton">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE721;" Margin="0,0,6,0" VerticalAlignment="Center" />
@@ -68,6 +78,22 @@
                 <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,8"
                          Text="{Binding Tree.Filter, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.AutomationId="FilterBox" AutomationProperties.Name="Filter" />
+                <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="10" CornerRadius="6" Background="#FFF4CE"
+                        DataContext="{Binding MyScripts.DragDrop.PendingDrop}"
+                        Visibility="{Binding DataContext.MyScripts.DragDrop.PendingDrop, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToCollapsed}}"
+                        AutomationProperties.AutomationId="ExternalDropPrompt">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="#1C1C1C" />
+                        <WrapPanel Margin="0,6,0,0">
+                            <Button Content="Reference it where it is" Command="{Binding ReferenceCommand}" Margin="0,0,6,4"
+                                    AutomationProperties.AutomationId="DropReferenceButton" />
+                            <Button Content="Copy it into the script folder" Command="{Binding CopyCommand}" Margin="0,0,6,4"
+                                    AutomationProperties.AutomationId="DropCopyButton" />
+                            <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,0,0,4"
+                                    AutomationProperties.AutomationId="DropCancelButton" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
                 <TextBlock DockPanel.Dock="Bottom" Text="{Binding MyScripts.Error}" Foreground="#C42B1C" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="MyScriptsError" />
                 <TreeView x:Name="ScriptTreeView" ItemsSource="{Binding Tree.Roots}" BorderThickness="0" Background="Transparent"
@@ -83,13 +109,21 @@
                         <ContextMenu AutomationProperties.AutomationId="TreeContextMenu">
                             <MenuItem Header="Add to My Scripts" Command="{Binding MyScripts.AddToMyScriptsCommand}" CommandParameter="{Binding Tree.SelectedNode}"
                                       AutomationProperties.AutomationId="AddToMyScriptsMenuItem" />
+                            <MenuItem Header="Copy to My Scripts" Command="{Binding MyScripts.CopyToMyScriptsCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="CopyToMyScriptsMenuItem" />
+                            <MenuItem Header="Share with workspace" Command="{Binding MyScripts.ShareWithWorkspaceCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="ShareWithWorkspaceMenuItem" />
                             <MenuItem Header="Duplicate" Command="{Binding MyScripts.DuplicateCommand}" CommandParameter="{Binding Tree.SelectedNode}"
                                       AutomationProperties.AutomationId="DuplicateMenuItem" />
                             <MenuItem Header="Rename" InputGestureText="F2" Command="{Binding MyScripts.BeginRenameCommand}" CommandParameter="{Binding Tree.SelectedNode}"
                                       AutomationProperties.AutomationId="RenameMenuItem" />
                             <MenuItem Header="Delete" InputGestureText="Del" Command="{Binding MyScripts.DeleteCommand}" CommandParameter="{Binding Tree.SelectedNode}"
                                       AutomationProperties.AutomationId="DeleteMenuItem" />
+                            <MenuItem Header="Re-attach…" Command="{Binding Details.ReattachCommand}"
+                                      AutomationProperties.AutomationId="ReattachMenuItem" />
                             <Separator />
+                            <MenuItem Header="New script…" Command="{Binding Tree.NewScriptCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="NewScriptMenuItem" />
                             <MenuItem Header="New link…" Command="{Binding Tree.NewLinkCommand}" CommandParameter="{Binding Tree.SelectedNode}"
                                       AutomationProperties.AutomationId="NewLinkMenuItem" />
                             <MenuItem Header="New workflow…" Command="{Binding Tree.NewWorkflowCommand}" CommandParameter="{Binding Tree.SelectedNode}"
@@ -127,10 +161,23 @@
                                 <TextBlock x:Name="BrokenBadge" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center"
                                            FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="#9D5D00" ToolTip="{Binding Description}" />
                                 <TextBlock x:Name="RunBadge" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE823;" Margin="6,0,0,0" FontSize="11" Opacity="0.7"
+                                           VerticalAlignment="Center" ToolTip="{Binding ScheduleText}"
+                                           Visibility="{Binding IsScheduled, Converter={StaticResource BoolToVisibility}}"
+                                           AutomationProperties.AutomationId="ScheduleBadge" AutomationProperties.Name="{Binding ScheduleText}" />
+                                <TextBlock Text="{Binding LinkAge}" Margin="6,0,0,0" FontSize="11" Opacity="0.6" VerticalAlignment="Center"
+                                           Visibility="{Binding LinkAge, Converter={StaticResource NullToCollapsed}}"
+                                           AutomationProperties.AutomationId="LinkAge" />
                                 <Border x:Name="NewBadge" Visibility="Collapsed" Margin="6,0,0,0" Padding="4,0"
                                         CornerRadius="3" Background="{StaticResource AccentBrush}">
                                     <TextBlock Text="NEW" FontSize="10" Foreground="White" />
                                 </Border>
+                                <Button Content="{Binding ProposalBadge}" Margin="6,0,0,0" Padding="4,0" FontSize="10" VerticalAlignment="Center"
+                                        Visibility="{Binding HasProposals, Converter={StaticResource BoolToVisibility}}"
+                                        ToolTip="Detected from the script; click to review"
+                                        Command="{Binding DataContext.Details.ShowProposalsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}"
+                                        AutomationProperties.AutomationId="ProposalBadge" AutomationProperties.Name="{Binding ProposalBadge}" />
                             </StackPanel>
                             <HierarchicalDataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:NodeKind.Root}">
@@ -142,6 +189,12 @@
                                     <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
                                     <Setter TargetName="RunBadge" Property="Text" Value="●" />
                                     <Setter TargetName="RunBadge" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Waiting}">
+                                    <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="RunBadge" Property="Text" Value="⧗" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="#9A9A9A" />
+                                    <Setter TargetName="RunBadge" Property="ToolTip" Value="{Binding WaitingFor}" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Ready}">
                                     <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
@@ -169,6 +222,10 @@
                                 <DataTrigger Binding="{Binding IsBroken}" Value="True">
                                     <Setter TargetName="Label" Property="Opacity" Value="0.5" />
                                     <Setter TargetName="BrokenBadge" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsMissing}" Value="True">
+                                    <Setter TargetName="Label" Property="Opacity" Value="0.5" />
+                                    <Setter TargetName="Label" Property="ToolTip" Value="The file is missing" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding IsOrphan}" Value="True">
                                     <Setter TargetName="Label" Property="TextDecorations" Value="Strikethrough" />
@@ -233,6 +290,8 @@
                                     Visibility="{Binding DataContext.NewItem, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToCollapsed}}" />
                         <wizard:NewWorkspaceWizard DataContext="{Binding NewWorkspace}" Margin="0,0,0,12"
                                                    Visibility="{Binding DataContext.NewWorkspace, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToCollapsed}}" />
+                        <schedules:SchedulesPage DataContext="{Binding Schedules}" Margin="0,0,0,12"
+                                                 Visibility="{Binding DataContext.Schedules, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToCollapsed}}" />
                         <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent"
                                       AutomationProperties.AutomationId="OutputSplitter" />
                         <views:OutputPanel Grid.Row="2" DataContext="{Binding Output}" Margin="-20,0,-20,-16" />
@@ -240,5 +299,8 @@
                 </DockPanel>
             </Border>
         </Grid>
+
+        <views:CommandPalette Grid.RowSpan="2" DataContext="{Binding Palette}" HorizontalAlignment="Center" VerticalAlignment="Top"
+                              Visibility="{Binding IsOpen, Converter={StaticResource BoolToVisibility}}" />
     </Grid>
 </Window>

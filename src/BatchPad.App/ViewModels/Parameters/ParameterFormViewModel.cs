@@ -28,6 +28,7 @@ public sealed partial class ParameterFormViewModel : ObservableObject
                 ParameterType.Multichoice => new MultichoiceFieldViewModel(p, resolveChoices(p), value, isSet),
                 ParameterType.Int => new IntFieldViewModel(p, value, isSet),
                 ParameterType.Path => new PathFieldViewModel(p, value, isSet, dialogs, baseDirectory),
+                ParameterType.Secret => new SecretFieldViewModel(p, value, isSet),
                 _ => new TextFieldViewModel(p, value, isSet),
             };
             field.Changed += OnFieldChanged;
@@ -44,7 +45,7 @@ public sealed partial class ParameterFormViewModel : ObservableObject
     /// <summary>The form for a script's or workflow's parameters, with shared <c>use</c> entries merged in.</summary>
     /// <exception cref="ArgumentAssemblyException">A <c>use</c> names no shared parameter.</exception>
     public static ParameterFormViewModel For(LoadedWorkspace workspace, RunnableNode definition, ScriptTree tree, ParameterValues? stored,
-        IFileDialogService dialogs, Func<ParameterDefinition, bool>? include = null)
+        IFileDialogService dialogs, CommandChoiceSource? commands, Func<ParameterDefinition, bool>? include = null)
     {
         var parameters = SharedParameters.MergeAll(definition.Params, workspace.Workspace.File.SharedParams);
         var context = definition is ScriptNode script
@@ -54,12 +55,15 @@ public sealed partial class ParameterFormViewModel : ObservableObject
                 Lists = workspace.Workspace.File.Lists,
                 Templates = new TemplateContext { WorkspaceDir = workspace.Directory, Variables = workspace.Workspace.File.Variables },
             };
+        context = context with { Commands = commands };
         var choices = new ChoiceResolver();
         return new ParameterFormViewModel(parameters.Where(p => include?.Invoke(p) != false).ToList(), p => choices.Resolve(p, context),
             stored, dialogs, workspace.Directory);
     }
 
     public IReadOnlyList<ParameterFieldViewModel> Fields { get; }
+
+    public bool HasExtraArguments { get; set; } = true;
 
     [ObservableProperty]
     private string extraArguments;
@@ -72,7 +76,9 @@ public sealed partial class ParameterFormViewModel : ObservableObject
 
     public IReadOnlyDictionary<string, JsonNode?> Values => Fields.Where(f => f.IsSet).ToDictionary(f => f.Name, f => f.Value);
 
-    public ParameterValues Snapshot() => new(Values, ExtraArguments);
+    /// <summary>The values to keep, which leave out secrets.</summary>
+    public ParameterValues Snapshot() =>
+        new(Fields.Where(f => f.IsSet && f is not SecretFieldViewModel).ToDictionary(f => f.Name, f => f.Value), ExtraArguments);
 
     public ParameterFieldViewModel? Field(string name) => Fields.FirstOrDefault(f => f.Name == name);
 

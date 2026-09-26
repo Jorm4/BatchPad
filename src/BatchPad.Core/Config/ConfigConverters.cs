@@ -98,3 +98,40 @@ public sealed class ChoiceSourceListConverter : JsonConverter<List<ChoiceSource>
             JsonSerializer.Serialize(writer, value, options);
     }
 }
+
+/// <summary><c>testReport</c> is a path string or an object; a report with only a path is written back as a string.</summary>
+public sealed class TestReportConverter : JsonConverter<TestReportDefinition>
+{
+    public override TestReportDefinition? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String
+            ? new TestReportDefinition { Path = reader.GetString() }
+            : JsonSerializer.Deserialize<TestReportDefinition>(ref reader, options);
+
+    public override void Write(Utf8JsonWriter writer, TestReportDefinition value, JsonSerializerOptions options)
+    {
+        if (value.IsPlain)
+            writer.WriteStringValue(value.Path);
+        else
+            JsonSerializer.Serialize(writer, value, options);
+    }
+}
+
+/// <summary>A step's <c>parallel</c> is an array of member steps (a group) or a number (the <c>forEach</c> fan-out).</summary>
+internal sealed class StepParallelConverter : JsonConverter<StepParallel>
+{
+    public override StepParallel? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType switch
+        {
+            JsonTokenType.StartArray => new StepParallel(JsonSerializer.Deserialize<List<WorkflowStep>>(ref reader, options), null),
+            JsonTokenType.Number => new StepParallel(null, reader.GetInt32()),
+            _ => throw new JsonException("'parallel' must be an array of steps or a number."),
+        };
+
+    public override void Write(Utf8JsonWriter writer, StepParallel value, JsonSerializerOptions options)
+    {
+        if (value.Members is { } members)
+            JsonSerializer.Serialize(writer, members, options);
+        else
+            writer.WriteNumberValue(value.Degree ?? 1);
+    }
+}

@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <PackageReference Include="MSTest" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
   <ItemGroup>
@@ -16,11 +17,20 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\BatchPad.App\BatchPad.App.csproj" />
+    <ProjectReference Include="..\..\src\BatchPad.Shim\BatchPad.Shim.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="..\..\samples\**\*" LinkBase="samples" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\fixtures\adoption\**\*" LinkBase="fixtures\adoption" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\junit\**\*" LinkBase="fixtures\junit" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\config\**\*" LinkBase="fixtures\config" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\cli\**\*" LinkBase="fixtures\cli" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\run\**\*" LinkBase="fixtures\run" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <Target Name="CopyComShim" AfterTargets="Build">
+    <Copy SourceFiles="$(OutDir)BatchPad.Shim.exe" DestinationFiles="$(OutDir)batchpad.com" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

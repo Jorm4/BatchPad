@@ -2,13 +2,17 @@ using BatchPad.App.ViewModels.Editor;
 using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
+using BatchPad.Core.Output;
 using BatchPad.Core.Workspace;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace BatchPad.App.ViewModels.Workspace;
 
-/// <summary>"New link…", "New entry…" and "New folder": adds the node to the nearest explicit folder of the tree it was asked from.</summary>
+/// <summary>
+/// "New link…", "New entry…" and "New folder": adds the node to the nearest explicit folder of the tree it was asked from.
+/// "New script…" writes a file from a template into one of the tree's script folders, or the workspace's.
+/// </summary>
 public sealed partial class NewItemViewModel : ObservableObject
 {
     private readonly MainViewModel _main;
@@ -18,9 +22,11 @@ public sealed partial class NewItemViewModel : ObservableObject
     public NewItemViewModel(MainViewModel main, NodeViewModel near, NewItemKind kind)
     {
         _main = main;
-        _tree = near.Tree;
+        _tree = kind == NewItemKind.Script && near.Tree.ScriptFolders.Count == 0 ? main.Workspace!.Workspace : near.Tree;
         Kind = kind;
-        _folder = NearestFolder(near);
+        _folder = kind == NewItemKind.Script ? null : NearestFolder(near);
+        ScriptFolders = kind == NewItemKind.Script ? [.. _tree.ScriptFolders.Select(f => f.Path)] : [];
+        scriptFolder = ScriptFolders.FirstOrDefault();
         Location = _folder is null ? NodeViewModel.RootLabel(_tree.Kind) : $"{NodeViewModel.RootLabel(_tree.Kind)} › {_folder.Folder}";
     }
 
@@ -37,11 +43,22 @@ public sealed partial class NewItemViewModel : ObservableObject
     public bool IsLink => Kind == NewItemKind.Link;
     public bool IsEntry => Kind == NewItemKind.Entry;
     public bool HasTarget => IsLink || IsEntry;
+    public bool IsScript => Kind == NewItemKind.Script;
+    public IReadOnlyList<ScriptTemplate> ScriptTypes => ScriptTemplates.All;
+    public IReadOnlyList<string> ScriptFolders { get; }
+
+    [ObservableProperty]
+    private ScriptTemplate scriptType = ScriptTemplates.All[0];
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    private string? scriptFolder;
 
     public string Title => Kind switch
     {
         NewItemKind.Link => "New link",
         NewItemKind.Entry => "New entry",
+        NewItemKind.Script => "New script",
         _ => "New folder",
     };
 
@@ -77,12 +94,18 @@ public sealed partial class NewItemViewModel : ObservableObject
     {
         NewItemKind.Link => Name.Trim().Length > 0 && Target.Trim().Length > 0,
         NewItemKind.Entry => Name.Trim().Length > 0 || Target.Trim().Length > 0,
+        NewItemKind.Script => Name.Trim().Length > 0 && ScriptFolder is not null,
         _ => Name.Trim().Length > 0,
     };
 
     [RelayCommand(CanExecute = nameof(CanSave))]
     private void Save()
     {
+        if (IsScript)
+        {
+            SaveScript();
+            return;
+        }
         var folderPath = _folder is null ? null : ConfigEntries.IndexPath(_tree.File.Scripts, _folder);
         var name = Name.Trim();
         var target = Target.Trim();
@@ -92,7 +115,7 @@ public sealed partial class NewItemViewModel : ObservableObject
         {
             ConfigWriter.Update(_tree.FilePath, file =>
             {
-                var ids = ConfigEntries.Ids(file.Scripts);
+                var ids = ConfigEntries.Ids(file.Scripts, _main.Workspace!, _tree);
                 TreeNode node = Kind switch
                 {
                     NewItemKind.Link => new LinkNode
@@ -124,6 +147,39 @@ public sealed partial class NewItemViewModel : ObservableObject
         }
         var kind = IsLink ? NodeKind.Link : NodeKind.Folder;
         _main.Reload(n => n.Tree.Kind == _tree.Kind && n.Kind == kind && n.Name == name);
+    }
+
+    private void SaveScript()
+    {
+        var folder = _tree.ScriptFolders.First(f => f.Path == ScriptFolder);
+        var stem = string.Join("_", Name.Trim().Split([.. Path.GetInvalidFileNameChars(), ' '], StringSplitOptions.RemoveEmptyEntries));
+        if (stem.EndsWith(ScriptType.Extension, StringComparison.OrdinalIgnoreCase))
+            stem = stem[..^ScriptType.Extension.Length];
+        var fileName = stem + ScriptType.Extension;
+        if (!ScriptFolderScanner.Picks(folder, fileName))
+        {
+            Error = $"The folder '{folder.Path}' doesn't pick up {ScriptType.Extension} files; choose another folder.";
+            return;
+        }
+        var path = Path.Combine(ScriptFolderScanner.FullPath(_tree.BaseDirectory, folder), fileName);
+        if (File.Exists(path))
+        {
+            Error = $"{fileName} already exists.";
+            return;
+        }
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, ScriptTemplates.Content(ScriptType.Extension, fileName));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Error = ex.Message;
+            return;
+        }
+        Closed?.Invoke();
+        _main.Reload(n => string.Equals(n.ScriptFullPath, path, StringComparison.OrdinalIgnoreCase));
+        _main.Sources.Open(new SourceLocation(path, 1, 1));
     }
 
     [RelayCommand]

@@ -96,6 +96,10 @@ public partial class TextFieldViewModel : ParameterFieldViewModel
     }
 }
 
+/// <summary>A <c>secret</c> value: shown as a password box and never saved.</summary>
+public sealed class SecretFieldViewModel(ParameterDefinition definition, JsonNode? stored, bool isSet)
+    : TextFieldViewModel(definition, stored, isSet);
+
 public sealed class IntFieldViewModel(ParameterDefinition definition, JsonNode? stored, bool isSet)
     : TextFieldViewModel(definition, stored, isSet)
 {

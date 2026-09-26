@@ -35,18 +35,31 @@ public partial class WorkflowEditor : UserControl
         e.Handled = true;
         if (Editor is not { } editor)
             return;
-        var over = CardAt(e.OriginalSource as DependencyObject);
-        var index = over is null ? (int?)null : editor.Steps.IndexOf(over);
+        var target = CardAt(e.OriginalSource as DependencyObject);
+        var over = target?.DataContext as StepCardViewModel;
+        // The middle of a card groups with it; its top and bottom edges reorder.
+        var onMiddle = target is { ActualHeight: > 0 } && e.GetPosition(target).Y / target.ActualHeight is > 0.25 and < 0.75;
+        var index = over is null ? (int?)null : editor.Steps.IndexOf(over.Group ?? over);
         if (e.Data.GetData(typeof(StepCardViewModel)) is StepCardViewModel card)
-            editor.MoveStep(card, index ?? editor.Steps.Count - 1);
+        {
+            if (over is not null && onMiddle)
+                editor.Group(card, over);
+            else
+                editor.MoveStep(card, index ?? editor.Steps.Count - 1);
+        }
         else if (e.Data.GetData(typeof(NodeViewModel)) is NodeViewModel node)
-            editor.AddStep(node, index);
+        {
+            if (over is not null && onMiddle)
+                editor.GroupWith(node, over);
+            else
+                editor.AddStep(node, index);
+        }
     }
 
-    private static StepCardViewModel? CardAt(DependencyObject? element)
+    private static FrameworkElement? CardAt(DependencyObject? element)
     {
         for (; element is not null; element = element is Visual ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element))
-            if (element is FrameworkElement { DataContext: StepCardViewModel card })
+            if (element is Border { DataContext: StepCardViewModel, Tag: "StepCard" } card)
                 return card;
         return null;
     }

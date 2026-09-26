@@ -111,8 +111,8 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
         _tree = main.Workspace!.Workspace;
         var file = ConfigEntries.Clone(_tree.File);
         var resolver = new ChoiceResolver();
-        var context = new ChoiceContext(_tree.BaseDirectory) { Lists = file.Lists };
-        _choiceEnvironment = new ChoiceEnvironment(_tree.BaseDirectory, p => resolver.Resolve(p, context), main.Services.Dialogs);
+        var context = new ChoiceContext(_tree.BaseDirectory) { Lists = file.Lists, Commands = main.CommandChoices };
+        _choiceEnvironment = new ChoiceEnvironment(_tree.BaseDirectory, p => resolver.Resolve(p, context), main.Services.Dialogs, main.CommandChoices);
 
         name = file.Name ?? "";
         foreach (var folder in file.ScriptFolders ?? ScriptFolderScanner.DefaultFolders)
@@ -232,7 +232,7 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
         new(key, definition, _choiceEnvironment, UsersOf(key), () => { });
 
     private List<string> UsersOf(string key) =>
-        _main.Workspace!.Trees
+        _main.Workspace!.AllTrees
             .SelectMany(t => t.AllNodes())
             .Where(n => n.Node is RunnableNode { Params: { } parameters } && parameters.Any(p => p.Use == key))
             .Select(n => n.Location)

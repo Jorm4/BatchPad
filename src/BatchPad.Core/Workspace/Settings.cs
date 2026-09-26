@@ -12,6 +12,8 @@ public sealed class Settings : ExtensibleObject
     public Dictionary<string, string> Interpreters { get; set; } = [];
     public List<string> TrustedFolders { get; set; } = [];
     public WindowLayout? Window { get; set; }
+    public string? EditorCommand { get; set; }
+    public bool KeepRunningInTray { get; set; } = true;
 
     public static Settings Load(string path)
     {

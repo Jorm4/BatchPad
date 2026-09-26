@@ -7,7 +7,7 @@ public sealed class DetectionResult
 {
     public required string Name { get; init; }
     public string? Description { get; init; }
-    public List<ParameterDefinition> Parameters { get; init; } = [];
+    public List<ParameterDefinition> Parameters { get; set; } = [];
     public string? LongRunningReason { get; init; }
     public bool LongRunning => LongRunningReason is not null;
 }

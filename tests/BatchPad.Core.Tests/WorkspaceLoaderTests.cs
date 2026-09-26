@@ -28,7 +28,7 @@ public sealed class WorkspaceLoaderTests
         Assert.IsEmpty(loaded.Errors);
         Assert.AreEqual("batchpad-demo", loaded.Id);
         Assert.AreEqual(Fixtures.DemoWorkspace, loaded.Directory);
-        Assert.AreEqual(10, loaded.Workspace.AllNodes().Count());
+        Assert.AreEqual(16, loaded.Workspace.AllNodes().Count());
         Assert.AreEqual(1, loaded.Global.AllNodes().Count());
         Assert.AreEqual(2, loaded.MyScripts.AllNodes().Count());
         Assert.HasCount(4, loaded.Workspace.Items[0].Children);
@@ -82,6 +82,26 @@ public sealed class WorkspaceLoaderTests
 
         Assert.AreEqual(dir.Path("batchpad.json"), loaded.Errors.Single().FilePath);
         Assert.IsEmpty(loaded.Workspace.File.Scripts);
+    }
+
+    [TestMethod]
+    public void SchedulesInTheWorkspaceFileAreALoadErrorAndPersonalOnesAreChecked()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.Path("batchpad.json"), """
+            { "id": "ws", "scripts": [], "schedules": [ { "target": "workspace:tests", "trigger": { "onStart": true } } ] }
+            """);
+        var paths = new AppPaths(dir.Path("data"), isPortable: false);
+        Directory.CreateDirectory(Path.GetDirectoryName(paths.UserFile("ws"))!);
+        File.WriteAllText(paths.UserFile("ws"), """
+            { "schedules": [ { "id": "bad", "target": "workspace:tests", "trigger": { "cron": "0 2 * *" } } ] }
+            """);
+
+        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), paths);
+
+        Assert.HasCount(2, loaded.Errors);
+        StringAssert.Contains(loaded.Errors.Single(e => e.FilePath == dir.Path("batchpad.json")).Message, "user.json or global.json");
+        StringAssert.Contains(loaded.Errors.Single(e => e.FilePath == paths.UserFile("ws")).Message, "Schedule 'bad'");
     }
 
     [TestMethod]

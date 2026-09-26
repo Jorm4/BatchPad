@@ -95,10 +95,50 @@ public sealed class ChoiceSourcePickerTests
         Assert.AreEqual("robots", choice.Label);
     }
 
+    [TestMethod]
+    public void ExampleValueDerivesAPatternForEveryName()
+    {
+        using var test = new TestWorkspace();
+        var (_, editor) = EditGameChoices(test);
+        editor.Choices!.AddSourceCommand.Execute(null);
+        var picker = editor.Choices.Picker!;
+        picker.SelectKindCommand.Execute(ChoiceSourceKind.Lines);
+        picker.FilePath = "apps.cmake";
+        picker.SelectLine(picker.Line(2)!);
+
+        picker.ExampleValue = "Beta";
+
+        CollectionAssert.AreEqual(new[] { "Alpha", "Beta", "Gamma" }, picker.Preview.Select(p => p.Value).ToList());
+        Assert.IsTrue(picker.Line(1)!.IsMatch);
+        Assert.IsFalse(picker.Line(4)!.IsMatch);
+    }
+
+    [TestMethod]
+    public void ScriptOutputSourceListsItsLinesAndSurvivesASave()
+    {
+        using var test = new TestWorkspace();
+        var (main, editor) = EditGameChoices(test);
+        editor.Choices!.AddSourceCommand.Execute(null);
+        var picker = editor.Choices.Picker!;
+
+        picker.SelectKindCommand.Execute(ChoiceSourceKind.Script);
+        picker.ScriptPath = "list_games.bat";
+
+        CollectionAssert.AreEqual(new[] { "Red", "Blue" }, picker.Preview.Select(p => p.Value).ToList());
+        picker.AcceptCommand.Execute(null);
+        editor.SaveCommand.Execute(null);
+        var reopened = Edit(main, "Workspace/Games");
+        reopened.Parameters.Selected = reopened.Parameters.Field("game");
+        Assert.AreEqual("list_games.bat", reopened.Choices!.Sources.Single().Source.Command);
+    }
+
     private static (MainViewModel, ScriptEditorViewModel) EditGameChoices(TestWorkspace test)
     {
         var demo = test.CopyDemo();
         File.WriteAllText(Path.Combine(demo, "games.bat"), "@echo off\r\nset \"GAMES=A B C\"\r\necho %GAMES%\r\n");
+        File.WriteAllText(Path.Combine(demo, "apps.cmake"),
+            "add_app(Alpha src/a)\nadd_app(Beta src/b)\nadd_app(Gamma src/c)\nadd_library(common src/common)\n");
+        File.WriteAllText(Path.Combine(demo, "list_games.bat"), "@echo off\r\necho Red\r\necho Blue\r\n");
         foreach (var app in new[] { "alpha", "beta" })
             File.WriteAllText(Path.Combine(Directory.CreateDirectory(Path.Combine(demo, "apps", app, "qa")).FullName, "cases.md"), "");
         Core.Config.ConfigWriter.Update(Path.Combine(demo, "batchpad.json"), f => f.Scripts.Add(new ScriptNode

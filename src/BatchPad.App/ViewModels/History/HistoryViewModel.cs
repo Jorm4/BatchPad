@@ -1,0 +1,124 @@
+using System.Collections.ObjectModel;
+using System.Text.Json.Nodes;
+using BatchPad.Core.History;
+using BatchPad.Core.Running;
+using BatchPad.Core.Workflows;
+using BatchPad.Core.Workspace;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace BatchPad.App.ViewModels.History;
+
+public sealed partial class HistoryEntryViewModel(RunRecord record, HistoryViewModel owner)
+{
+    public RunRecord Record { get; } = record;
+    public string Name => Record.Name;
+    public string WhenText => Record.StartedAt.ToLocalTime().ToString("g");
+    public string DurationText => OutputTabViewModel.FormatDuration(Record.Duration);
+    public string ResultText => RunViewModel.StatusOf(new RunResult(Record.Outcome, Record.ExitCode, Record.Duration));
+    public bool Succeeded => Record.Succeeded;
+    public string Trigger => Record.Trigger;
+
+    [RelayCommand]
+    private void OpenLog() => owner.OpenLog(Record);
+
+    [RelayCommand]
+    private void RunAgain() => owner.RunAgain(Record);
+}
+
+/// <summary>Records the workspace's runs and lists the recent ones (§3.9).</summary>
+public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObject
+{
+    private const int Shown = 200;
+
+    private readonly TimeProvider _time = main.Time;
+
+    public HistoryStore? Store { get; private set; }
+    public ObservableCollection<HistoryEntryViewModel> Runs { get; } = [];
+
+    [ObservableProperty]
+    private HistoryEntryViewModel? selected;
+
+    public bool Select(string recordId)
+    {
+        Selected = Runs.FirstOrDefault(r => r.Record.Id == recordId);
+        return Selected is not null;
+    }
+
+    public void Show(LoadedWorkspace workspace)
+    {
+        var store = HistoryStore.For(main.Paths, workspace.Id, _time);
+        if (Store?.Directory == store.Directory)
+            return;
+        if (Store is not null)
+            Store.RunRecorded -= OnRecorded;
+        Store = store;
+        store.RunRecorded += OnRecorded;
+        Runs.Clear();
+        foreach (var record in store.Recent(Shown))
+            Runs.Add(new HistoryEntryViewModel(record, this));
+    }
+
+    public void Record(IRunOutput run, RunRequest request, NodeViewModel? node)
+    {
+        if (Store is { } store)
+            _ = HistoryRecorder.Attach(run, store, request, node?.Key ?? KeyOf(request), name: node?.Name);
+    }
+
+    public void Record(WorkflowRun run, NodeViewModel node)
+    {
+        if (Store is not { } store)
+            return;
+        var trigger = run.Request.Resume is { } resume ? RunTriggers.ResumedFrom(resume.StepId) : RunTriggers.Manual;
+        _ = HistoryRecorder.AttachWorkflow(run, store,
+            new RunRecord { NodeKey = node.Key, Tree = node.Tree.Kind, Name = node.Name, Trigger = trigger }, KeyOf, RunTriggers.Manual);
+    }
+
+    public void RecordSteps(WorkflowRun run)
+    {
+        if (Store is { } store)
+            _ = HistoryRecorder.AttachSteps(run, store, KeyOf);
+    }
+
+    /// <summary>The value <paramref name="parameter"/> had in the node's latest run that set it.</summary>
+    public JsonNode? LastValue(string nodeKey, string parameter) =>
+        Store?.Recent().FirstOrDefault(r => r.NodeKey == nodeKey && r.Values.ContainsKey(parameter))?.Values[parameter]?.DeepClone();
+
+    public string? LastLog(string nodeKey)
+    {
+        if (Store?.Recent().FirstOrDefault(r => r.NodeKey == nodeKey) is not { } record)
+            return null;
+        try
+        {
+            return File.ReadAllText(Store.LogPath(record));
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    public void OpenLog(RunRecord record)
+    {
+        if (Store is not null)
+            main.Services.Shell.Open(Store.LogPath(record));
+    }
+
+    public void RunAgain(RunRecord record)
+    {
+        var values = record.Values
+            .Where(v => !(v.Value is JsonValue value && value.TryGetValue<string>(out var text) && text == RunRecord.Masked))
+            .ToDictionary(v => v.Key, v => v.Value?.DeepClone());
+        main.RunAgain(record.NodeKey, values, record.ExtraArguments ?? "");
+    }
+
+    internal static string KeyOf(RunRequest request) =>
+        NodeViewModel.KeyFor(request.Tree, request.Script, request.Script.Path) ?? $"{request.Tree.Kind}:{request.Script.Name}";
+
+    private void OnRecorded(RunRecord record) => main.Services.Dispatcher.Post(() =>
+    {
+        Runs.Insert(0, new HistoryEntryViewModel(record, this));
+        if (Runs.Count > Shown)
+            Runs.RemoveAt(Runs.Count - 1);
+    });
+}

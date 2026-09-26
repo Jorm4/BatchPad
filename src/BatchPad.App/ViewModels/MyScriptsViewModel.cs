@@ -24,7 +24,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
     public MyScriptsViewModel(MainViewModel main)
     {
         _main = main;
-        DragDrop = new DragDropHandler(this);
+        DragDrop = new DragDropHandler(main, this);
     }
 
     public DragDropHandler DragDrop { get; }
@@ -42,6 +42,17 @@ public sealed partial class MyScriptsViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanAdd))]
     private void AddToMyScripts(NodeViewModel? source) => Add(source!, _main.Tree!.MyScriptsRoot);
+
+    public static bool CanShare(NodeViewModel? node) => node is { IsMyScript: true, Node: RunnableNode, Customisation.IsBroken: false };
+
+    public static bool CanCopy(NodeViewModel? node) => node is { Tree.Kind: not TreeKind.MyScripts, Kind: NodeKind.Script, Node: ScriptNode };
+
+    [RelayCommand(CanExecute = nameof(CanShare))]
+    private void ShareWithWorkspace(NodeViewModel? node) => Share(node!);
+
+    [RelayCommand(CanExecute = nameof(CanCopy))]
+    private void CopyToMyScripts(NodeViewModel? node) =>
+        AddNodes([Flattener.ToStandalone((ScriptNode)node!.Node!, node.Tree, node.Name)], _main.Tree!.MyScriptsRoot);
 
     [RelayCommand(CanExecute = nameof(IsRunnableEntry))]
     private void Duplicate(NodeViewModel? node) => DuplicateEntry(node!);
@@ -84,6 +95,62 @@ public sealed partial class MyScriptsViewModel : ObservableObject
             entry.Id = IdAssigner.FromName(entry.Name!, ConfigEntries.Ids(file.Scripts));
             Insert(ConfigEntries.FolderItems(file.Scripts, folderPath), index, entry);
         }, () => ById(entry.Id));
+    }
+
+    /// <summary>Moves a My Scripts entry into the workspace file as a real entry, after asking (§5.1).</summary>
+    public bool Share(NodeViewModel node)
+    {
+        if (_main.Workspace is not { } workspace || node.Customisation is not { IsBroken: false } resolved
+            || !_main.Services.Confirm.Confirm("Share with workspace",
+                $"Move '{node.Name}' from My Scripts into {Path.GetFileName(workspace.FilePath)}? Everyone who pulls the repository gets it."))
+            return false;
+        Error = null;
+        string? id = null;
+        try
+        {
+            var store = UserStore.For(workspace);
+            Locate(store.Load(), node);
+            var target = workspace.Workspace;
+            ConfigWriter.Update(target.FilePath, file =>
+            {
+                var shared = Flattener.ToShared(resolved, target, ConfigEntries.Ids(file.Scripts, workspace, target));
+                id = shared.Id;
+                file.Scripts.Add(shared);
+            });
+            store.Update(file =>
+            {
+                var (list, index) = Locate(file, node);
+                list.RemoveAt(index);
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException or StaleEntryException)
+        {
+            Error = ex.Message;
+        }
+        _main.Reload(id is null ? null : n => n.Tree.Kind == TreeKind.Workspace && n.Node is RunnableNode r && r.Id == id);
+        return Error is null;
+    }
+
+    /// <summary>Adds new entries or links at <paramref name="target"/>, giving each an id.</summary>
+    public bool AddNodes(IReadOnlyList<TreeNode> nodes, NodeViewModel target)
+    {
+        var (folderPath, index) = PlaceAt(target);
+        return Edit(file =>
+        {
+            var ids = ConfigEntries.Ids(file.Scripts);
+            var into = ConfigEntries.FolderItems(file.Scripts, folderPath);
+            for (var i = 0; i < nodes.Count; i++)
+            {
+                DragDropHandler.SetId(nodes[i], ids);
+                Insert(into, index is { } at ? at + i : null, nodes[i]);
+            }
+        }, () => ById(ReferenceResolver.IdOf(nodes[0])));
+    }
+
+    public bool PinLink(string path)
+    {
+        var full = Path.GetFullPath(path).TrimEnd('\\', '/');
+        return _main.Tree is { } tree && AddNodes([new LinkNode { Name = Path.GetFileName(full), Url = full }], tree.MyScriptsRoot);
     }
 
     public bool Move(NodeViewModel dragged, NodeViewModel target)
@@ -204,7 +271,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
     }
 
     private static string Reference(NodeViewModel node) =>
-        $"{(node.Tree.Kind == TreeKind.Global ? "global" : "workspace")}:{((RunnableNode)node.Node!).Id}";
+        ReferenceResolver.Qualified(node.Tree, ((RunnableNode)node.Node!).Id!);
 
     private bool IsAutoNamed(NodeViewModel node) =>
         node.Customisation is { Entry.Name: { } name, Definition: { NameTemplate: not null } definition, DefinitionTree: { } tree } resolved

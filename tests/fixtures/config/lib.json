@@ -1,0 +1,7 @@
+{
+  "name": "Team library",
+  "scripts": [
+    { "id": "tool", "name": "Team tool", "path": "tool.bat" },
+    { "id": "tool-twice", "name": "Tool twice", "steps": [ { "run": "tool" }, { "run": "tool" } ] }
+  ]
+}

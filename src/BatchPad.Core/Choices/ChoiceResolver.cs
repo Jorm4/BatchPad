@@ -12,6 +12,9 @@ public sealed record ChoiceContext(string BaseDirectory)
 {
     public IReadOnlyDictionary<string, List<string>>? Lists { get; init; }
     public TemplateContext? Templates { get; init; }
+
+    /// <summary>Runs <c>command</c> sources; without it they add a problem instead.</summary>
+    public CommandChoiceSource? Commands { get; init; }
 }
 
 /// <summary>A source that fails (missing file, bad regex) adds a problem and contributes no choices.</summary>
@@ -64,8 +67,9 @@ public sealed class ChoiceResolver
         if (source.List is not null)
             return context.Lists?.GetValueOrDefault(source.List) ?? throw new ChoiceSourceException($"No list named \"{source.List}\".");
         if (source.Command is not null)
-            throw new ChoiceSourceException("Command choice sources are not supported yet.");
-        throw new ChoiceSourceException("A choice source needs glob, file and regex, or list.");
+            return (context.Commands ?? throw new ChoiceSourceException($"Choices from \"{source.Command}\" are not available here."))
+                .Find(source.Command, context);
+        throw new ChoiceSourceException("A choice source needs glob, file and regex, list, or command.");
     }
 
     private static List<string> FindByGlob(ChoiceSource source, ChoiceContext context)

@@ -20,6 +20,15 @@ public sealed record RunRequest(LoadedWorkspace Workspace, ScriptTree Tree, Scri
 
     /// <summary>Free-form arguments appended to every invocation, split like a split text parameter.</summary>
     public string? ExtraArguments { get; init; }
+
+    /// <summary>Who takes the run's locks; a workflow passes its own so its steps can re-enter its locks.</summary>
+    public object? LockOwner { get; init; }
+
+    /// <summary>Nobody can answer prompts (a schedule, the CLI): a missing <c>ask</c> or <c>secret</c> value or confirmation fails the run.</summary>
+    public bool Unattended { get; init; }
+
+    /// <summary>The <c>confirm</c> question was answered in advance, as by the CLI's <c>--yes</c>.</summary>
+    public bool Confirmed { get; init; }
 }
 
 /// <summary>Turns a <see cref="RunRequest"/> into the <see cref="RunSpec"/>s to start, one per invocation.</summary>
@@ -31,8 +40,11 @@ public static partial class RunPlanner
         ["FORCE_COLOR"] = "1",
     };
 
+    /// <exception cref="RunException">An unattended run lacks a value or confirmation it would have to ask for.</exception>
     public static IReadOnlyList<RunSpec> Plan(RunRequest request, InterpreterLocator interpreters)
     {
+        if (request.Unattended)
+            CheckUnattended(request);
         var workspace = request.Workspace;
         var workspaceFile = workspace.Workspace.File;
         var script = request.Script;
@@ -61,6 +73,42 @@ public static partial class RunPlanner
                 keepWindowOpen: console == ConsoleMode.WindowKeepOpen);
             return new RunSpec(command, environment) { Console = console, Timeout = timeout };
         }).ToList();
+    }
+
+    /// <exception cref="RunException">The run needs confirmation or a value nobody supplied (§4 "Unattended runs").</exception>
+    public static void CheckUnattended(RunRequest request)
+    {
+        var name = ScriptTree.DisplayName(request.Script);
+        if (request.Script.Confirm is { Length: > 0 } && !request.Confirmed)
+            throw new RunException($"'{name}' needs confirmation, and nobody is there to give it.");
+        foreach (var parameter in Prompted(request.Script, request.Workspace))
+        {
+            if (request.Values?.GetValueOrDefault(parameter.Name!) is null)
+                throw new RunException($"'{name}' needs a value for {parameter.Label ?? parameter.Name}.");
+        }
+    }
+
+    /// <summary>The parameters a run asks for when it starts: <c>ask</c> and <c>secret</c> ones.</summary>
+    public static IReadOnlyList<ParameterDefinition> Prompted(RunnableNode node, LoadedWorkspace workspace) =>
+        [.. SharedParameters.MergeAll(node.Params, workspace.Workspace.File.SharedParams)
+            .Where(p => p.Name is not null && (p.Ask == true || p.Type == ParameterType.Secret))];
+
+    /// <summary>The folder a run starts in, where relative paths in its output point; the workspace folder when it can't be worked out.</summary>
+    public static string WorkingDirectoryFor(RunRequest request)
+    {
+        try
+        {
+            var templates = BoundTemplatesFor(request);
+            var script = request.Script;
+            var scriptPath = script.Path is null
+                ? null
+                : Path.GetFullPath(Path.Combine(request.Tree.BaseDirectory, TemplateExpander.ExpandText(script.Path, templates)));
+            return RunnerResolver.WorkingDirectoryFor(script, RunnerResolver.EffectiveRunner(script), scriptPath, request.Tree.BaseDirectory, templates);
+        }
+        catch (Exception ex) when (ex is TemplateException or RunException or ArgumentAssemblyException or IOException or ArgumentException)
+        {
+            return request.Workspace.Directory;
+        }
     }
 
     /// <summary>The variables a script's defaults, paths and choice sources expand with, before parameters are bound.</summary>

@@ -28,6 +28,11 @@
             </StackPanel>
         </DataTemplate>
 
+        <DataTemplate DataType="{x:Type p:SecretFieldViewModel}">
+            <PasswordBox views:PasswordBinding.Password="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.AutomationId="{Binding AutomationId}" AutomationProperties.Name="{Binding Label}" />
+        </DataTemplate>
+
         <DataTemplate DataType="{x:Type p:IntFieldViewModel}">
             <StackPanel>
                 <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" Width="140" HorizontalAlignment="Left"
@@ -125,7 +130,7 @@
                 </DataTemplate>
             </views:FlatItemsControl.ItemTemplate>
         </views:FlatItemsControl>
-        <Grid>
+        <Grid Visibility="{Binding HasExtraArguments, Converter={StaticResource BoolToVisibility}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" SharedSizeGroup="Label" />
                 <ColumnDefinition Width="*" />

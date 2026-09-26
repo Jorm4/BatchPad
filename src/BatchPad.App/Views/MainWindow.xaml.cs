@@ -16,23 +16,31 @@ public partial class MainWindow : Window
 
     private Point _dragStart;
     private NodeViewModel? _dragCandidate;
+    private bool _closeConfirmed;
+    private bool _exiting;
 
     private MainViewModel? Main => DataContext as MainViewModel;
-
-    private void OnSearchClick(object sender, RoutedEventArgs e) => FilterBox.Focus();
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)
         {
-            FilterBox.Focus();
-            FilterBox.SelectAll();
+            Main?.Palette.OpenCommand.Execute(null);
             e.Handled = true;
         }
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
+        if (Main is { } main)
+        {
+            main.ShowWindowRequested += Restore;
+            main.ExitRequested += () =>
+            {
+                _exiting = true;
+                Close();
+            };
+        }
         if (Main?.WindowLayout is not { Width: > 0, Height: > 0 } layout)
             return;
         var visible = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
@@ -53,8 +61,30 @@ public partial class MainWindow : Window
             WindowState = WindowState.Maximized;
     }
 
-    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    private async void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        if (!_closeConfirmed && Main is { } main)
+        {
+            var exiting = _exiting;
+            _exiting = false;
+            switch (main.ConfirmClose(exiting))
+            {
+                case CloseAction.Cancel:
+                    e.Cancel = true;
+                    return;
+                case CloseAction.HideToTray:
+                    e.Cancel = true;
+                    Hide();
+                    return;
+                case CloseAction.StopThenClose:
+                    e.Cancel = true;
+                    IsEnabled = false;
+                    await main.StopAllAsync();
+                    _closeConfirmed = true;
+                    Close();
+                    return;
+            }
+        }
         var bounds = RestoreBounds.IsEmpty ? new Rect(Left, Top, Width, Height) : RestoreBounds;
         Main?.SaveWindowLayout(new WindowLayout
         {
@@ -66,6 +96,14 @@ public partial class MainWindow : Window
             TreeWidth = TreeColumn.ActualWidth,
             OutputHeight = OutputRow.ActualHeight,
         });
+    }
+
+    private void Restore()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+        Activate();
     }
 
     /// <summary>Selects the item under the mouse so the context menu acts on it.</summary>
@@ -100,7 +138,9 @@ public partial class MainWindow : Window
 
     private void OnTreeDragOver(object sender, DragEventArgs e)
     {
-        e.Effects = DropFor(e) is ({ } dragged, _) ? dragged.IsMyScript ? DragDropEffects.Move : DragDropEffects.Copy : DragDropEffects.None;
+        e.Effects = DropFor(e) is ({ } dragged, _) ? dragged.IsMyScript ? DragDropEffects.Move : DragDropEffects.Copy
+            : ExternalItems(e).Count > 0 && ExternalTarget(e) is not null ? DragDropEffects.Copy
+            : DragDropEffects.None;
         e.Handled = true;
     }
 
@@ -108,8 +148,24 @@ public partial class MainWindow : Window
     {
         if (DropFor(e) is ({ } dragged, { } target))
             Main?.MyScripts.DragDrop.Drop(dragged, target);
+        else if (ExternalItems(e) is { Count: > 0 } items && ExternalTarget(e) is { } externalTarget)
+            Main?.MyScripts.DragDrop.DropExternal(items, externalTarget);
         e.Handled = true;
     }
+
+    /// <summary>Files and folders from Explorer, or a URL from a browser.</summary>
+    private static IReadOnlyList<string> ExternalItems(DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
+            return files;
+        return e.Data.GetData(DataFormats.UnicodeText) is string text && Uri.TryCreate(text.Trim(), UriKind.Absolute, out var uri)
+            && uri.Scheme is "http" or "https"
+            ? [text.Trim()]
+            : [];
+    }
+
+    private static NodeViewModel? ExternalTarget(DragEventArgs e) =>
+        e.OriginalSource is DependencyObject source ? NodeAt(source) : null;
 
     private static (NodeViewModel?, NodeViewModel?) DropFor(DragEventArgs e) =>
         e.Data.GetData(typeof(NodeViewModel)) is NodeViewModel dragged && e.OriginalSource is DependencyObject source

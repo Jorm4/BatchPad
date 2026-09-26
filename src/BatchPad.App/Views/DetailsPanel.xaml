@@ -42,6 +42,16 @@
                     <TextBlock Text="{Binding Node.Customisation.Problem}" TextWrapping="Wrap" Foreground="#1C1C1C" VerticalAlignment="Center" />
                 </DockPanel>
             </Border>
+            <Border Margin="0,12,0,0" Padding="12" CornerRadius="6" Background="#FFF4CE"
+                    Visibility="{Binding Node.IsOrphan, Converter={StaticResource BoolToVisibility}}"
+                    AutomationProperties.AutomationId="OrphanBanner">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Re-attach…" Command="{Binding ReattachCommand}"
+                            AutomationProperties.AutomationId="ReattachButton" />
+                    <TextBlock Text="The file is missing. Re-attach the entry to another file to keep its settings." TextWrapping="Wrap"
+                               Foreground="#1C1C1C" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
             <DockPanel Margin="0,8,0,0" DataContext="{Binding ChangeBase}"
                        Visibility="{Binding DataContext.ChangeBase, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource NullToCollapsed}}">
                 <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0"
@@ -65,6 +75,10 @@
             </StackPanel>
 
             <StackPanel Margin="0,16,0,0" Visibility="{Binding IsRunnable, Converter={StaticResource BoolToVisibility}}">
+                <Button Content="Refresh choices" Command="{Binding RefreshChoicesCommand}" HorizontalAlignment="Right" Margin="0,0,0,4"
+                        Visibility="{Binding HasScriptChoices, Converter={StaticResource BoolToVisibility}}"
+                        ToolTip="Runs the scripts that list this form's choices again"
+                        AutomationProperties.AutomationId="RefreshChoicesButton" />
                 <views:ParameterForm DataContext="{Binding Form}" Margin="0,0,0,8" />
                 <Border Padding="10,6" CornerRadius="4" Background="#14000000">
                     <DockPanel>

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
+using BatchPad.Core.Choices;
 using BatchPad.Core.Discovery;
 using Glob = BatchPad.Core.Discovery.Glob;
 using BatchPad.Core.Model;
@@ -68,18 +69,19 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     [
         new(ChoiceSourceKind.Folder, "Files in a folder", "One choice per matching file, named by the file or a folder in its path.", true),
         new(ChoiceSourceKind.Lines, "Lines in a file", "Click a line: every word after = becomes a choice.", true),
-        new(ChoiceSourceKind.Script, "Output of a script", "One choice per output line (coming later).", false),
+        new(ChoiceSourceKind.Script, "Output of a script", "Runs a script; one choice per output line.", true),
         new(ChoiceSourceKind.Fixed, "Fixed list", "Type or paste a label and a value per row.", true),
     ];
 
     public IReadOnlyList<SourceCard> SourceCards => Cards;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsFolder), nameof(IsLines), nameof(IsFixed))]
+    [NotifyPropertyChangedFor(nameof(IsFolder), nameof(IsLines), nameof(IsScript), nameof(IsFixed))]
     private ChoiceSourceKind selectedKind = ChoiceSourceKind.Folder;
 
     public bool IsFolder => SelectedKind == ChoiceSourceKind.Folder;
     public bool IsLines => SelectedKind == ChoiceSourceKind.Lines;
+    public bool IsScript => SelectedKind == ChoiceSourceKind.Script;
     public bool IsFixed => SelectedKind == ChoiceSourceKind.Fixed;
 
     [ObservableProperty]
@@ -110,6 +112,13 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     [ObservableProperty]
     private bool allMatches;
 
+    /// <summary>Part of the selected line; the pattern is derived to match it and its siblings.</summary>
+    [ObservableProperty]
+    private string exampleValue = "";
+
+    [ObservableProperty]
+    private string scriptPath = "";
+
     public ObservableCollection<FixedChoiceRow> FixedRows { get; } = [];
 
     [ObservableProperty]
@@ -129,6 +138,8 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     partial void OnRegexTextChanged(string value) => RefreshMatches();
     partial void OnSplitTextChanged(string value) => RefreshPreview();
     partial void OnAllMatchesChanged(bool value) => RefreshMatches();
+    partial void OnExampleValueChanged(string value) => DeriveFromExample();
+    partial void OnScriptPathChanged(string value) => RefreshPreview();
     partial void OnLowercaseValuesChanged(bool value) => RefreshPreview();
     partial void OnValuesArePathsChanged(bool value) => RefreshPreview();
     partial void OnRelativeToChanged(string value) => RefreshPreview();
@@ -154,6 +165,20 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
             FilePath = Relative(file);
     }
 
+    [RelayCommand]
+    private void BrowseScript()
+    {
+        if (_environment.Dialogs.PickFile(_environment.BaseDirectory) is { } file)
+            ScriptPath = Relative(file);
+    }
+
+    [RelayCommand]
+    private void RefreshScript()
+    {
+        _environment.Commands?.Refresh();
+        RefreshPreview();
+    }
+
     [ObservableProperty]
     private PathSegmentViewModel? selectedSegment;
 
@@ -176,6 +201,7 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     {
         foreach (var l in Lines)
             l.IsSelected = l == value;
+        ExampleValue = "";
         if (value is null)
             return;
         var text = value.Text.TrimStart();
@@ -190,6 +216,18 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
             SplitText = "";
             RegexText = @"^\s*(" + EscapeLiteral(text.TrimEnd()) + @")\s*$";
         }
+    }
+
+    private void DeriveFromExample()
+    {
+        if (SelectedLine is not { } line || ExampleValue.Trim().Length == 0)
+            return;
+        var start = line.Text.IndexOf(ExampleValue.Trim(), StringComparison.Ordinal);
+        if (start < 0 || PatternFromExample.Derive(line.Text, start, ExampleValue.Trim().Length, Lines.Select(l => l.Text)) is not { } derived)
+            return;
+        SplitText = derived.Split ?? "";
+        AllMatches = derived.All;
+        RegexText = derived.Regex;
     }
 
     public FileLineViewModel? Line(int number) => Lines.FirstOrDefault(l => l.Number == number);
@@ -232,6 +270,8 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
                     All = AllMatches,
                     ValueTransform = transform,
                 };
+            case ChoiceSourceKind.Script when ScriptPath.Trim().Length > 0:
+                return new ChoiceSource { Command = ScriptPath.Trim().Replace('\\', '/'), ValueTransform = transform };
             default:
                 return null;
         }
@@ -277,6 +317,11 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
             RegexText = source.Regex ?? "";
             SplitText = source.Split ?? "";
             AllMatches = source.All;
+        }
+        else if (source.Command is { } command)
+        {
+            SelectedKind = ChoiceSourceKind.Script;
+            ScriptPath = command;
         }
     }
 

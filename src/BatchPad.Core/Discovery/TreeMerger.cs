@@ -15,6 +15,9 @@ public sealed class TreeItem
     public bool IsDiscovered { get; init; }
     public bool IsOrphan { get; init; }
     public bool IsNew { get; init; }
+
+    /// <summary>Set on the folder that shows an included file or library; its children belong to that tree.</summary>
+    public ScriptTree? Part { get; init; }
     public List<TreeItem> Children { get; } = [];
 }
 

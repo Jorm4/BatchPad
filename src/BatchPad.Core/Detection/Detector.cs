@@ -4,7 +4,15 @@ namespace BatchPad.Core.Detection;
 
 public static partial class Detector
 {
-    public static DetectionResult Detect(string path) => Detect(Path.GetFileName(path), File.ReadAllText(path));
+    /// <param name="probes">Runs the Python and PowerShell parameter probes; without it those scripts get no parameters.</param>
+    /// <param name="cachedProbesOnly">Uses only probe results already cached, starting no process.</param>
+    public static DetectionResult Detect(string path, ScriptProbes? probes = null, bool cachedProbesOnly = false)
+    {
+        var result = Detect(Path.GetFileName(path), File.ReadAllText(path));
+        if (probes?.Parameters(path, cachedProbesOnly) is { } probed)
+            result.Parameters = probed;
+        return result;
+    }
 
     public static DetectionResult Detect(string fileName, string content)
     {

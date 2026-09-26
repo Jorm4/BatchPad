@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
+using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.ViewModels.Editor;
 
@@ -52,6 +53,15 @@ public static class ConfigEntries
     public static HashSet<string> Ids(IEnumerable<TreeNode> nodes) =>
         Walk(nodes).Select(n => n switch { RunnableNode r => r.Id, LinkNode l => l.Id, _ => null })
             .OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Ids taken in <paramref name="tree"/>'s scope: the freshly read file's plus those of the files it includes or is included by.</summary>
+    public static HashSet<string> Ids(IEnumerable<TreeNode> nodes, LoadedWorkspace workspace, ScriptTree tree)
+    {
+        var ids = Ids(nodes);
+        foreach (var other in workspace.AllTrees.Where(t => t.Scope == tree.Scope && t != tree))
+            ids.UnionWith(Ids(other.File.Scripts));
+        return ids;
+    }
 
     private static IEnumerable<TreeNode> Walk(IEnumerable<TreeNode> nodes) =>
         nodes.SelectMany(n => n is FolderNode f ? Walk(f.Items).Prepend(n) : [n]);

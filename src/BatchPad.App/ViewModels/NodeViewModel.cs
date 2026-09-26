@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using BatchPad.Core.Customisation;
+using BatchPad.Core.Detection;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
@@ -10,7 +11,7 @@ namespace BatchPad.App.ViewModels;
 
 public enum NodeKind { Root, Folder, Script, Workflow, Link }
 
-public enum RunBadge { None, Running, Ready, Passed, Failed }
+public enum RunBadge { None, Waiting, Running, Ready, Passed, Failed }
 
 public sealed partial class NodeViewModel : ObservableObject
 {
@@ -67,8 +68,9 @@ public sealed partial class NodeViewModel : ObservableObject
     public string AutomationId => Parent is null ? Tree.Kind.ToString() : $"{Parent.AutomationId}/{Name}";
 
     /// <summary>Identifies the node across reloads and renames: its tree plus its id, else its file.</summary>
-    public string Key => $"{Tree.Kind}:" + (Node is { } node && ReferenceResolver.IdOf(node) is { } id ? "id:" + id
-        : FilePath is { } path ? "path:" + Path.GetFullPath(path, Tree.BaseDirectory).ToLowerInvariant() : AutomationId);
+    public string Key => KeyFor(Tree, Node, FilePath) ?? $"{Tree.Kind}:{AutomationId}";
+
+    public static string? KeyFor(ScriptTree tree, TreeNode? node, string? filePath) => tree.NodeKey(node, filePath);
 
     public string Icon => Kind switch
     {
@@ -96,6 +98,51 @@ public sealed partial class NodeViewModel : ObservableObject
     [ObservableProperty]
     private bool isNew;
 
+    /// <summary>Detection's suggestions not yet accepted or dismissed, e.g. <c>1 new option: --gated</c>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasProposals))]
+    private string? proposalBadge;
+
+    public bool HasProposals => ProposalBadge is not null;
+
+    /// <summary>For a link to a local file, e.g. <c>updated 2 h ago</c>.</summary>
+    [ObservableProperty]
+    private string? linkAge;
+
+    [ObservableProperty]
+    private bool isMissing;
+
+    /// <summary>The node's schedules in words, one per line; null when it has none.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsScheduled))]
+    private string? scheduleText;
+
+    public bool IsScheduled => ScheduleText is not null;
+
+    public void RefreshLinkState(TimeProvider time)
+    {
+        if (Node is not LinkNode { Url: { Length: > 0 } url } || url.Contains("${")
+            || (Uri.TryCreate(url, UriKind.Absolute, out var uri) && !uri.IsFile && uri.Scheme.Length > 1))
+            return;
+        var target = Path.GetFullPath(url, Tree.BaseDirectory);
+        var isFile = File.Exists(target);
+        IsMissing = !isFile && !Directory.Exists(target);
+        LinkAge = isFile ? $"updated {Ago(time.GetUtcNow().UtcDateTime - File.GetLastWriteTimeUtc(target))}" : null;
+    }
+
+    public static string Ago(TimeSpan age) =>
+        age.TotalMinutes < 1 ? "just now"
+        : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago"
+        : age.TotalDays < 1 ? $"{(int)age.TotalHours} h ago"
+        : $"{(int)age.TotalDays} d ago";
+
+    public string? ScriptFullPath => FilePath is { } path && !path.Contains("${") ? Path.GetFullPath(path, Tree.BaseDirectory) : null;
+
+    /// <summary>Where this script's dismissed proposals are kept; null for My Scripts entries and anything but a script file.</summary>
+    public string? ProposalKey => Kind == NodeKind.Script && Tree.Kind != TreeKind.MyScripts && !IsOrphan && ScriptFullPath is { } full
+        ? ProposalTracker.ScriptKey(Tree.Kind, Path.GetRelativePath(Tree.BaseDirectory, full))
+        : null;
+
     [ObservableProperty]
     private bool isRenaming;
 
@@ -106,12 +153,22 @@ public sealed partial class NodeViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsRunning))]
     private RunBadge badge;
 
+    [ObservableProperty]
+    private string? waitingFor;
+
     public bool IsRunning => _activeRuns > 0;
 
     public void OnRunStarted()
     {
         _activeRuns++;
         Badge = RunBadge.Running;
+    }
+
+    public void OnRunWaiting(string? lockName)
+    {
+        WaitingFor = lockName is null ? null : $"Waiting for lock {lockName}";
+        if (_activeRuns > 0)
+            Badge = lockName is null ? RunBadge.Running : RunBadge.Waiting;
     }
 
     public void OnRunReady()
@@ -124,9 +181,17 @@ public sealed partial class NodeViewModel : ObservableObject
     public void OnRunFinished(RunResult result)
     {
         _activeRuns--;
+        WaitingFor = null;
         if (result.Outcome != RunOutcome.Stopped)
             _lastResult = result.Succeeded ? RunBadge.Passed : RunBadge.Failed;
         Badge = _activeRuns > 0 ? RunBadge.Running : _lastResult;
+    }
+
+    public void ShowLastResult(bool succeeded)
+    {
+        _lastResult = succeeded ? RunBadge.Passed : RunBadge.Failed;
+        if (_activeRuns == 0)
+            Badge = _lastResult;
     }
 
     public void AdoptRunState(NodeViewModel previous)

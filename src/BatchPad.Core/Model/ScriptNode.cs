@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using BatchPad.Core.Config;
 
 namespace BatchPad.Core.Model;
 
@@ -21,7 +23,8 @@ public sealed class ScriptNode : RunnableNode
     public List<string>? ErrorPatterns { get; set; }
     public List<ArtifactDefinition>? Artifacts { get; set; }
     public List<string>? DependsOn { get; set; }
-    public string? TestReport { get; set; }
+    [JsonConverter(typeof(TestReportConverter))]
+    public TestReportDefinition? TestReport { get; set; }
     public bool? SingleInstance { get; set; }
     public string? Timeout { get; set; }
     public bool? Elevated { get; set; }
@@ -47,3 +50,16 @@ public sealed class ArtifactDefinition : ExtensibleObject
 }
 
 public enum ArtifactOpen { Never, OnSuccess, Always }
+
+/// <summary><c>testReport</c>: a JUnit XML path, or an object that also names the parameter "Re-run failed" fills (§5).</summary>
+public sealed class TestReportDefinition : ExtensibleObject
+{
+    public string? Path { get; set; }
+    public string? RerunParam { get; set; }
+    public RerunBy? RerunBy { get; set; }
+
+    [JsonIgnore]
+    public bool IsPlain => RerunParam is null && RerunBy is null && ExtensionData is not { Count: > 0 };
+}
+
+public enum RerunBy { Case, Suite }

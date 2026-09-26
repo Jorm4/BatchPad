@@ -1,0 +1,8 @@
+{
+  "name": "Tools",
+  "scripts": [
+    { "folder": "Generate", "items": [
+      { "id": "regen", "name": "Regenerate", "path": "regen.bat", "dependsOn": ["build"] }
+    ] }
+  ]
+}

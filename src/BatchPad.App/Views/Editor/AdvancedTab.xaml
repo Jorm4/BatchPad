@@ -10,17 +10,26 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <TextBlock Text="Fixed arguments" Margin="0,6,16,8" />
         <TextBox Grid.Column="1" Text="{Binding FixedArgs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
                  FontFamily="{StaticResource MonoFont}" ToolTip="Passed before the parameters' arguments on every run"
                  AutomationProperties.AutomationId="FixedArgs" AutomationProperties.Name="Fixed arguments" />
-        <TextBlock Grid.Row="1" Text="Name template" Margin="0,6,16,8" />
-        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding NameTemplate, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+        <TextBlock Grid.Row="1" Text="Argument template" Margin="0,6,16,8" />
+        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ArgsTemplate, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4"
+                 FontFamily="{StaticResource MonoFont}"
+                 ToolTip="Replaces the parameters' default order, for example {config} --port {port} {targets...}; empty elements are dropped"
+                 AutomationProperties.AutomationId="ArgsTemplate" AutomationProperties.Name="Argument template" />
+        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Preview}" Margin="0,0,0,8" TextWrapping="Wrap" Opacity="0.7"
+                   FontFamily="{StaticResource MonoFont}" AutomationProperties.AutomationId="ArgsTemplatePreview" />
+        <TextBlock Grid.Row="3" Text="Name template" Margin="0,6,16,8" />
+        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding NameTemplate, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
                  ToolTip="Names My Scripts entries from their values, for example Build ${param:config.label} &amp; run ${param:app}"
                  AutomationProperties.AutomationId="NameTemplate" AutomationProperties.Name="Name template" />
-        <TextBlock Grid.Row="2" Text="Id" Margin="0,6,16,8" />
-        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Id, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+        <TextBlock Grid.Row="4" Text="Id" Margin="0,6,16,8" />
+        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Id, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
                  FontFamily="{StaticResource MonoFont}" ToolTip="What workflow steps and stop companions refer to this script by"
                  AutomationProperties.AutomationId="EditorId" AutomationProperties.Name="Id" />
     </Grid>

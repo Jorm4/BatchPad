@@ -116,7 +116,7 @@ hand-edited when someone prefers to:
   two BatchPad windows editing `user.json` do not lose each other's changes.
 - If the file changes on disk while an edit is open (a `git pull`), the app
   reloads and re-applies the pending edit, or asks when both touched the same
-  entry.
+  entry. The workflow editor and the settings pages still ask on any change.
 
 The examples below show the storage format that the UI in §5.1 edits.
 
@@ -172,7 +172,8 @@ taken) and stores it in the script's entry.
   "errorPatterns": [": error ", "LNK\\d{4}"],   // highlighting only, never decides success
   "artifacts": [{ "path": "qa_report.html", "open": "onSuccess" }],  // links on the run tab; open: never|onSuccess|always
   "dependsOn": ["generate"],      // run these first, stop on the first failure
-  "testReport": "build/qa/junit.xml",   // JUnit XML read after the run (§5)
+  "testReport": "build/qa/junit.xml",   // JUnit XML read after the run (§5); or
+                                        // { "path": …, "rerunParam": "match", "rerunBy": "case"|"suite" }
   "singleInstance": false,        // true: a second run waits instead of starting
   "timeout": "30m",               // kill the tree after this long; none for longRunning
   "elevated": false,              // run as administrator; forces window mode (output cannot be captured)
@@ -235,7 +236,10 @@ of truth instead of copying lists into the config:
 | `command` | `{ "command": "tools/list_suites.bat" }` (one choice per output line) |
 | `list` | `{ "list": "games" }`, a named list in the file's `"lists": {}` |
 
-Choices are refreshed when the source file changes. Several sources can be
+Choices are refreshed when the source file changes. A `command` source runs
+only in a trusted workspace and must finish within 10 s; its output is kept
+until the script file changes or the user presses **Refresh choices**. A
+`command` that is not a file runs as a shell command. Several sources can be
 combined in an array, and duplicates are removed. Any source takes:
 - `"valueTransform": "lower"`: keeps the label as found and passes the value
   lowercased, e.g. `RobotManager` → `robotmanager`;
@@ -272,7 +276,9 @@ saved by saving the script to My Scripts under a name (*"Physics tests"*).
 **Ask on run.** `"ask": true` on a parameter (or on a My Scripts entry for a
 chosen parameter) shows a small picker when the script runs, pre-selected
 with the last value used. It is the alternative to saving one favourite per
-app.
+app. Such a parameter stays out of the details form. A `secret` parameter is
+a password box in the form, is asked for at run time when left empty, and is
+never saved to `user.json` or history.
 
 **Argument assembly.** Fixed `args` come first, then each parameter in declared
 order:
@@ -286,8 +292,10 @@ order:
   positional lists).
 
 For scripts that need a different order, `argsTemplate` overrides assembly:
-`["{config}", "--port", "{port}", "{targets...}"]`. An element that expands to
-nothing is dropped.
+`["{config}", "--port", "{port}", "{targets...}"]`, placed after the fixed
+`args`. `{name}` expands to the value (a flag to its `arg` when on), `{name...}`
+to one argument per list item, and an element that expands to nothing is
+dropped. `envVar` parameters still go to the environment.
 
 ### 3.4 Variables
 
@@ -335,11 +343,27 @@ BatchPad finds a workspace by, in order: the path given on the command line,
 `batchpad.json` in the current directory or a parent, or the last-used
 workspace. The recent list lives in settings.
 
+**Schema.** [`docs/batchpad.schema.json`](batchpad.schema.json) describes this file, so
+editors offer completion. BatchPad writes `$schema` into the workspace files it
+creates. `global.json` and `user.json` can point at
+`batchpad.schema.json#/$defs/globalFile` and `#/$defs/userFile`, which also allow
+`schedules`. The workspace file rejects `schedules`.
+
+**Includes.** Each `include` path is relative to the including file, and an
+included file may include others. An included file shows as a sub-folder
+named by its `name` (else its file name). Its scripts resolve paths relative
+to their own file and are saved back to it. They share the workspace's
+`variables`, `env`, `sharedParams` and `lists`, and its id space (a bare id
+or `workspace:<id>` reaches them). A missing file, or one included twice, is
+a load error.
+
 ### 3.6 Global library — `%APPDATA%\BatchPad\global.json`
 
 It uses the same shape as a workspace file, plus `"libraries": ["\\\\server\\share\\team.json"]`.
 Each imported library shows as a sub-folder of Global. Its scripts resolve
-paths relative to their own file.
+paths relative to their own file. A library is named after its file
+(`team.json` → `global:team:<id>`). It has its own id space, so a bare id
+inside it means the library itself.
 
 ### 3.7 My Scripts — `%APPDATA%\BatchPad\workspaces\<workspaceId>\user.json`
 
@@ -392,15 +416,22 @@ the app offers to add one.
 
 Recent workspaces, window layout, theme (System/Light/Dark), interpreter
 overrides (`python`, `pwsh`, `dotnet`), default editor, history retention.
+The editor is `editorCommand`, a command line with `{file}`, `{line}` and
+`{col}` (default `code -g "{file}:{line}"` when `code` is on PATH, otherwise
+the file's default app).
 **Portable mode:** if `batchpad.portable` sits next to the exe, every
-`%APPDATA%\BatchPad` path moves to a `data\` folder beside it. This supports
+`%APPDATA%\BatchPad` path moves to a `data\` folder beside it, and every
+`%LOCALAPPDATA%\BatchPad` path to `data\local\`. This supports
 sharing BatchPad on a USB stick or inside a tools repo.
 
 ### 3.9 Run history — `%LOCALAPPDATA%\BatchPad\history\<workspaceId>\`
 
-One JSON record per run (script, resolved command, exit code, times) plus a
-log file. Pruned by count and age. It is kept in LOCALAPPDATA because it is
-machine-specific and can grow large.
+One JSON record per run (script, resolved command, values, trigger, exit code,
+times) plus a log file. Secret values are masked in the record, command and log.
+Pruned by count and age (default 500 records, 30 days). Last-result badges are
+loaded from it when a workspace opens. The History tab lists recent runs with
+"Open log" and "Run again", which reuses the recorded values except secrets.
+It is kept in LOCALAPPDATA because it is machine-specific and can grow large.
 
 ### 3.10 Script folders, discovery and detection
 
@@ -423,8 +454,10 @@ configuration. Adding a script means saving a file there.
   something about it is changed in the UI (name, parameters, placement, and
   so on). The entry is keyed by `path`, so it survives the file being edited.
 - Hiding a discovered script stores `{ "path": "…", "hidden": true }`. Renaming
-  or moving the file on disk carries its entry along when BatchPad sees the
-  rename. Otherwise the entry shows as orphaned, with "Re-attach…".
+  or moving the file (or its folder) on disk carries its entry, seen state and
+  dismissed proposals along when BatchPad sees the rename. Otherwise the entry
+  shows as orphaned, with "Re-attach…", which points it at another file and
+  keeps its settings.
 - A new file appears live, marked **New** until it is opened once. The
   opened paths are kept in `user.json` as `seenPaths`; the first open of a
   workspace records every existing script as seen.
@@ -443,11 +476,22 @@ reads it without running it and proposes settings:
 | Long-running | `http.server`, `serve` in the name, `Press Ctrl+C` in the text |
 | Stop companion | a `serve_X` / `stop_X` pair with a shared parameter |
 
+The Python and PowerShell readers run a helper process (`py -3`, or the
+PowerShell that runs scripts), so they run only for trusted folders, give up
+after 10 s, and are cached until the file changes.
+
 Detected settings are proposals. The editor shows them with a *detected*
 badge and **Accept all / accept one / dismiss**. Until accepted, a
 discovered script runs with just the detected name and no parameters, so
 nothing guessed can change what runs. When a script changes and detection
 finds something new (*"1 new option: --gated"*), a badge on the script offers it.
+The badge shows whatever is proposed and not yet in the entry or dismissed;
+clicking it opens the editor's proposals. Dismissals are kept per script in
+`user.json` as `dismissedProposals`. The tree's Python and PowerShell badges
+use a probe only once the file has changed (or its result is already cached),
+so opening a workspace starts no process. A `serve_X`/`stop_X` pair that
+shares a parameter proposes `stop` on the serve script, and accepting it gives
+the stop script an entry with an id when it has none.
 
 ## 4. Execution
 
@@ -466,7 +510,8 @@ and closed immediately, so `pause` and prompts return instead of hanging.
 Output is decoded line by line. A line is read as UTF-8 when it is valid
 UTF-8, and otherwise with the OEM code page. This matters because a batch
 file mixes OEM output from cmd with UTF-8 from the Python it calls.
-`PYTHONIOENCODING=utf-8` is set, and ANSI colour codes are rendered
+`PYTHONIOENCODING=utf-8` is set, and ANSI colour codes are rendered — the 16
+colours and bold, each line starting unstyled; other escapes are stripped
 (`FORCE_COLOR=1` is set for runners that honour it).
 
 **Quoting.** Arguments are quoted per target, never by one generic rule. Exes
@@ -502,8 +547,15 @@ orphaned by a crash. Stop works in this order:
    windows).
 3. After a grace period, termination of the job.
 
-Closing BatchPad with runs in progress asks first. Long-running runs that
-are left running are re-adopted by PID on the next start.
+Closing BatchPad with runs in progress asks first: Yes stops them and then
+closes, No leaves them running, Cancel keeps the window open. A long-running
+run records its process id and start time in
+`%LOCALAPPDATA%\BatchPad\running.json` once its process starts (one still
+queued for a lock is not recorded), and forgets them when it ends. When the
+workspace opens again, a recorded process that is still alive with the same
+start time (so a reused process id is not taken for it) comes back as an
+adopted run: its tab and badge show it running, without its output, and Stop
+runs its stop companion or ends its process tree.
 
 **Elevation.** `elevated: true` runs through a UAC prompt. Windows cannot
 redirect an elevated process's output, so those runs always use window mode
@@ -512,18 +564,26 @@ and report only the exit code.
 **Locks and concurrency.** A script may run several instances at once unless
 `singleInstance` is set. Runs sharing a `lock` name wait in a visible queue.
 Locks are re-entrant within one workflow run, so a workflow holding
-`native-build` can run a step that takes `native-build` too.
+`native-build` can run a step that takes `native-build` too. `singleInstance`
+is not: two parallel steps running the same script still take turns. A queued run
+shows "waiting for lock X" on its tab and its tree badge, and Stop takes it
+out of the queue without starting it.
 
 **Unattended runs.** Scheduled runs and CLI runs have nobody to answer
 prompts. `confirm`, `ask` and `secret` then fail the run immediately, with a
 message saying which value is missing, unless the value was supplied: the
-schedule's `values`, the CLI's `--set` and `--yes`, or a secret from Windows
-Credential Manager. Secret values are masked in command previews, logs and
+schedule's `values`, the CLI's `--set` and `--yes`. (Reading an unattended
+run's secret from Windows Credential Manager is not built yet, so such a run
+must be given the value.) Secret values are masked in command previews, logs and
 history.
 
 **Prerequisites.** `dependsOn` runs prerequisites first, in order, and stops
-on the first non-zero exit code. Use it for "always generate before build".
-Anything more is a workflow.
+on the first non-zero exit code. A prerequisite's own `dependsOn` runs before
+it, and each script runs once. The run shows as a workflow tab (`generate →
+build`), with prerequisites receiving parameter values that share a name. A
+workflow step does not expand its script's `dependsOn`; the workflow lists
+its steps itself. Use it for "always generate before build". Anything more
+is a workflow.
 
 **Environment.** Starting from BatchPad's own environment, apply in order:
 workspace `envFile`, workspace `env`, script `envFile`, script `env`, then
@@ -594,20 +654,29 @@ Step semantics:
 - `continueOnError: true` lets a step fail without failing the workflow.
 - Values reach steps through workflow parameters (`${param:x}`) and through
   earlier steps' outputs: `${steps.build.exitCode}`, plus any value a step
-  exports by printing a `::set name=value` line.
-- `retry: { count, delaySeconds }` for flaky steps (network deploys).
+  exports by printing a `::set name=value` line. Those lines are left out of
+  the step's log, and the values show on its row.
+- `retry: { count, delaySeconds }` for flaky steps (network deploys). Each
+  attempt is logged in the step's output.
 - Steps may reference another workflow. Cycles are an error at load time.
 - A workflow run shows as one output tab with a step list on the left:
-  status, duration and exit code per step, each with its own log. A step's
+  status, duration and exit code per step, each with its own log (with the
+  run tab's search, F8 and source links). Members of a parallel group and a
+  nested workflow's steps are indented under their row, which also shows the
+  step's outputs and retry attempts. A step's
   `artifacts` show as links on its row and open after it per `open`, as in a
   lone run. You can
   cancel the whole workflow, which stops every running step. A failed
-  workflow can be **re-run from the failed step** with the same values.
+  workflow can be **re-run from the failed step** with the same values. The
+  steps before it are not run again: their results and outputs are reused.
+  A failed member of a parallel group re-runs the whole group, and a failed
+  `forEach` item the whole step. History records the run as a resumption.
 - A `lock` on the workflow applies to the whole run; otherwise each step's
   own lock applies.
 
-The editor is a vertical list of step cards: drag to reorder, drop onto a card
-to make a parallel group, and edit values in the same generated form scripts
+The editor is a vertical list of step cards: drag to reorder, drop onto the
+middle of a card to make a parallel group (a group card can be ungrouped), and
+edit values in the same generated form scripts
 use. A card also names its step `id`, its `emptyArgs`, and any value given as
 a template (`cfg ← ${param:config.testFlag}`); a single value given to a
 multichoice is stored as a one-item list. The JSON is the storage format. Hand-editing it is supported but not
@@ -643,6 +712,15 @@ shot), `fileChanged` (glob and debounce), `onStart` (BatchPad or workspace
 opened), and `afterRun` (another run finished, filtered by result).
 `afterRun` gives loose chaining without building a workflow.
 
+Time triggers use local wall-clock time. `cron` takes lists, ranges, steps
+and month and weekday names; when both the day and weekday fields are
+restricted, either one matching is enough. `every` takes `90s`, `30m`,
+`1h30m` or `2d` and counts from midnight, or from the start of its
+`between` window (both ends included; a window may wrap past midnight).
+`at` is a local date and time unless it carries an offset. A time skipped
+when the clocks go forward fires when they jump; a time repeated when they go
+back fires once.
+
 **Where schedules run.**
 
 1. **In-app (default).** The scheduler lives in BatchPad and fires while it is
@@ -659,8 +737,26 @@ Scheduled items get a clock badge in the tree. A **Schedules** view lists
 every schedule with its next and last run, has an enable toggle and "Run now"
 for each. When a schedule fires while its previous run is still going, the
 new run is skipped by default (`overlap: skip | queue | parallel`). A failed
-scheduled run raises a toast, so failures cannot pass unnoticed just because
-nobody was watching.
+scheduled run raises a tray notification naming the schedule, so failures
+cannot pass unnoticed just because nobody was watching; clicking it opens the
+run's history entry. While any schedule is enabled, closing the window keeps
+BatchPad running in the tray (a setting on the Schedules page, on by
+default); the tray menu offers Open, Schedules and Exit, and Exit asks about
+active runs as closing does.
+
+A schedule written by hand without `definitionHash` adopts the definition it
+is first loaded with. Only a definition the user confirmed in the Schedules
+view answers a `confirm` question; otherwise such a target fails unattended.
+`queue` holds at most one waiting fire. `runOnce` catches up one fire at
+start, counting from the last fire, or from when the schedule was first
+seen.
+
+`fileChanged` globs are relative to the workspace folder, and a rename
+matches by its old or new name; `debounce` defaults to 1s. `onStart` fires
+once per session, when the schedule is first active. `afterRun` defaults to
+`result: success`, and a stopped run never triggers it. A schedule that
+`afterRun` would fire a second time in one chain is refused with a failure
+naming the chain, so A → B → A stops after one round.
 
 ### 4.3 Trust
 
@@ -726,18 +822,37 @@ light/dark mode and uses the accent colour and Mica backdrop.
   as a searchable drop-down; a multichoice renders as a checklist.
 - **Test results:** when a script writes JUnit XML (`"testReport":
   "build/qa/junit.xml"`; pytest `--junitxml` and gtest `--gtest_output=xml`
-  both do), the run tab gains a results tree: pass/fail/skip per test with
-  times, a filter on failures, and "Re-run failed", which passes the failed
-  names back as the selection.
+  both do), the run tab gains a Tests view: pass/fail/skip counts, a tree of
+  suites and tests with times and failure messages, and a failures filter.
+  The report is only read when it was written during the run. "Re-run failed"
+  appears only when `testReport` is the object form with a `rerunParam`: it
+  runs the script again with that parameter set to the failed test names
+  (`rerunBy: "case"`, the default) or suite names (`"suite"`) — a list for a
+  multichoice, else space-separated — and the other values unchanged.
 - **Workflow editor:** Edit (F4) on a workflow opens it in place of the details (§4.1); the run form keeps the workflow's parameters.
-- **Schedules view:** a tab beside History (§4.2).
+- **Schedules view:** a page opened from the toolbar (or the command palette)
+  in place of the details panel (§4.2). Each schedule shows its target, its
+  trigger in words ("Weekdays at 02:00"), next and last run with the result,
+  an enable toggle, Run now, Edit, and Re-confirm when it is paused for review.
+  Add and Edit pick the target from the trees, edit the trigger by kind, take
+  values through the generated form, and save to `user.json`, or to
+  `global.json` for a global schedule. Saving from the editor confirms the
+  target's current definition; a new schedule gets an id from its target's
+  name, so editing its trigger keeps its state.
 - **Output panel:** one tab per run with status, duration and exit code. It
-  auto-scrolls and stops when you scroll up. It has search, clickable
-  `file(line)` / `file:line` references that open in the editor, next/previous
-  error, copy all and "open log". Detected URLs are clickable.
+  auto-scrolls and stops when you scroll up. It has search (shows only the
+  lines containing the text), clickable `file(line[,col])` /
+  `file:line[:col]` references to existing files (relative ones against the
+  run's working folder) that open in the editor (§3.8), next/previous error
+  (F8 / Shift+F8, over lines matching `errorPatterns` and stderr lines), copy
+  all and "open log". Detected URLs are clickable.
 - **Context menu:** Run, Run in window, Stop, Add to My Scripts, Copy command
   line, Open terminal here, Edit script, Reveal in Explorer, Show history.
-- **Command palette (Ctrl+K):** fuzzy search over every script, run with Enter.
+- **Command palette (Ctrl+K):** fuzzy search over every script, workflow and
+  link in the three trees, shown with its tree and folder. Enter runs it (or
+  opens the link), Shift+Enter selects it in the tree. Commands such as "New
+  script" and "Workspace settings" are listed too. The tree filter keeps its
+  own box.
   The keyboard should reach everything.
 - **Windows integration:** taskbar progress while running; a toast when a run
   that took over 10 s finishes while the window is unfocused; jump-list entries
@@ -755,7 +870,8 @@ Everything in §3 has a UI. No setting requires opening a JSON file.
 - **Drop a file** into a script folder (§3.10): it appears by itself.
 - **Drag a file from Explorer** onto the Workspace or Global tree (v1). BatchPad
   asks whether to *reference it where it is* or *copy it into the script
-  folder*.
+  folder*. Onto My Scripts, a script becomes a standalone entry. A folder, a
+  URL or any other file becomes a link.
 - **New script…** (v1) creates a `.bat`, `.py`, `.cs` or `.ps1` from a small
   template in the script folder and opens it in the user's editor. Its entry
   updates live as the file is saved.
@@ -814,9 +930,12 @@ values in the generated form, and parameter flow shown as chips
 (*app → Build, Run app*).
 
 **Promoting and demoting.** "Share with workspace" moves a My Scripts entry
-into the workspace tree (after confirmation). "Copy to My Scripts" goes the
-other way. A personal experiment can become a team script without retyping
-it.
+into the workspace tree (after confirmation). A customisation becomes a real
+entry with a new id: its values become parameter defaults and its extra
+arguments fixed `args`. A standalone entry is copied as is. "Copy to My
+Scripts" goes the other way: a standalone copy with absolute paths and
+qualified references, so it runs the same command. A personal experiment can
+become a team script without retyping it.
 
 ## 6. Feature research — prior art
 
@@ -848,7 +967,9 @@ Takeaways:
 ## 7. Feature catalogue
 
 Priority: **M** = MVP (first usable build), **1** = v1, **L** = later,
-**✗** = considered and rejected.
+**✗** = considered and rejected. Everything marked M or 1 is built: the MVP
+in phases 1–7 and v1 in phases 8 and 9 (§10). L items are phase 10 or
+later.
 
 | Feature | Pri | Notes |
 |---|---|---|
@@ -892,9 +1013,9 @@ Priority: **M** = MVP (first usable build), **1** = v1, **L** = later,
 | Script folders: auto-discovery, live, include/exclude, hide, New badge | M | §3.10 |
 | Detection: name, description, batch usage/`%~n` parameters | M | Proposals only |
 | Detection: `argparse` via `ast`, PowerShell `param()` | 1 | |
-| New workspace wizard (scan, checklist, propose folders, trust) | M | Minimal: no pair suggestions |
-| Rename tracking and orphan re-attach for discovered scripts | 1 | MVP shows orphans; the user re-adds |
-| New script from template, drag in from Explorer (reference or copy) | 1 | MVP: save a file into a script folder |
+| New workspace wizard (scan, checklist, propose folders, trust) | M | Pair suggestions came with v1 detection |
+| Rename tracking and orphan re-attach for discovered scripts | 1 | |
+| New script from template, drag in from Explorer (reference or copy) | 1 | |
 | Detection: long-running and serve/stop pairs, change badges | 1 | |
 | Library imports in global.json | 1 | |
 | `include` in workspace files | 1 | |
@@ -910,12 +1031,13 @@ Priority: **M** = MVP (first usable build), **1** = v1, **L** = later,
 | Deterministic, atomic JSON writer; reload and prompt on external change | M | |
 | Reload-and-reapply merge of an open edit | 1 | |
 | Workflows: `continueOnError`, `failFast` | 1 | §4.1 |
-| Workflow editor: steps, reorder, per-step values, workflow parameters, for-each, `when` | M | Parallel groups in 1 |
+| Workflow editor: steps, reorder, per-step values, workflow parameters, for-each, `when` | M | Parallel groups, retry and outputs in 1 |
 | Workflows: parallel groups, step outputs, retry, re-run from failed step | 1 | |
 | Schedules in-app: cron/every/at, tray, missed-run policy, Schedules view | 1 | §4.2 |
 | Triggers: fileChanged, onStart, afterRun | 1 | |
 | Export time schedules to Windows Task Scheduler | L | Needs the CLI |
-| Toasts, taskbar progress, jump list, tray | L | Toast and progress may slip into 1 |
+| Tray icon, keep running in the tray, failure notifications | 1 | §4.2 |
+| Toasts, taskbar progress, jump list | L | |
 | Hotkeys (global) | L | |
 | Portable mode | 1 | Cheap, and helps sharing |
 | Up-to-date checks (Taskfile `sources`/`generates`) | ✗ | That is a build system's job |
@@ -973,6 +1095,13 @@ the UI does.
    exit code, and waits. This is needed because cmd does not wait for a
    GUI-subsystem exe, so `%errorlevel%` would be wrong. Typing `batchpad`
    finds the `.com` first.
+   `run` takes an id (`global:` references too; a workspace id wins over a
+   My Scripts one) or a unique name. The workspace is `--workspace` or the
+   nearest `batchpad.json` at or above the current folder, never the most
+   recent one, so a script runs against the repository it was typed in.
+   Usage errors and unknown ids exit 2, a run refused before it starts
+   (untrusted, unconfirmed, a missing value) exits 1, and a workflow exits
+   with its last failed step's code. Output is relayed as UTF-8.
 4. **One config file or one file per script?** Default: one `batchpad.json`
    (plus `include`s), written deterministically. The alternative is
    per-script sidecar files in `.batchpad/`, which would mean fewer merge
@@ -1012,10 +1141,12 @@ the UI does.
    from the failed step, the in-app scheduler with a tray icon, the Schedules
    view, triggers. It builds on the history and locks from phase 8.
 10. **Later:** benchmark comparison, Task Scheduler export, Windows shell
-    integration.
+    integration (jump lists, taskbar progress). Open items that may join it:
+    unattended secrets from Windows Credential Manager, and a CLI command to
+    trust a workspace.
 
-Each phase leaves the app building and runnable, and is broken into
-implementation steps when it starts.
+Phases 1–9 are done; phase 10 remains. Each phase leaves the app building
+and runnable, and is broken into implementation steps when it starts.
 
 ## 11. Worked example: a multi-app game repository
 

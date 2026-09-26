@@ -1,33 +1,47 @@
 using System.Collections.ObjectModel;
+using BatchPad.Core.Detection;
 using BatchPad.Core.Model;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace BatchPad.App.ViewModels.Editor;
 
-public sealed partial class ProposalViewModel(ParameterDefinition parameter, ParametersTabViewModel owner) : ObservableObject
+/// <summary>A detected parameter, or with <see cref="Apply"/> another detected setting such as long-running.</summary>
+public sealed partial class ProposalViewModel(string key, string summary, string? description, ParametersTabViewModel owner) : ObservableObject
 {
-    public ParameterDefinition Parameter { get; } = parameter;
-    public string Summary => $"{Parameter.Name} · {Parameter.Type?.ToString().ToLowerInvariant()}{(Parameter.Arg is { } arg ? $" · {arg}" : "")}";
-    public string? Description => Parameter.Description;
+    public ProposalViewModel(ParameterDefinition parameter, ParametersTabViewModel owner)
+        : this(ProposalTracker.KeyOf(parameter),
+            $"{parameter.Name} · {parameter.Type?.ToString().ToLowerInvariant()}{(parameter.Arg is { } arg ? $" · {arg}" : "")}",
+            parameter.Description, owner) =>
+        Parameter = parameter;
+
+    public string Key { get; } = key;
+    public string AutomationName => Parameter?.Name ?? Key;
+    public ParameterDefinition? Parameter { get; }
+    public Action? Apply { get; init; }
+    public string Summary { get; } = summary;
+    public string? Description { get; } = description;
 
     [RelayCommand]
     private void Accept() => owner.Accept(this);
 
     [RelayCommand]
-    private void Dismiss() => owner.Proposals.Remove(this);
+    private void Dismiss() => owner.Dismiss(this);
 }
 
 public sealed partial class ParametersTabViewModel : ObservableObject
 {
     private readonly RunnableNode _definition;
     private readonly Action _changed;
+    private readonly Action<string>? _dismissed;
 
+    /// <param name="dismissed">Remembers a dismissed proposal by its key.</param>
     public ParametersTabViewModel(RunnableNode definition, IEnumerable<string> sharedNames,
-        IEnumerable<ParameterDefinition> detected, Action changed)
+        IEnumerable<ParameterDefinition> detected, Action changed, Action<string>? dismissed = null)
     {
         _definition = definition;
         _changed = changed;
+        _dismissed = dismissed;
         SharedNames = sharedNames.Order(StringComparer.OrdinalIgnoreCase).ToList();
         foreach (var parameter in definition.Params ?? [])
             Items.Add(Wrap(parameter));
@@ -100,7 +114,16 @@ public sealed partial class ParametersTabViewModel : ObservableObject
     internal void Accept(ProposalViewModel proposal)
     {
         Proposals.Remove(proposal);
-        Insert(proposal.Parameter);
+        if (proposal.Parameter is { } parameter)
+            Insert(parameter);
+        else
+            proposal.Apply?.Invoke();
+    }
+
+    internal void Dismiss(ProposalViewModel proposal)
+    {
+        Proposals.Remove(proposal);
+        _dismissed?.Invoke(proposal.Key);
     }
 
     private bool HasSelection() => Selected is not null;

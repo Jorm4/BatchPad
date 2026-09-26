@@ -18,18 +18,22 @@ internal static class ProcessRunner
     // Serialises inheritable-handle creation, so a concurrent launch cannot inherit another run's pipe ends.
     private static readonly Lock CreateProcessLock = new();
 
-    public static RunHandle Start(RunSpec spec) => Start([spec]);
+    public static RunHandle Start(RunSpec spec, TimeProvider? time = null) => Start([spec], time);
 
     /// <summary>Runs <paramref name="specs"/> one after another, stopping at the first failure.</summary>
     /// <exception cref="RunException">The first process could not be started.</exception>
-    public static RunHandle Start(IReadOnlyList<RunSpec> specs)
+    public static RunHandle Start(IReadOnlyList<RunSpec> specs, TimeProvider? time = null)
     {
-        if (specs.Count == 0)
-            throw new ArgumentException("Nothing to run.", nameof(specs));
-        var handle = new RunHandle(specs);
+        var handle = Create(specs, time);
         handle.Begin();
         return handle;
     }
+
+    /// <summary>A run that starts when <see cref="RunHandle.Begin"/> is called, e.g. once its locks are free.</summary>
+    internal static RunHandle Create(IReadOnlyList<RunSpec> specs, TimeProvider? time = null) =>
+        specs.Count == 0
+            ? throw new ArgumentException("Nothing to run.", nameof(specs))
+            : new RunHandle(specs, time ?? TimeProvider.System);
 
     internal static unsafe StartedProcess Launch(RunSpec spec, Action<string, OutputStream> onLine)
     {

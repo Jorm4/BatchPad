@@ -1,6 +1,12 @@
 namespace BatchPad.Core.Discovery;
 
-/// <summary>Raises <see cref="FolderChanged"/> once per burst of file changes under the watched folders.</summary>
+/// <param name="OldFullPath">Set for <see cref="WatcherChangeTypes.Renamed"/> only.</param>
+public sealed record FileChange(WatcherChangeTypes Kind, string FullPath, string? OldFullPath = null);
+
+/// <summary>
+/// Raises <see cref="FileChanged"/> for every file change under the watched folders, and <see cref="FolderChanged"/>
+/// once per burst of them. Both are raised on a worker thread.
+/// </summary>
 public sealed class FolderWatcher : IDisposable
 {
     private readonly List<FileSystemWatcher> watchers = [];
@@ -8,6 +14,8 @@ public sealed class FolderWatcher : IDisposable
     private readonly TimeSpan debounce;
 
     public event EventHandler? FolderChanged;
+
+    public event EventHandler<FileChange>? FileChanged;
 
     /// <param name="directories">Folders that do not exist yet are skipped.</param>
     public FolderWatcher(IEnumerable<string> directories, TimeSpan debounce)
@@ -30,7 +38,11 @@ public sealed class FolderWatcher : IDisposable
         }
     }
 
-    private void OnChanged(object sender, FileSystemEventArgs e) => debounceTimer.Change(debounce, Timeout.InfiniteTimeSpan);
+    private void OnChanged(object sender, FileSystemEventArgs e)
+    {
+        FileChanged?.Invoke(this, new FileChange(e.ChangeType, e.FullPath, (e as RenamedEventArgs)?.OldFullPath));
+        debounceTimer.Change(debounce, Timeout.InfiniteTimeSpan);
+    }
 
     public void Dispose()
     {

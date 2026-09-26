@@ -1,0 +1,7 @@
+{
+  "name": "Composed",
+  "include": ["tools/part.json"],
+  "scripts": [
+    { "id": "build", "name": "Build", "command": "echo build" }
+  ]
+}

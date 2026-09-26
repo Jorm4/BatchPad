@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/BatchPad.App/BatchPad.App.csproj" />
     <Project Path="src/BatchPad.Core/BatchPad.Core.csproj" />
+    <Project Path="src/BatchPad.Shim/BatchPad.Shim.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BatchPad.App.Tests/BatchPad.App.Tests.csproj" />

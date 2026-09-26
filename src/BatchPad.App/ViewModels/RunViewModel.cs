@@ -1,5 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Text.Json.Nodes;
+using System.Xml;
 using BatchPad.App.Services;
+using BatchPad.Core.Model;
+using BatchPad.Core.Output;
 using BatchPad.Core.Running;
 using BatchPad.Core.Templating;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -7,8 +11,17 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace BatchPad.App.ViewModels;
 
-public sealed record OutputLineViewModel(string Text, OutputStream Stream)
+/// <param name="Spans">ANSI-styled runs of <paramref name="Text"/>; null for an unstyled line.</param>
+public sealed record OutputLineViewModel(string Text, OutputStream Stream, IReadOnlyList<OutputSpan>? Spans = null, bool IsErrorMatch = false,
+    IReadOnlyList<SourceLinkViewModel>? Links = null)
 {
+    public static OutputLineViewModel From(ParsedLine line, OutputStream stream, SourceLinks? links = null) =>
+        new(line.Text, stream, line.Spans, line.IsErrorMatch, links?.For(line.Text));
+
+    // Identity, so the list can select one of several identical lines.
+    public bool Equals(OutputLineViewModel? other) => ReferenceEquals(this, other);
+    public override int GetHashCode() => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
+
     public bool IsError => Stream == OutputStream.Stderr;
     public bool IsInfo => Stream == OutputStream.Info;
     public override string ToString() => Text;
@@ -16,9 +29,34 @@ public sealed record OutputLineViewModel(string Text, OutputStream Stream)
 
 /// <summary>What a run tab needs beyond the process: the request it ran, for ready, stop companion and artifacts.</summary>
 /// <param name="StartCompanion">Starts a stop companion request and shows it; false when it could not start.</param>
-public sealed record RunContext(RunRequest Request, IShellOpener Opener, Func<RunRequest, bool> StartCompanion);
+/// <param name="RunAgain">Runs a node again with new values and extra arguments, as History's "Run again" does.</param>
+/// <param name="PinLink">Adds an artifact's file to My Scripts as a link.</param>
+public sealed record RunContext(RunRequest Request, IShellOpener Opener, Func<RunRequest, bool> StartCompanion, SourceOpener? Sources = null,
+    Action<string, IReadOnlyDictionary<string, JsonNode?>, string>? RunAgain = null, Action<string>? PinLink = null);
 
-public sealed partial class ArtifactLinkViewModel(ResolvedArtifact artifact, IShellOpener opener) : ObservableObject
+public sealed partial class SourceLinkViewModel(SourceReference reference, SourceLocationResolver resolver, SourceOpener opener)
+{
+    public SourceReference Reference { get; } = reference;
+    public SourceLocation? Location => resolver.Resolve(Reference);
+
+    [RelayCommand]
+    private void Open()
+    {
+        if (Location is { } location)
+            opener.Open(location);
+    }
+}
+
+/// <summary>Finds the source references of one run's lines; the files are only checked when a link is shown or clicked.</summary>
+public sealed class SourceLinks(Func<string> workingDirectory, SourceOpener opener)
+{
+    private readonly SourceLocationResolver _resolver = new(workingDirectory);
+
+    public IReadOnlyList<SourceLinkViewModel>? For(string text) =>
+        SourceLocationParser.Find(text) is { } references ? [.. references.Select(r => new SourceLinkViewModel(r, _resolver, opener))] : null;
+}
+
+public sealed partial class ArtifactLinkViewModel(ResolvedArtifact artifact, IShellOpener opener, Action<string>? pinLink = null) : ObservableObject
 {
     public ResolvedArtifact Artifact { get; } = artifact;
     public string Name => Path.GetFileName(Artifact.Path.TrimEnd('\\', '/'));
@@ -29,6 +67,11 @@ public sealed partial class ArtifactLinkViewModel(ResolvedArtifact artifact, ISh
 
     [RelayCommand(CanExecute = nameof(Exists))]
     private void Open() => opener.Open(Artifact.Path);
+
+    public bool CanPin => pinLink is not null;
+
+    [RelayCommand(CanExecute = nameof(CanPin))]
+    private void Pin() => pinLink!(Artifact.Path);
 }
 
 public sealed partial class RunViewModel : OutputTabViewModel
@@ -37,14 +80,25 @@ public sealed partial class RunViewModel : OutputTabViewModel
     private readonly IDisposable? _subscription;
     private readonly RunContext? _context;
     private readonly ReadyWatcher? _readyWatcher;
+    private readonly DateTime _startedUtc = DateTime.UtcNow;
 
     public RunViewModel(string title, NodeViewModel? node, IRunProcess process, IUiDispatcher dispatcher, RunContext? context = null)
         : base(title, node)
     {
+        Log = new OutputLog(() => AutoScroll = false);
         _process = process;
         _context = context;
         node?.OnRunStarted();
-        _subscription = process.Subscribe(line => dispatcher.Post(() => Lines.Add(new OutputLineViewModel(line.Text, line.Stream))));
+        var secrets = context is null ? [] : SecretMasker.SecretValues(context.Request);
+        var parser = new OutputLineParser(context?.Request.Script.ErrorPatterns);
+        var links = context?.Sources is { } sources ? new SourceLinks(() => RunPlanner.WorkingDirectoryFor(context.Request), sources) : null;
+        _subscription = process.Subscribe(line =>
+        {
+            var parsed = OutputLineViewModel.From(parser.Parse(SecretMasker.Mask(line.Text, secrets)), line.Stream, links);
+            dispatcher.Post(() => Log.Add(parsed));
+        });
+        process.WaitingChanged += () => dispatcher.Post(() => ShowWaiting(process.WaitingForLock));
+        ShowWaiting(process.WaitingForLock);
         if (context is not null)
         {
             Artifacts = ResolveArtifacts(context);
@@ -56,6 +110,7 @@ public sealed partial class RunViewModel : OutputTabViewModel
     private RunViewModel(string title, NodeViewModel? node, string error)
         : base(title, node)
     {
+        Log = new OutputLog();
         Lines.Add(new OutputLineViewModel(error, OutputStream.Stderr));
         var result = new RunResult(RunOutcome.FailedToStart, -1, TimeSpan.Zero);
         node?.OnRunStarted();
@@ -65,7 +120,9 @@ public sealed partial class RunViewModel : OutputTabViewModel
 
     public static RunViewModel FailedToStart(string title, NodeViewModel? node, string error) => new(title, node, error);
 
-    public ObservableCollection<OutputLineViewModel> Lines { get; } = [];
+    public override OutputLog Log { get; }
+    public ObservableCollection<OutputLineViewModel> Lines => Log.Lines;
+
     public IReadOnlyList<ArtifactLinkViewModel> Artifacts { get; } = [];
     public bool HasArtifacts => Artifacts.Count > 0;
 
@@ -85,12 +142,25 @@ public sealed partial class RunViewModel : OutputTabViewModel
     [NotifyCanExecuteChangedFor(nameof(OpenInBrowserCommand))]
     private string? readyUrl;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    private string? waitingForLock;
+
+    [ObservableProperty]
+    private TestResultsViewModel? testResults;
+
+    [ObservableProperty]
+    private bool showTests;
+
     public bool IsReady => ReachedReady && IsRunning;
 
     public override bool IsRunning => Result is null;
     public override bool Succeeded => Result?.Succeeded == true;
 
-    public override string StatusText => IsReady ? "running · ready" : StatusOf(Result);
+    public override string StatusText =>
+        IsReady ? "running · ready"
+        : IsRunning && WaitingForLock is { } name ? $"waiting for lock {name}"
+        : StatusOf(Result);
 
     public static string StatusOf(RunResult? result) => result switch
     {
@@ -128,10 +198,13 @@ public sealed partial class RunViewModel : OutputTabViewModel
     private async Task WatchAsync(IRunProcess process, IUiDispatcher dispatcher)
     {
         var outcome = await process.Completion.ConfigureAwait(false);
+        var report = ReadTestReport();
         var shown = new TaskCompletionSource();
         dispatcher.Post(() =>
         {
             Complete(outcome);
+            if (report is not null)
+                TestResults = TestResultsFor(report);
             shown.SetResult();
         });
         await shown.Task.ConfigureAwait(false);
@@ -150,11 +223,43 @@ public sealed partial class RunViewModel : OutputTabViewModel
         ArtifactResolver.OpenAfter(outcome, Artifacts.Select(a => a.Artifact), _context.Opener);
     }
 
+    private JUnitReport? ReadTestReport()
+    {
+        if (_context is null)
+            return null;
+        try
+        {
+            // A report older than this run is left over from an earlier one.
+            return TestRerun.ReportPath(_context.Request) is { } path && File.Exists(path)
+                && File.GetLastWriteTimeUtc(path) >= _startedUtc.AddSeconds(-2)
+                ? JUnitReader.Read(path)
+                : null;
+        }
+        catch (Exception ex) when (ex is TemplateException or XmlException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private TestResultsViewModel TestResultsFor(JUnitReport report)
+    {
+        var request = _context!.Request;
+        var settings = request.Script.TestReport!;
+        Action<IReadOnlyList<string>>? rerun = settings.RerunParam is { Length: > 0 } parameter && _context.RunAgain is { } runAgain
+            ? names =>
+            {
+                if (Node is { } node)
+                    runAgain(node.Key, TestRerun.Values(request, parameter, names), request.ExtraArguments ?? "");
+            }
+            : null;
+        return new TestResultsViewModel(report, settings.RerunBy ?? RerunBy.Case, rerun);
+    }
+
     private static IReadOnlyList<ArtifactLinkViewModel> ResolveArtifacts(RunContext context)
     {
         try
         {
-            return ArtifactResolver.Resolve(context.Request).Select(a => new ArtifactLinkViewModel(a, context.Opener)).ToList();
+            return ArtifactResolver.Resolve(context.Request).Select(a => new ArtifactLinkViewModel(a, context.Opener, context.PinLink)).ToList();
         }
         catch (TemplateException)
         {
@@ -180,6 +285,14 @@ public sealed partial class RunViewModel : OutputTabViewModel
         {
             return null;
         }
+    }
+
+    private void ShowWaiting(string? lockName)
+    {
+        if (!IsRunning || WaitingForLock == lockName)
+            return;
+        WaitingForLock = lockName;
+        Node?.OnRunWaiting(lockName);
     }
 
     private void MarkReady(ReadySignal signal)

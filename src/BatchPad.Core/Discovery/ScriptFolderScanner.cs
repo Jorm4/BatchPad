@@ -32,18 +32,23 @@ public static class ScriptFolderScanner
         if (!Directory.Exists(root))
             return [];
 
-        var include = folder.Include is { Count: > 0 } ? folder.Include : DefaultInclude;
-        var exclude = folder.Exclude ?? [];
         var scripts = new List<DiscoveredScript>();
         foreach (var file in EnumerateFiles(root, folder.Recurse ?? true))
         {
             var inFolder = Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (!include.Any(p => Glob.IsMatch(p, inFolder)) || exclude.Any(p => Glob.IsMatch(p, inFolder)))
+            if (!Picks(folder, inFolder))
                 continue;
             var subFolders = inFolder.Split('/')[..^1];
             scripts.Add(new DiscoveredScript(RelativeKey(baseDirectory, file), file, subFolders));
         }
         return folder.GroupByPrefix ? GroupTopLevelByPrefix(scripts) : scripts;
+    }
+
+    /// <param name="inFolder">Relative to the folder, <c>/</c>-separated.</param>
+    public static bool Picks(ScriptFolder folder, string inFolder)
+    {
+        var include = folder.Include is { Count: > 0 } ? folder.Include : DefaultInclude;
+        return include.Any(p => Glob.IsMatch(p, inFolder)) && !(folder.Exclude ?? []).Any(p => Glob.IsMatch(p, inFolder));
     }
 
     private static IEnumerable<string> EnumerateFiles(string root, bool recurse)

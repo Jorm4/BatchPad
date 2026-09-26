@@ -37,9 +37,9 @@
                                 <TextBlock Text="{Binding Description}" Opacity="0.7" TextWrapping="Wrap" />
                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                     <Button Content="Accept" Command="{Binding AcceptCommand}"
-                                            AutomationProperties.AutomationId="{Binding Parameter.Name, StringFormat=Accept_{0}}" />
+                                            AutomationProperties.AutomationId="{Binding AutomationName, StringFormat=Accept_{0}}" />
                                     <Button Content="Dismiss" Command="{Binding DismissCommand}" Margin="4,0,0,0"
-                                            AutomationProperties.AutomationId="{Binding Parameter.Name, StringFormat=Dismiss_{0}}" />
+                                            AutomationProperties.AutomationId="{Binding AutomationName, StringFormat=Dismiss_{0}}" />
                                 </StackPanel>
                             </StackPanel>
                         </Grid>

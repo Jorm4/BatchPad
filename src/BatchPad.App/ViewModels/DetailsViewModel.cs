@@ -1,9 +1,11 @@
 using System.ComponentModel;
+using System.Text.Json.Nodes;
 using BatchPad.App.Services;
 using BatchPad.App.ViewModels.Editor;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.App.ViewModels.Workflows;
 using BatchPad.Core.Arguments;
+using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Templating;
@@ -22,7 +24,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         nameof(CustomisesText))]
     [NotifyCanExecuteChangedFor(nameof(RunCommand), nameof(RunInWindowCommand), nameof(StopCommand), nameof(CopyPreviewCommand),
         nameof(EditCommand), nameof(OpenLinkCommand), nameof(SaveCommand), nameof(SaveAsMyScriptCommand), nameof(DuplicateCommand),
-        nameof(OpenChangeBaseCommand))]
+        nameof(OpenChangeBaseCommand), nameof(ReattachCommand))]
     private NodeViewModel? node;
 
     [ObservableProperty]
@@ -51,7 +53,18 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     private string? runError;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasScriptChoices))]
     private ParameterFormViewModel? form;
+
+    public bool HasScriptChoices => Form?.Fields.Any(f => f.Definition.ChoicesFrom?.Any(s => s.Command is not null) == true) == true;
+
+    [RelayCommand]
+    private void RefreshChoices()
+    {
+        main.CommandChoices.Refresh();
+        Form = BuildForm();
+        Refresh();
+    }
 
     public string? ValidationMessage => Form?.ErrorSummary;
 
@@ -181,6 +194,31 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         ChangeBase = picker;
     }
 
+    private bool CanReattach() => Node is { IsOrphan: true, ScriptFullPath: not null };
+
+    /// <summary>Points an orphaned entry at another file, keeping its settings (§3.10).</summary>
+    [RelayCommand(CanExecute = nameof(CanReattach))]
+    private void Reattach()
+    {
+        var node = Node!;
+        var missing = node.ScriptFullPath!;
+        var folder = Path.GetDirectoryName(missing);
+        if (main.Services.Dialogs.PickFile(Directory.Exists(folder) ? folder : node.Tree.BaseDirectory) is not { } picked)
+            return;
+        var target = Path.GetFullPath(picked);
+        try
+        {
+            RenameTracker.Move(main.Workspace!, [new FileRename(missing, target)]);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BatchPad.Core.Config.ConfigException)
+        {
+            RunError = ex.Message;
+            return;
+        }
+        main.Reload(n => n.Item is { HasEntry: true } && n.Tree.FilePath == node.Tree.FilePath
+            && string.Equals(n.ScriptFullPath, target, StringComparison.OrdinalIgnoreCase));
+    }
+
     [RelayCommand(CanExecute = nameof(CanEdit))]
     private void Edit()
     {
@@ -191,6 +229,26 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         }
         var editor = new ScriptEditorViewModel(main, Node!);
         editor.Closed += _ => Editor = null;
+        Editor = editor;
+    }
+
+    [RelayCommand]
+    private void ShowProposals(NodeViewModel node)
+    {
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+            parent.IsExpanded = true;
+        node.IsSelected = true;
+        if (Node != node)
+            return;
+        if (CanEdit())
+            Edit();
+        if (Editor is { } editor)
+            editor.SelectedTab = ScriptEditorViewModel.ParametersTabIndex;
+    }
+
+    internal void ResumeEditing(ScriptEditorViewModel editor)
+    {
+        editor.Rebind(Node!);
         Editor = editor;
     }
 
@@ -232,6 +290,15 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
             ? url
             : Path.GetFullPath(Path.Combine(baseDirectory, url));
 
+    internal void RunWithSessionValues(NodeViewModel target)
+    {
+        Node = target;
+        Form = BuildForm();
+        Refresh();
+        if (CanRun())
+            Start(null);
+    }
+
     private void Start(ConsoleMode? console)
     {
         if (Node is not { } node)
@@ -245,23 +312,66 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
             return;
         if (request.Script.Confirm is { Length: > 0 } question && !main.Services.Confirm.Confirm(node.Name, question))
             return;
-        Launch(request, node);
+        if (AskValues(request.Script, request.Tree, request.Values, node) is not { } values)
+            return;
+        Launch(request with { Values = values }, node);
+    }
+
+    /// <summary>Asks for <c>ask</c> parameters, pre-filled with the last value used, and for secrets not yet entered.</summary>
+    /// <returns>The values with the answers merged in; null when the user cancels.</returns>
+    private IReadOnlyDictionary<string, JsonNode?>? AskValues(RunnableNode definition, ScriptTree tree,
+        IReadOnlyDictionary<string, JsonNode?>? values, NodeViewModel node)
+    {
+        var prompted = RunPlanner.Prompted(definition, main.Workspace!)
+            .Where(p => p.Ask == true || values?.GetValueOrDefault(p.Name!) is null)
+            .Select(p => p.Name!)
+            .ToHashSet();
+        if (prompted.Count == 0)
+            return values;
+
+        var stored = new Dictionary<string, JsonNode?>();
+        foreach (var name in prompted)
+        {
+            if ((main.History.LastValue(node.Key, name) ?? values?.GetValueOrDefault(name)?.DeepClone()) is { } last)
+                stored[name] = last;
+        }
+        var form = ParameterFormViewModel.For(main.Workspace!, definition, tree, new ParameterValues(stored, ""), main.Services.Dialogs,
+            main.CommandChoices, p => prompted.Contains(p.Name!));
+        form.HasExtraArguments = false;
+        if (!main.Services.Ask.Ask(node.Name, form))
+            return null;
+        var answered = values?.ToDictionary(v => v.Key, v => v.Value) ?? [];
+        foreach (var (name, value) in form.Values)
+            answered[name] = value;
+        return answered;
     }
 
     private void StartWorkflow(WorkflowRequest request, NodeViewModel node)
     {
         RunError = null;
-        var confirming = request.Workflow.Steps.Where(s => s.Confirm == true).Select(s => s.Id ?? s.Run).ToList();
+        var confirming = request.Workflow.Steps.SelectMany(s => s.Leaves()).Where(s => s.Confirm == true).Select(s => s.Id ?? s.Run).ToList();
         var question = request.Workflow.Confirm is { Length: > 0 } own ? own
             : confirming.Count > 0 ? $"This workflow runs steps that ask first: {string.Join(", ", confirming)}. Run it?"
             : null;
         if (question is not null && !main.Services.Confirm.Confirm(node.Name, question))
             return;
+        if (AskValues(request.Workflow, request.Tree, request.Values, node) is not { } values)
+            return;
+        ShowWorkflow(request with { Values = values }, node);
+    }
+
+    private void ShowWorkflow(WorkflowRequest request, NodeViewModel? node)
+    {
         try
         {
             var run = main.Services.Workflows.Start(main.Workspace!, request);
-            main.Output.Add(new WorkflowRunViewModel(node.Name, node, run, step => StepName(step, request.Tree), main.Services.Dispatcher,
-                new StepActions(main.Services.Workflows.StopStepAsync, main.Services.Opener)));
+            if (request.Target is null)
+                main.History.Record(run, node!);
+            else
+                main.History.RecordSteps(run);
+            main.Output.Add(new WorkflowRunViewModel(node?.Name ?? request.Workflow.Name!, node, run, step => StepName(step, request.Tree),
+                main.Services.Dispatcher, new StepActions(main.Services.Workflows.StopStepAsync, main.Services.Opener, main.Sources),
+                rerun: resumed => ShowWorkflow(resumed, node)));
         }
         catch (WorkflowException ex)
         {
@@ -270,18 +380,26 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     }
 
     private string StepName(StepRun step, ScriptTree tree) =>
-        step.Step.Run is { } reference && main.Workspace?.References.Resolve(reference, tree.Kind) is { } target
+        step.Step.Run is { } reference && main.Workspace?.References.Resolve(reference, tree) is { } target
             ? ScriptTree.DisplayName(target)
             : step.Id;
 
     internal void Launch(RunRequest request, NodeViewModel? node)
     {
         RunError = null;
+        if (Prerequisites.WorkflowFor(request) is { } withPrerequisites)
+        {
+            ShowWorkflow(withPrerequisites, node);
+            return;
+        }
         var title = node?.Name ?? ScriptTree.DisplayName(request.Script);
         RunViewModel run;
         try
         {
-            run = new RunViewModel(title, node, main.Services.Launcher.Start(request), main.Services.Dispatcher, ContextFor(request));
+            var process = main.Services.Launcher.Start(request);
+            main.History.Record(process, request, node);
+            main.TrackLongRunning(process, request, node);
+            run = new RunViewModel(title, node, process, main.Services.Dispatcher, ContextFor(request));
         }
         catch (Exception ex) when (IsRunProblem(ex))
         {
@@ -290,7 +408,8 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         main.Output.Add(run);
     }
 
-    private RunContext ContextFor(RunRequest request) => new(request, main.Services.Opener, StartCompanion);
+    internal RunContext ContextFor(RunRequest request) =>
+        new(request, main.Services.Opener, StartCompanion, main.Sources, main.RunAgain, path => main.MyScripts.PinLink(path));
 
     /// <summary>Starts on the caller's thread, since a stop asks from a worker thread; the tab is added on the UI thread.</summary>
     private bool StartCompanion(RunRequest request)
@@ -299,6 +418,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         try
         {
             process = main.Services.Launcher.Start(request);
+            main.History.Record(process, request, null);
         }
         catch (Exception ex) when (IsRunProblem(ex))
         {
@@ -316,14 +436,22 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     private (string Preview, string FullCommand) BuildPreview()
     {
         if (BuildWorkflowRequest() is { } workflow)
-            return (string.Join(" → ", workflow.Workflow.Steps.Select((step, i) => step.Id ?? $"step{i + 1}")), "");
+            return (string.Join(" → ", workflow.Workflow.Steps.Select((step, i) =>
+                step.Parallel is { } members ? $"({string.Join(" | ", members.Select(m => m.Id ?? m.Run))})" : step.Id ?? $"step{i + 1}")), "");
         if (BuildRequest() is not { } request)
             return ("", "");
         try
         {
+            var secrets = SecretMasker.SecretValues(request);
             var commands = RunPlanner.Plan(request, main.Services.Interpreters).Select(s => s.Command).ToList();
-            return (string.Join(Environment.NewLine, commands.Select(c => c.DisplayRelativeTo(request.Workspace.Directory))),
-                string.Join(Environment.NewLine, commands.Select(c => c.Display)));
+            var preview = SecretMasker.Mask(
+                string.Join(Environment.NewLine, commands.Select(c => c.DisplayRelativeTo(request.Workspace.Directory))), secrets);
+            if (Prerequisites.WorkflowFor(request) is { } withPrerequisites)
+                preview = string.Join(" → ", withPrerequisites.Workflow.Steps.Select(s =>
+                    s.Run is { } reference && request.Workspace.References.Resolve(reference, request.Tree) is { } prerequisite
+                        ? ScriptTree.DisplayName(prerequisite)
+                        : s.Id ?? s.Run)) + Environment.NewLine + preview;
+            return (preview, SecretMasker.Mask(string.Join(Environment.NewLine, commands.Select(c => c.Display)), secrets));
         }
         catch (Exception ex) when (IsRunProblem(ex))
         {
@@ -340,7 +468,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         ParameterFormViewModel form;
         try
         {
-            form = ParameterFormViewModel.For(workspace, definition, tree, stored, main.Services.Dialogs);
+            form = ParameterFormViewModel.For(workspace, definition, tree, stored, main.Services.Dialogs, main.CommandChoices, p => p.Ask != true);
         }
         catch (ArgumentAssemblyException ex)
         {

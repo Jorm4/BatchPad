@@ -10,6 +10,14 @@ public interface IRunProcess : IRunOutput, IDisposable
 {
     /// <param name="stopCompanion">Starts the script's stop companion; true when it started, so the run gets longer to exit.</param>
     Task StopAsync(Func<bool>? stopCompanion = null);
+
+    string? WaitingForLock { get; }
+
+    /// <summary>Raised on a worker thread.</summary>
+    event Action? WaitingChanged;
+
+    /// <summary>The process running now; null while queued for a lock, or when there is none to name.</summary>
+    int? ProcessId => null;
 }
 
 public interface IRunLauncher
@@ -29,6 +37,29 @@ public sealed class GatedRunLauncher(RunGate gate, InterpreterLocator interprete
         public Task<RunResult> Completion => handle.Completion;
         public Task StopAsync(Func<bool>? stopCompanion = null) =>
             handle.StopAsync(RunOutcome.Stopped, stopCompanion is null ? RunHandle.DefaultStopGrace : StopCoordinator.CompanionGrace, stopCompanion);
+        public string? WaitingForLock => handle.WaitingForLock;
+
+        public int? ProcessId
+        {
+            get
+            {
+                try
+                {
+                    return handle.WaitingForLock is null ? handle.ProcessId : null;
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return null;
+                }
+            }
+        }
+
+        public event Action? WaitingChanged
+        {
+            add => handle.WaitingChanged += value;
+            remove => handle.WaitingChanged -= value;
+        }
+
         public void Dispose() => handle.Dispose();
     }
 }

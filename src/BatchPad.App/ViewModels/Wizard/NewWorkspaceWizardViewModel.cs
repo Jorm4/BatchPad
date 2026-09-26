@@ -118,6 +118,7 @@ public sealed partial class NewWorkspaceWizardViewModel : ObservableObject
         {
             ConfigWriter.Write(WorkspaceFile, new WorkspaceFile
             {
+                Schema = Core.Model.WorkspaceFile.SchemaUrl,
                 Id = $"{IdAssigner.FromName(name, new HashSet<string>())}-{Guid.NewGuid().ToString("N")[..8]}",
                 Name = name,
                 ScriptFolders = ScriptFoldersToWrite(),

@@ -12,52 +12,56 @@ using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Workflows;
 
-/// <summary>A workflow to run, with the tree it is defined in (bare step references resolve there).</summary>
-public sealed record WorkflowRequest(ScriptTree Tree, WorkflowNode Workflow)
-{
-    public IReadOnlyDictionary<string, JsonNode?>? Values { get; init; }
-
-    /// <summary>Per-step value overrides by step id, as a customisation's <c>stepValues</c> (§3.7).</summary>
-    public IReadOnlyDictionary<string, Dictionary<string, JsonNode?>>? StepValues { get; init; }
-
-    public IEnumerable<KeyValuePair<string, string>>? BaseEnvironment { get; init; }
-
-    public static WorkflowRequest From(ResolvedCustomisation customisation) =>
-        customisation is { Definition: WorkflowNode workflow, DefinitionTree: { } tree }
-            ? new WorkflowRequest(tree, workflow) { Values = customisation.Values, StepValues = customisation.StepValues }
-            : throw new InvalidOperationException(customisation.Problem ?? $"'{customisation.Name}' is not a workflow.");
-}
-
 /// <summary>
 /// Runs workflows for the MVP (§4.1): steps in order with <c>when</c>, parameters flowing by name with their types,
 /// <c>forEach</c>, per-step <c>emptyArgs</c>, nested workflows, and a long-running last step that ends the workflow at ready.
 /// </summary>
-public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLauncher launcher, IShellOpener? opener = null)
+public sealed partial class WorkflowRunner(
+    LoadedWorkspace workspace, IStepLauncher launcher, IShellOpener? opener = null, LockManager? locks = null, TimeProvider? time = null)
 {
     private readonly ChoiceResolver _choices = new();
+    private readonly LockManager _locks = locks ?? new LockManager();
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
 
     public WorkflowRunner(LoadedWorkspace workspace, RunGate gate, InterpreterLocator interpreters, IShellOpener? opener = null)
-        : this(workspace, new GatedStepLauncher(gate, interpreters), opener)
+        : this(workspace, new GatedStepLauncher(gate, interpreters), opener, gate.Locks, gate.Time)
     {
     }
 
     /// <exception cref="WorkflowException">The workflow runs itself.</exception>
-    public WorkflowRun Start(WorkflowRequest request)
+    public WorkflowRun Start(WorkflowRequest request) => Start(request, lockOwner: null);
+
+    private WorkflowRun Start(WorkflowRequest request, object? lockOwner)
     {
-        if (WorkflowValidator.CycleFrom(request.Workflow, request.Tree.Kind, workspace.References) is { } cycle)
+        if (WorkflowValidator.CycleFrom(request.Workflow, request.Tree, workspace.References) is { } cycle)
             throw new WorkflowException($"Workflow '{ScriptTree.DisplayName(request.Workflow)}' runs itself: {cycle}.");
+        if (request is { Unattended: true, Confirmed: false }
+            && (request.Workflow.Confirm is { Length: > 0 } || request.Workflow.Steps.SelectMany(s => s.Leaves()).Any(s => s.Confirm == true)))
+            throw new WorkflowException($"'{ScriptTree.DisplayName(request.Workflow)}' needs confirmation, and nobody is there to give it.");
 
         var steps = request.Workflow.Steps.Select((step, index) => new StepRun(step, step.Id ?? $"step{index + 1}")).ToList();
-        var run = new WorkflowRun(request.Workflow, steps, launcher);
+        if (request.Resume is { } resume && !steps.Any(s => s.SelfAndChildren().Any(c => c.Id == resume.StepId)))
+            throw new WorkflowException($"'{ScriptTree.DisplayName(request.Workflow)}' has no step '{resume.StepId}' to re-run from.");
+        var run = new WorkflowRun(request, steps, launcher, lockOwner);
         _ = Task.Run(async () =>
         {
             try
             {
+                using var lease = string.IsNullOrWhiteSpace(request.Workflow.Lock)
+                    ? null
+                    : await _locks.AcquireAsync([request.Workflow.Lock], run.LockOwner, run.Wait, run.StopRequested);
+                run.Wait(null);
                 run.Complete(await ExecuteAsync(run, request));
+            }
+            catch (OperationCanceledException) when (run.IsStopping)
+            {
+                foreach (var step in steps.SelectMany(s => s.SelfAndChildren()))
+                    step.Status = StepStatus.Skipped;
+                run.Complete(WorkflowOutcome.Stopped);
             }
             catch (Exception ex)
             {
-                foreach (var step in steps.Where(s => s.Status == StepStatus.Pending))
+                foreach (var step in steps.SelectMany(s => s.SelfAndChildren()).Where(s => s.Status == StepStatus.Pending))
                     (step.Error, step.Status) = (ex.Message, StepStatus.Failed);
                 run.Complete(WorkflowOutcome.Failed);
             }
@@ -69,19 +73,27 @@ public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLaunc
     {
         var parameters = BindParameters(request);
         var failed = false;
-        var stepResults = new Dictionary<string, IReadOnlyDictionary<string, string>>();
+        var stepResults = run.StepResults;
+        var resumeAt = 0;
+        if (request.Resume is { } resume)
+        {
+            foreach (var (id, results) in resume.StepResults)
+                stepResults[id] = results;
+            resumeAt = run.Steps.ToList().FindIndex(s => s.SelfAndChildren().Any(c => c.Id == resume.StepId));
+        }
         for (var index = 0; index < run.Steps.Count; index++)
         {
             var step = run.Steps[index];
-            var shouldRun = (step.Step.When ?? StepWhen.Success) switch
+            var isLast = index == run.Steps.Count - 1;
+            if (index < resumeAt)
             {
-                StepWhen.Failure => failed,
-                StepWhen.Always => true,
-                _ => !failed,
-            };
-            if (run.IsStopping || !shouldRun)
+                foreach (var row in step.SelfAndChildren())
+                    run.Update(row, StepStatus.Reused);
+                continue;
+            }
+            if (!ShouldRun(run, step, failed))
             {
-                run.Update(step, StepStatus.Skipped);
+                Skip(run, step);
                 continue;
             }
 
@@ -94,25 +106,78 @@ public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLaunc
                 },
                 Steps = stepResults,
             };
-            var succeeded = await RunStepAsync(run, step, request, parameters, context, isLast: index == run.Steps.Count - 1);
-            failed |= !succeeded;
-            stepResults[step.Id] = new Dictionary<string, string>
-            {
-                ["result"] = succeeded ? "success" : "failure",
-                ["exitCode"] = step.Result?.ExitCode.ToString() ?? "",
-            };
+            bool succeeded;
+            if (step.IsGroup)
+                succeeded = await RunGroupAsync(run, step, request, parameters, context, failed, isLast, stepResults);
+            else if (isLast && request.Target is { } dependent)
+                succeeded = await LaunchAsync(run, step, dependent with { LockOwner = run.LockOwner }, isLast);
+            else
+                succeeded = await RunStepAsync(run, step, request, parameters, context, isLast);
+            Record(stepResults, step, succeeded);
+            if (!Counts(step, succeeded) && !failed)
+                (failed, run.FailedStep) = (true, step);
         }
         return run.IsStopping ? WorkflowOutcome.Stopped : failed ? WorkflowOutcome.Failed : WorkflowOutcome.Succeeded;
+    }
+
+    private static bool ShouldRun(WorkflowRun run, StepRun step, bool failed) =>
+        !run.IsStopping && (step.Step.When ?? StepWhen.Success) switch
+        {
+            StepWhen.Failure => failed,
+            StepWhen.Always => true,
+            _ => !failed,
+        };
+
+    private static bool Counts(StepRun step, bool succeeded) => succeeded || step.Step.ContinueOnError == true;
+
+    private static void Skip(WorkflowRun run, StepRun step)
+    {
+        foreach (var row in step.SelfAndChildren())
+            run.Update(row, StepStatus.Skipped);
+    }
+
+    private static void Record(Dictionary<string, IReadOnlyDictionary<string, string>> stepResults, StepRun step, bool succeeded) =>
+        stepResults[step.Id] = new Dictionary<string, string>(step.Outputs)
+        {
+            ["result"] = succeeded ? "success" : "failure",
+            ["exitCode"] = step.Result?.ExitCode.ToString() ?? "",
+        };
+
+    /// <summary>Runs a group's members at once; each member's <c>when</c> sees the state from before the group.</summary>
+    private async Task<bool> RunGroupAsync(WorkflowRun run, StepRun group, WorkflowRequest request, BoundParameters parameters,
+        TemplateContext context, bool failed, bool isLast, Dictionary<string, IReadOnlyDictionary<string, string>> stepResults)
+    {
+        run.Update(group, StepStatus.Running);
+        lock (stepResults)
+            context = context with { Steps = new Dictionary<string, IReadOnlyDictionary<string, string>>(stepResults) };
+        var results = await Task.WhenAll(group.Members.Select(async member =>
+        {
+            if (!ShouldRun(run, member, failed))
+            {
+                Skip(run, member);
+                return (Member: member, Succeeded: true, Skipped: true);
+            }
+            var succeeded = member.IsGroup
+                ? await RunGroupAsync(run, member, request, parameters, context, failed, isLast, stepResults)
+                : await RunStepAsync(run, member, request, parameters, context, isLast);
+            return (Member: member, Succeeded: succeeded, Skipped: false);
+        }));
+        lock (stepResults)
+            foreach (var (member, succeeded, _) in results.Where(r => !r.Skipped))
+                Record(stepResults, member, succeeded);
+        run.Update(group, run.IsStopping ? StepStatus.Stopped
+            : group.Members.Any(m => m.Status == StepStatus.Failed) ? StepStatus.Failed
+            : StepStatus.Succeeded);
+        return results.All(r => Counts(r.Member, r.Succeeded));
     }
 
     private async Task<bool> RunStepAsync(WorkflowRun run, StepRun step, WorkflowRequest request, BoundParameters parameters,
         TemplateContext context, bool isLast)
     {
         if (step.Step.Run is not { } reference
-            || ReferenceResolver.Parse(reference, request.Tree.Kind) is not { } parsed
-            || workspace.References.Resolve(reference, request.Tree.Kind) is not RunnableNode target)
+            || workspace.References.Resolve(reference, request.Tree) is not RunnableNode target)
             return Fail(run, step, $"Step '{step.Id}' runs '{step.Step.Run}', which does not exist.");
-        var targetTree = workspace.Trees.First(t => t.Kind == parsed.Tree);
+        var targetTree = workspace.References.TreeOf(target)!;
 
         if (step.Step.ForEach is not { } forEach)
             return await RunTargetAsync(run, step, request, parameters, target, targetTree, context, isLast);
@@ -128,17 +193,36 @@ public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLaunc
         }
 
         run.Update(step, StepStatus.Running);
-        var allSucceeded = true;
-        foreach (var item in items)
+        var rows = items.Select(item => (Row: step.AddItem(item.Text), Item: item)).ToList();
+        foreach (var (row, _) in rows)
+            run.Raise(row);
+        var next = 0;
+        var anyFailed = false;
+        var failFast = step.Step.FailFast == true;
+
+        async Task WorkAsync()
         {
-            if (run.IsStopping)
-                break;
-            var row = step.AddItem(item.Text);
-            run.Raise(step);
-            allSucceeded &= await RunTargetAsync(run, row, request, parameters, target, targetTree, context with { Item = item }, isLast: false);
+            while (true)
+            {
+                int index;
+                lock (rows)
+                {
+                    if (run.IsStopping || (failFast && anyFailed) || next >= rows.Count)
+                        return;
+                    index = next++;
+                }
+                var (row, item) = rows[index];
+                if (!await RunTargetAsync(run, row, request, parameters, target, targetTree, context with { Item = item }, isLast: false))
+                    lock (rows)
+                        anyFailed = true;
+            }
         }
-        run.Update(step, run.IsStopping ? StepStatus.Stopped : allSucceeded ? StepStatus.Succeeded : StepStatus.Failed);
-        return allSucceeded && !run.IsStopping;
+
+        await Task.WhenAll(Enumerable.Range(0, Math.Max(1, step.Step.MaxParallel ?? 1)).Select(_ => WorkAsync()));
+        foreach (var (row, _) in rows.Where(r => r.Row.Status == StepStatus.Pending))
+            run.Update(row, StepStatus.Skipped);
+        run.Update(step, run.IsStopping ? StepStatus.Stopped : anyFailed ? StepStatus.Failed : StepStatus.Succeeded);
+        return !anyFailed && !run.IsStopping;
     }
 
     private async Task<bool> RunTargetAsync(WorkflowRun run, StepRun row, WorkflowRequest request, BoundParameters parameters,
@@ -156,7 +240,13 @@ public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLaunc
 
         if (target is WorkflowNode nestedWorkflow)
         {
-            var nested = Start(new WorkflowRequest(targetTree, nestedWorkflow) { Values = values, BaseEnvironment = request.BaseEnvironment });
+            var nested = Start(new WorkflowRequest(targetTree, nestedWorkflow)
+            {
+                Values = values,
+                BaseEnvironment = request.BaseEnvironment,
+                Unattended = request.Unattended,
+                Confirmed = request.Confirmed,
+            }, run.LockOwner);
             nested.StepChanged += run.Raise;
             row.Nested = nested;
             run.Update(row, StepStatus.Running);
@@ -173,7 +263,34 @@ public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLaunc
         }
 
         var script = WithEmptyArgs((ScriptNode)target, row.Step.EmptyArgs);
-        var runRequest = new RunRequest(workspace, targetTree, script) { Values = values, BaseEnvironment = request.BaseEnvironment };
+        var runRequest = new RunRequest(workspace, targetTree, script)
+        {
+            Values = values,
+            BaseEnvironment = request.BaseEnvironment,
+            LockOwner = run.LockOwner,
+            Unattended = request.Unattended,
+            Confirmed = request.Confirmed,
+        };
+        for (var attempt = 1; ; attempt++)
+        {
+            var succeeded = await LaunchAsync(run, row, runRequest, isLast);
+            if (succeeded || attempt >= row.MaxAttempts || run.IsStopping || row.Error is not null)
+                return succeeded;
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, row.Step.Retry!.DelaySeconds)), _time, run.StopRequested);
+            }
+            catch (OperationCanceledException)
+            {
+                run.Update(row, StepStatus.Stopped);
+                return false;
+            }
+        }
+    }
+
+    private async Task<bool> LaunchAsync(WorkflowRun run, StepRun row, RunRequest runRequest, bool isLast)
+    {
+        var script = runRequest.Script;
         try
         {
             row.Handle = launcher.Start(runRequest);
@@ -183,6 +300,7 @@ public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLaunc
             return Fail(run, row, ex.Message);
         }
         row.Request = runRequest;
+        row.Result = null;
         row.Artifacts = ResolveArtifacts(runRequest);
         run.Update(row, StepStatus.Running);
         if (run.IsStopping)
@@ -191,11 +309,15 @@ public sealed partial class WorkflowRunner(LoadedWorkspace workspace, IStepLaunc
         if (isLast && script.LongRunning == true && await WaitForReadyAsync(row, runRequest) is { } signal)
         {
             row.ReadySignal = signal;
+            row.Outputs = StepOutputs.From(row.Handle.Output);
+            row.Handle.ReleaseLocks();
             run.Update(row, StepStatus.Ready);
             return true;
         }
 
         var outcome = await row.Handle.Completion;
+        row.Outputs = StepOutputs.From(row.Handle.Output);
+        row.Attempts = [.. row.Attempts, new StepAttempt(row.Handle, outcome)];
         row.Result = outcome;
         if (opener is not null)
             ArtifactResolver.OpenAfter(outcome, row.Artifacts, opener);

@@ -4,16 +4,19 @@ using BatchPad.Core.Running;
 
 namespace BatchPad.Core.Workflows;
 
-public enum StepStatus { Pending, Running, Ready, Succeeded, Failed, Skipped, Stopped }
+public enum StepStatus { Pending, Running, Ready, Succeeded, Failed, Skipped, Stopped, Reused }
 
 public enum WorkflowOutcome { Succeeded, Failed, Stopped }
+
+/// <summary>One finished try of a step that has <c>retry</c>.</summary>
+public sealed record StepAttempt(RunHandle Handle, RunResult Result);
 
 public sealed record WorkflowResult(WorkflowOutcome Outcome, TimeSpan Duration)
 {
     public bool Succeeded => Outcome == WorkflowOutcome.Succeeded;
 }
 
-/// <summary>A step of a running workflow, or one <c>forEach</c> item row of such a step.</summary>
+/// <summary>A step of a running workflow, one <c>forEach</c> item row of such a step, or a parallel group.</summary>
 public sealed class StepRun
 {
     internal StepRun(WorkflowStep step, string id, string? item = null)
@@ -21,6 +24,9 @@ public sealed class StepRun
         Step = step;
         Id = id;
         Item = item;
+        Members = step.Parallel is { } members && item is null
+            ? [.. members.Select((member, index) => new StepRun(member, member.Id ?? $"{id}-{index + 1}"))]
+            : [];
     }
 
     public WorkflowStep Step { get; }
@@ -34,9 +40,23 @@ public sealed class StepRun
     public RunRequest? Request { get; internal set; }
     public WorkflowRun? Nested { get; internal set; }
     public IReadOnlyList<StepRun> Items { get; private set; } = [];
+
+    /// <summary>The steps of a parallel group; empty for any other step.</summary>
+    public IReadOnlyList<StepRun> Members { get; }
+
+    public bool IsGroup => Step.IsGroup;
+
     public RunResult? Result { get; internal set; }
     public ReadySignal? ReadySignal { get; internal set; }
     public IReadOnlyList<ResolvedArtifact> Artifacts { get; internal set; } = [];
+
+    /// <summary>The values the step printed as <c>::set name=value</c>.</summary>
+    public IReadOnlyDictionary<string, string> Outputs { get; internal set; } = new Dictionary<string, string>();
+
+    public IReadOnlyList<StepAttempt> Attempts { get; internal set; } = [];
+
+    /// <summary>How many times the step may start: once, plus its <c>retry.count</c>.</summary>
+    public int MaxAttempts => 1 + Math.Max(0, Step.Retry?.Count ?? 0);
 
     /// <summary>Why the step failed without a result: a missing target, a template or start error.</summary>
     public string? Error { get; internal set; }
@@ -50,7 +70,8 @@ public sealed class StepRun
         return row;
     }
 
-    internal IEnumerable<StepRun> SelfAndItems() => [this, .. Items];
+    /// <summary>This row, its <c>forEach</c> items and its group members with theirs.</summary>
+    public IEnumerable<StepRun> SelfAndChildren() => [this, .. Items, .. Members.SelectMany(m => m.SelfAndChildren())];
 }
 
 /// <summary>
@@ -62,16 +83,34 @@ public sealed class WorkflowRun
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly TaskCompletionSource<WorkflowResult> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IStepLauncher _launcher;
+    private readonly CancellationTokenSource _stopRequested = new();
     private volatile bool _stopping;
 
-    internal WorkflowRun(WorkflowNode workflow, IReadOnlyList<StepRun> steps, IStepLauncher launcher)
+    internal WorkflowRun(WorkflowRequest request, IReadOnlyList<StepRun> steps, IStepLauncher launcher, object? lockOwner)
     {
-        Workflow = workflow;
+        Request = request;
+        Workflow = request.Workflow;
         Steps = steps;
         _launcher = launcher;
+        LockOwner = lockOwner ?? this;
     }
 
+    /// <summary>The workflow's <c>lock</c> while it is queued behind another run; null once it runs.</summary>
+    public string? WaitingForLock { get; private set; }
+
+    public event Action? WaitingChanged;
+
+    internal object LockOwner { get; }
+    internal CancellationToken StopRequested => _stopRequested.Token;
+
+    public WorkflowRequest Request { get; }
     public WorkflowNode Workflow { get; }
+
+    /// <summary>The first step whose failure failed the workflow; a re-run starts there.</summary>
+    public StepRun? FailedStep { get; internal set; }
+
+    /// <summary>Each finished step's <c>result</c>, <c>exitCode</c> and outputs, as <c>${steps.*}</c> reads them.</summary>
+    public Dictionary<string, IReadOnlyDictionary<string, string>> StepResults { get; } = [];
     public IReadOnlyList<StepRun> Steps { get; }
     public Task<WorkflowResult> Completion => _completion.Task;
     public bool IsStopping => _stopping;
@@ -84,7 +123,8 @@ public sealed class WorkflowRun
         if (Completion.IsCompleted)
             return;
         _stopping = true;
-        await Task.WhenAll(Steps.SelectMany(s => s.SelfAndItems()).Select(StopStepAsync));
+        await _stopRequested.CancelAsync();
+        await Task.WhenAll(Steps.SelectMany(s => s.SelfAndChildren()).Select(StopStepAsync));
         await Completion;
     }
 
@@ -92,6 +132,14 @@ public sealed class WorkflowRun
         step.Nested is { } nested ? nested.StopAsync()
         : step is { Handle: { } handle, Request: { } request } && !handle.Completion.IsCompleted ? _launcher.StopAsync(handle, request)
         : Task.CompletedTask;
+
+    internal void Wait(string? lockName)
+    {
+        if (WaitingForLock == lockName)
+            return;
+        WaitingForLock = lockName;
+        WaitingChanged?.Invoke();
+    }
 
     internal void Update(StepRun step, StepStatus status)
     {

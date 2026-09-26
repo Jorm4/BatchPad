@@ -14,8 +14,9 @@ namespace BatchPad.App.ViewModels.Editor;
 public sealed partial class ScriptEditorViewModel : ObservableObject
 {
     private readonly MainViewModel _main;
-    private readonly NodeViewModel _node;
+    private NodeViewModel _node;
     private readonly ScriptNode _original;
+    private (string Path, string Id)? _newCompanion;
 
     public ScriptEditorViewModel(MainViewModel main, NodeViewModel node)
     {
@@ -24,13 +25,22 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
         _original = node.Script!;
         Definition = ConfigEntries.Clone(_original);
         General = new GeneralTabViewModel(Definition, node.Name, Refresh);
+        var proposals = DetectProposals();
         Parameters = new ParametersTabViewModel(Definition, main.Workspace!.Workspace.File.SharedParams?.Keys ?? Enumerable.Empty<string>(),
-            DetectParameters(), Refresh);
-        AfterRun = new AfterRunTabViewModel(Definition, StopChoices(main, node), Refresh);
+            proposals.Parameters, Refresh, key => main.DismissProposal(node, key));
+        Environment = new EnvironmentTabViewModel(Definition, node.Tree.BaseDirectory, main.Services.Dialogs, Refresh);
+        AfterRun = new AfterRunTabViewModel(Definition, StopChoices(main, node), Refresh,
+            () => RunPlanner.BoundTemplatesFor(Request()), () => main.History.LastLog(node.Key));
         Advanced = new AdvancedTabViewModel(Definition, Refresh);
+        if (proposals.LongRunningReason is { } reason)
+            Parameters.Proposals.Add(new ProposalViewModel(ProposalTracker.LongRunningKey, $"long-running · {reason}",
+                "Keeps running until stopped", Parameters) { Apply = () => General.LongRunning = true });
+        if (proposals.StopCompanion is { } companion)
+            Parameters.Proposals.Add(new ProposalViewModel(ProposalTracker.StopKey(companion), $"stop with {companion}",
+                "Runs it with the same values to stop this script", Parameters) { Apply = () => AcceptStop(companion) });
         var resolver = new ChoiceResolver();
-        var context = RunPlanner.ChoicesFor(Request());
-        ChoiceEnvironment = new ChoiceEnvironment(context.BaseDirectory, p => resolver.Resolve(p, context), main.Services.Dialogs);
+        var context = RunPlanner.ChoicesFor(Request()) with { Commands = main.CommandChoices };
+        ChoiceEnvironment = new ChoiceEnvironment(context.BaseDirectory, p => resolver.Resolve(p, context), main.Services.Dialogs, main.CommandChoices);
         Parameters.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ParametersTabViewModel.Selected))
@@ -52,6 +62,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
     public ScriptNode Definition { get; }
     public GeneralTabViewModel General { get; }
     public ParametersTabViewModel Parameters { get; }
+    public EnvironmentTabViewModel Environment { get; }
     public AfterRunTabViewModel AfterRun { get; }
     public AdvancedTabViewModel Advanced { get; }
     public string Title => _node.Name;
@@ -71,19 +82,40 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
     /// <summary>Raised when the editor should close; true after a save.</summary>
     public event Action<bool>? Closed;
 
+    public NodeViewModel Node => _node;
+
+    /// <summary>Whether the entry this edit started from is unchanged on disk, so the edit survives a reload.</summary>
+    public bool PendingEditStillApplies()
+    {
+        try
+        {
+            var current = File.Exists(_node.Tree.FilePath) ? ConfigReader.ReadFile(_node.Tree.FilePath) : new WorkspaceFile();
+            return EntryMerge.StillApplies(current, _original, _node.Item?.HasEntry == true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Moves the open edit onto the reloaded tree's node; saving still matches the entry it started from.</summary>
+    public void Rebind(NodeViewModel node) => _node = node;
+
     public RunRequest Request() => new(_main.Workspace!, _node.Tree, Definition);
 
     public void Refresh()
     {
         try
         {
-            Preview = string.Join(Environment.NewLine,
+            Preview = string.Join(System.Environment.NewLine,
                 RunPlanner.Plan(Request(), _main.Services.Interpreters).Select(s => s.Command.DisplayRelativeTo(_main.Workspace!.Directory)));
         }
         catch (Exception ex) when (DetailsViewModel.IsRunProblem(ex))
         {
             Preview = $"⚠ {ex.Message}";
         }
+        Advanced.Preview = Preview;
+        AfterRun.UpdateRerunParams(Definition.Params);
         TestRunCommand.NotifyCanExecuteChanged();
     }
 
@@ -106,10 +138,12 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
         {
             ConfigWriter.Update(tree.FilePath, file =>
             {
+                if (_newCompanion is { } companion)
+                    AddCompanionEntry(file.Scripts, companion.Path, companion.Id);
                 saved = ConfigEntries.Clone(Definition);
                 if (!ConfigEntries.Replace(file.Scripts, indexPath, _original, saved))
                 {
-                    saved.Id ??= IdAssigner.FromFileName(saved.Path ?? saved.Name ?? "script", ConfigEntries.Ids(file.Scripts));
+                    saved.Id ??= IdAssigner.FromFileName(saved.Path ?? saved.Name ?? "script", ConfigEntries.Ids(file.Scripts, _main.Workspace!, tree));
                     file.Scripts.Add(saved);
                 }
             });
@@ -135,18 +169,53 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
                 $"{n.Location} › {n.Name}")),
     ];
 
-    private IEnumerable<ParameterDefinition> DetectParameters()
+    /// <summary>Which editor tab is shown; the tree's proposal badge opens Parameters.</summary>
+    [ObservableProperty]
+    private int selectedTab;
+
+    public const int ParametersTabIndex = 1;
+
+    private ScriptProposals DetectProposals()
     {
-        if (Definition.Path is not { } path || path.Contains("${"))
-            return [];
-        var fullPath = Path.Combine(_node.Tree.BaseDirectory, path);
+        if (_node.ScriptFullPath is not { } fullPath)
+            return ScriptProposals.None;
         try
         {
-            return File.Exists(fullPath) ? Detector.Detect(fullPath).Parameters : [];
+            return ProposalTracker.For(_original, fullPath, _main.DismissedProposals(_node), _main.Probes);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return [];
+            return ScriptProposals.None;
         }
     }
+
+    /// <summary>A stop reference needs an id, so a companion without an entry gets one when this script is saved.</summary>
+    private void AcceptStop(string companion)
+    {
+        var fullPath = Path.Combine(Path.GetDirectoryName(_node.ScriptFullPath!)!, companion);
+        var existing = _main.Tree!.AllNodes.FirstOrDefault(n =>
+            n.Tree == _node.Tree && string.Equals(n.ScriptFullPath, fullPath, StringComparison.OrdinalIgnoreCase));
+        if (existing?.Script?.Id is not { } id)
+        {
+            id = IdAssigner.FromFileName(companion, ConfigEntries.Ids(_node.Tree.File.Scripts));
+            _newCompanion = (Path.GetRelativePath(_node.Tree.BaseDirectory, fullPath).Replace('\\', '/'), id);
+        }
+        AfterRun.SelectStop(id, existing?.Name ?? companion);
+    }
+
+    private static void AddCompanionEntry(List<TreeNode> scripts, string path, string id)
+    {
+        if (FindEntry(scripts, path) is { } entry)
+            entry.Id ??= id;
+        else
+            scripts.Add(new ScriptNode { Path = path, Id = id });
+    }
+
+    private static ScriptNode? FindEntry(IEnumerable<TreeNode> nodes, string path) =>
+        nodes.Select(n => n switch
+        {
+            ScriptNode s when string.Equals(s.Path?.Replace('\\', '/'), path, StringComparison.OrdinalIgnoreCase) => s,
+            FolderNode f => FindEntry(f.Items, path),
+            _ => null,
+        }).FirstOrDefault(s => s is not null);
 }

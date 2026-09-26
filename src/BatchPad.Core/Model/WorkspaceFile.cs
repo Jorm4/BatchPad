@@ -5,6 +5,8 @@ namespace BatchPad.Core.Model;
 /// <summary>Shape shared by batchpad.json, global.json and user.json (§3.5–3.7).</summary>
 public sealed class WorkspaceFile : ExtensibleObject
 {
+    public const string SchemaUrl = "https://raw.githubusercontent.com/Jorm4/BatchPad/main/docs/batchpad.schema.json";
+
     [JsonPropertyName("$schema")]
     public string? Schema { get; set; }
     public string? Id { get; set; }
@@ -20,8 +22,14 @@ public sealed class WorkspaceFile : ExtensibleObject
     public List<ScriptFolder>? ScriptFolders { get; set; }
     public List<TreeNode> Scripts { get; set; } = [];
 
+    /// <summary>user.json and global.json only (§4.2): the loader drops them from shared files with a load error.</summary>
+    public List<Schedule>? Schedules { get; set; }
+
     /// <summary>user.json only: discovered script paths already opened, so the rest show as New (§3.10).</summary>
     public List<string>? SeenPaths { get; set; }
+
+    /// <summary>user.json only: detection proposals the user dismissed, per script key (§3.10).</summary>
+    public Dictionary<string, List<string>>? DismissedProposals { get; set; }
 }
 
 public sealed class ScriptFolder : ExtensibleObject

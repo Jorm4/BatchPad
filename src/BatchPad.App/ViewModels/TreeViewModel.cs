@@ -8,7 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace BatchPad.App.ViewModels;
 
-public enum NewItemKind { Link, Folder, Workflow, Entry }
+public enum NewItemKind { Link, Folder, Workflow, Entry, Script }
 
 public sealed partial class TreeViewModel : ObservableObject
 {
@@ -62,7 +62,16 @@ public sealed partial class TreeViewModel : ObservableObject
     private void NewEntry(NodeViewModel? near) => _onNewItem?.Invoke(near ?? Roots[1], NewItemKind.Entry);
 
     [RelayCommand]
+    private void NewScript(NodeViewModel? near) => _onNewItem?.Invoke(near ?? Roots[1], NewItemKind.Script);
+
+    [RelayCommand]
     private void NewFolder(NodeViewModel? near) => _onNewItem?.Invoke(near ?? Roots[1], NewItemKind.Folder);
+
+    public void RefreshLinks(TimeProvider time)
+    {
+        foreach (var node in AllNodes.Where(n => n.Kind == NodeKind.Link))
+            node.RefreshLinkState(time);
+    }
 
     public NodeViewModel? Find(string automationId) => AllNodes.FirstOrDefault(n => n.AutomationId == automationId);
 
@@ -91,9 +100,10 @@ public sealed partial class TreeViewModel : ObservableObject
         foreach (var item in items)
         {
             var customisation = tree.Kind == TreeKind.MyScripts && item.Node is ScriptNode entry ? _customisations.Resolve(entry) : null;
+            var itemTree = item.Part ?? tree;
             var node = new NodeViewModel(customisation?.Name ?? item.Name,
-                customisation?.Definition is WorkflowNode ? NodeKind.Workflow : KindOf(item.Node), tree, parent, item, Select, customisation);
-            AddChildren(node, tree, item.Children);
+                customisation?.Definition is WorkflowNode ? NodeKind.Workflow : KindOf(item.Node), itemTree, parent, item, Select, customisation);
+            AddChildren(node, itemTree, item.Children);
             parent.Children.Add(node);
         }
     }

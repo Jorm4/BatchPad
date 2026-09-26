@@ -59,6 +59,31 @@ public sealed class ConfigReaderTests
     }
 
     [TestMethod]
+    public void AUserFileWithEveryTriggerKindRoundTrips()
+    {
+        var file = ConfigReader.ReadFile(Fixtures.Path("config", "user_schedules.json"));
+        var written = JsonSerializer.Serialize(file, ConfigJson.Options);
+        var reread = ConfigReader.Parse(written);
+
+        Assert.AreEqual(written, JsonSerializer.Serialize(reread, ConfigJson.Options));
+        var schedules = reread.Schedules!;
+        CollectionAssert.AreEqual(
+            new[] { TriggerKind.Cron, TriggerKind.Every, TriggerKind.At, TriggerKind.FileChanged, TriggerKind.OnStart, TriggerKind.AfterRun },
+            schedules.Select(s => s.Trigger.Kind).ToArray());
+        var nightly = schedules[0];
+        Assert.AreEqual("nightly", nightly.Key);
+        Assert.AreEqual(MissedPolicy.RunOnce, nightly.Missed);
+        Assert.AreEqual(OverlapPolicy.Queue, nightly.Overlap);
+        Assert.IsTrue(nightly.Enabled);
+        Assert.AreEqual("RallyRacer", nightly.Values!["app"]!.GetValue<string>());
+        Assert.AreEqual("09:00-18:00", schedules[1].Trigger.Between);
+        Assert.AreEqual("5s", schedules[3].Trigger.Debounce);
+        Assert.AreEqual(AfterRunResult.Failure, schedules[5].Trigger.Result);
+        Assert.AreNotEqual(schedules[1].Key, schedules[2].Key);
+        StringAssert.Contains(written, "\"missed\": \"runOnce\"");
+    }
+
+    [TestMethod]
     public void ReadsPlainAndRichChoices()
     {
         var script = (ScriptNode)((FolderNode)ReadAllNodes().Scripts[0]).Items[0];
@@ -92,7 +117,7 @@ public sealed class ConfigReaderTests
         Assert.AreEqual("kept", script.ExtensionData!["futureScriptField"].GetString());
         Assert.AreEqual(7, script.Params![2].ExtensionData!["futureParamField"].GetInt32());
         var workflow = (WorkflowNode)reread.Scripts[1];
-        Assert.AreEqual(4, workflow.Steps[1].ExtensionData!["parallel"].GetInt32());
+        Assert.AreEqual(4, workflow.Steps[1].MaxParallel);
     }
 
     [TestMethod]

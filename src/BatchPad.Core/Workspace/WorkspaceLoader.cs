@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
+using BatchPad.Core.Scheduling;
 using BatchPad.Core.Workflows;
 
 namespace BatchPad.Core.Workspace;
@@ -18,6 +19,8 @@ public sealed class LoadedWorkspace
 
     public string Directory => Workspace.BaseDirectory;
     public IEnumerable<ScriptTree> Trees => [MyScripts, Workspace, Global];
+
+    public IEnumerable<ScriptTree> AllTrees => Trees.SelectMany(t => t.SelfAndParts());
 }
 
 public static class WorkspaceLoader
@@ -32,8 +35,16 @@ public static class WorkspaceLoader
         var global = new ScriptTree(TreeKind.Global, paths.GlobalFile, ReadOrEmpty(paths.GlobalFile, errors));
         var userFile = paths.UserFile(id);
         var myScripts = new ScriptTree(TreeKind.MyScripts, userFile, ReadOrEmpty(userFile, errors));
-        var references = ReferenceResolver.Build([myScripts, workspace, global], errors);
-        errors.AddRange(WorkflowValidator.FindCycles([myScripts, workspace, global], references));
+        ScriptTree[] trees = [myScripts, workspace, global];
+        foreach (var tree in trees)
+            AddIncludes(tree, errors, new(StringComparer.OrdinalIgnoreCase) { tree.FilePath });
+        AddLibraries(global, errors);
+        var references = ReferenceResolver.Build(trees, errors);
+        var allTrees = trees.SelectMany(t => t.SelfAndParts()).ToList();
+        foreach (var tree in allTrees)
+            CheckSchedules(tree, errors);
+        errors.AddRange(WorkflowValidator.FindCycles(allTrees, references));
+        errors.AddRange(Prerequisites.FindCycles(allTrees, references));
         workspace.Rescan(myScripts.File.SeenPaths?.ToHashSet(StringComparer.OrdinalIgnoreCase));
         global.Rescan();
         myScripts.Rescan();
@@ -48,6 +59,58 @@ public static class WorkspaceLoader
             References = references,
             Errors = errors,
         };
+    }
+
+    private static void AddIncludes(ScriptTree tree, List<LoadError> errors, HashSet<string> loaded)
+    {
+        foreach (var include in tree.File.Include ?? [])
+        {
+            var path = Path.GetFullPath(include, tree.BaseDirectory);
+            if (!loaded.Add(path))
+            {
+                errors.Add(new LoadError($"'{include}' is included more than once.", tree.FilePath));
+                continue;
+            }
+            var part = new ScriptTree(tree.Kind, path, ReadOrEmpty(path, errors, reportMissing: true)) { Library = tree.Library, IsPart = true };
+            tree.Parts.Add(part);
+            AddIncludes(part, errors, loaded);
+        }
+    }
+
+    /// <summary>A library is named after its file: <c>team.json</c> gives <c>global:team:id</c>.</summary>
+    private static void AddLibraries(ScriptTree global, List<LoadError> errors)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var library in global.File.Libraries ?? [])
+        {
+            var path = Path.GetFullPath(library, global.BaseDirectory);
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (!names.Add(name))
+            {
+                errors.Add(new LoadError($"Library '{name}' is listed more than once.", global.FilePath));
+                continue;
+            }
+            var part = new ScriptTree(TreeKind.Global, path, ReadOrEmpty(path, errors, reportMissing: true)) { Library = name, IsPart = true };
+            global.Parts.Add(part);
+            AddIncludes(part, errors, new(StringComparer.OrdinalIgnoreCase) { path });
+        }
+    }
+
+    /// <summary>Only the personal files' own schedules count; shared files (and included parts) keep theirs unused.</summary>
+    private static void CheckSchedules(ScriptTree tree, List<LoadError> errors)
+    {
+        if (tree.File.Schedules is not { } schedules)
+            return;
+        if (tree.IsPart || tree.Kind == TreeKind.Workspace)
+        {
+            errors.Add(new LoadError("Schedules are personal and are ignored here: they belong in user.json or global.json.", tree.FilePath));
+            return;
+        }
+        foreach (var schedule in schedules)
+        {
+            if (TriggerMath.Problem(schedule.Trigger) is { } problem)
+                errors.Add(new LoadError($"Schedule '{schedule.Key}': {problem}", tree.FilePath));
+        }
     }
 
     /// <summary>The file's <c>id</c>, or a hash of its full path (§3.7). The id names a folder, so an unsafe one is hashed too.</summary>

@@ -129,4 +129,12 @@ internal sealed class FakeConfirm : IConfirmService
         Asked.Add(message);
         return Answer;
     }
+
+    public bool? CancellableAnswer { get; set; }
+
+    public bool? ConfirmOrCancel(string title, string message)
+    {
+        Asked.Add(message);
+        return CancellableAnswer;
+    }
 }

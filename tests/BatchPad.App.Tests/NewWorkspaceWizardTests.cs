@@ -2,6 +2,7 @@ using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Wizard;
 using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
+using BatchPad.Core.Model;
 using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
@@ -39,6 +40,7 @@ public sealed class NewWorkspaceWizardTests
 
         var file = ConfigReader.ReadFile(Path.Combine(project, "batchpad.json"));
         Assert.IsFalse(string.IsNullOrEmpty(file.Id));
+        Assert.AreEqual(WorkspaceFile.SchemaUrl, file.Schema);
         var covered = ScriptFolderScanner.Scan(project, file.ScriptFolders!).Select(s => s.RelativePath);
         CollectionAssert.AreEquivalent(new[] { "a.bat", "tools/b.py" }, covered.ToList());
         Assert.IsTrue(main.Trust.IsTrusted(project));

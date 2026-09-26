@@ -1,6 +1,7 @@
 using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Model;
+using BatchPad.Core.Output;
 using BatchPad.Core.Running;
 using BatchPad.Core.Workspace;
 
@@ -36,6 +37,51 @@ public sealed class RunViewModelTests
         Assert.AreEqual("exit 0", run.StatusText);
         Assert.AreEqual(RunBadge.Passed, node.Badge);
         Assert.IsFalse(main.Details.StopCommand.CanExecute(null));
+    }
+
+    [TestMethod]
+    public async Task ALineMatchingAnErrorPatternIsMarkedAndAnsiIsParsed()
+    {
+        using var test = new TestWorkspace();
+        var launcher = new FakeLauncher();
+        var main = Open(test, launcher, "Workspace/Hello/hello.bat");
+        main.SelectedNode!.Script!.ErrorPatterns = [@"LNK\d{4}"];
+
+        main.Details.RunCommand.Execute(null);
+        var run = (RunViewModel)main.Output.Tabs.Single();
+        var process = launcher.Started.Single();
+        process.Emit("linking", OutputStream.Stdout);
+        process.Emit("main.obj : error LNK2019: unresolved external", OutputStream.Stdout);
+        process.Emit("\u001b[32mok\u001b[0m", OutputStream.Stdout);
+        process.Finish(RunOutcome.Exited, 0);
+        await run.Finished;
+
+        CollectionAssert.AreEqual(new[] { false, true, false }, run.Lines.Select(l => l.IsErrorMatch).ToList());
+        Assert.AreEqual("ok", run.Lines[2].Text);
+        Assert.AreEqual(AnsiColor.Green, run.Lines[2].Spans!.Single().Color);
+    }
+
+    [TestMethod]
+    public async Task AQueuedRunShowsTheLockItWaitsForOnItsTabAndBadge()
+    {
+        using var test = new TestWorkspace();
+        var launcher = new FakeLauncher();
+        var main = Open(test, launcher, "Workspace/Hello/hello.bat");
+        var node = main.SelectedNode!;
+
+        main.Details.RunCommand.Execute(null);
+        var run = (RunViewModel)main.Output.Tabs.Single();
+        var process = launcher.Started.Single();
+
+        process.Wait("native-build");
+        Assert.AreEqual("waiting for lock native-build", run.StatusText);
+        Assert.AreEqual(RunBadge.Waiting, node.Badge);
+
+        process.Wait(null);
+        Assert.AreEqual("running", run.StatusText);
+        Assert.AreEqual(RunBadge.Running, node.Badge);
+        process.Finish(RunOutcome.Exited, 0);
+        await run.Finished;
     }
 
     [TestMethod]
@@ -156,8 +202,13 @@ internal sealed class FakeProcess : IRunProcess
 
     public IDisposable Subscribe(Action<OutputLine> onLine)
     {
-        _onLine = onLine;
-        return this;
+        _onLine += onLine;
+        return new Subscription(() => _onLine -= onLine);
+    }
+
+    private sealed class Subscription(Action unsubscribe) : IDisposable
+    {
+        public void Dispose() => unsubscribe();
     }
 
     public void Emit(string text, OutputStream stream) => _onLine?.Invoke(new OutputLine(text, stream));
@@ -166,6 +217,16 @@ internal sealed class FakeProcess : IRunProcess
         _completion.TrySetResult(new RunResult(outcome, exitCode, TimeSpan.FromSeconds(1)));
 
     public bool? CompanionStarted { get; private set; }
+
+    public string? WaitingForLock { get; private set; }
+
+    public event Action? WaitingChanged;
+
+    public void Wait(string? lockName)
+    {
+        WaitingForLock = lockName;
+        WaitingChanged?.Invoke();
+    }
 
     public Task StopAsync(Func<bool>? stopCompanion = null)
     {
@@ -184,4 +245,6 @@ internal sealed class FakeShell : IShellService
 
     public void CopyText(string text) => Copied = text;
     public void Open(string target) => Opened.Add(target);
+    public List<string> Commands { get; } = [];
+    public void RunCommand(string commandLine) => Commands.Add(commandLine);
 }

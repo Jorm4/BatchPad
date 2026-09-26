@@ -1,0 +1,5 @@
+{
+  "schedules": [
+    { "target": "workspace:tests", "trigger": { "evry": "30m" } }
+  ]
+}

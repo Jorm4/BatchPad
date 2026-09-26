@@ -1,0 +1,38 @@
+<UserControl x:Class="BatchPad.App.Views.Editor.EnvironmentTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Workspace"
+             xmlns:views="clr-namespace:BatchPad.App.Views">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,10,0,0">
+            <TextBlock Text="Environment file" Margin="0,0,0,4" />
+            <DockPanel Margin="0,0,0,12">
+                <Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseEnvFileCommand}" Margin="6,0,0,0"
+                        AutomationProperties.AutomationId="BrowseEnvFile" />
+                <TextBox Text="{Binding EnvFile, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                         ToolTip="KEY=value lines, applied before the variables below; relative to the config file"
+                         AutomationProperties.AutomationId="EnvFile" AutomationProperties.Name="Environment file" />
+            </DockPanel>
+            <TextBlock Text="Variables" Margin="0,0,0,4" />
+            <views:FlatItemsControl ItemsSource="{Binding Variables}" AutomationProperties.AutomationId="ScriptEnvironment">
+                <views:FlatItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:KeyValueRow}">
+                        <DockPanel Margin="0,0,0,4">
+                            <Button DockPanel.Dock="Right" Content="✕" Margin="4,0,0,0"
+                                    Command="{Binding DataContext.RemoveVariableCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    AutomationProperties.AutomationId="RemoveScriptEnv" AutomationProperties.Name="Remove variable" />
+                            <TextBox DockPanel.Dock="Left" Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" Width="180"
+                                     FontFamily="{StaticResource MonoFont}"
+                                     AutomationProperties.AutomationId="ScriptEnvName" AutomationProperties.Name="Name" />
+                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"
+                                     AutomationProperties.AutomationId="ScriptEnvValue" AutomationProperties.Name="Value" />
+                        </DockPanel>
+                    </DataTemplate>
+                </views:FlatItemsControl.ItemTemplate>
+            </views:FlatItemsControl>
+            <Button Content="+ Environment variable" Command="{Binding AddVariableCommand}" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="AddScriptEnv" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

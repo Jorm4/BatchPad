@@ -1,0 +1,117 @@
+<UserControl x:Class="BatchPad.App.Views.Schedules.ScheduleEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Schedules"
+             xmlns:views="clr-namespace:BatchPad.App.Views">
+    <UserControl.Resources>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,10,0,4" />
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Opacity" Value="0.7" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </UserControl.Resources>
+    <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Cancel" Command="{Binding CancelCommand}" AutomationProperties.AutomationId="ScheduleCancelButton" />
+                <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
+                        AutomationProperties.AutomationId="ScheduleSaveButton" />
+            </StackPanel>
+            <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="ScheduleError" />
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0,0,8,0" MaxWidth="640" HorizontalAlignment="Left">
+                <TextBlock Text="Run" Style="{StaticResource Label}" />
+                <ComboBox ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" DisplayMemberPath="Label"
+                          AutomationProperties.AutomationId="ScheduleTarget" AutomationProperties.Name="Run">
+                    <ComboBox.ItemContainerStyle>
+                        <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                        </Style>
+                    </ComboBox.ItemContainerStyle>
+                </ComboBox>
+                <CheckBox Content="Global: keep it in global.json instead of this workspace's user.json" IsChecked="{Binding IsGlobal}"
+                          Margin="0,6,0,0" AutomationProperties.AutomationId="ScheduleIsGlobal" />
+
+                <TextBlock Text="When" Style="{StaticResource Label}" />
+                <ListBox ItemsSource="{x:Static vm:ScheduleEditorViewModel.Kinds}" SelectedValuePath="Value" SelectedValue="{Binding Kind}"
+                         DisplayMemberPath="Label" BorderThickness="0" Background="Transparent"
+                         AutomationProperties.AutomationId="ScheduleKinds" AutomationProperties.Name="Trigger kind">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+
+                <StackPanel Visibility="{Binding IsCron, Converter={StaticResource BoolToVisibility}}">
+                    <TextBox Text="{Binding Cron, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" Margin="0,6,0,0"
+                             AutomationProperties.AutomationId="ScheduleCron" AutomationProperties.Name="Cron expression" />
+                    <TextBlock Style="{StaticResource Hint}" Text="minute hour day month weekday, e.g. 0 2 * * 1-5 for weekdays at 02:00" />
+                </StackPanel>
+                <StackPanel Visibility="{Binding IsEvery, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBox Text="{Binding Every, UpdateSourceTrigger=PropertyChanged}" Width="120" FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="ScheduleEvery" AutomationProperties.Name="Every" />
+                        <TextBlock Text="between" Margin="12,6,6,0" />
+                        <TextBox Text="{Binding Between, UpdateSourceTrigger=PropertyChanged}" Width="140" FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="ScheduleBetween" AutomationProperties.Name="Between" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}" Text="90s, 30m, 1h30m or 2d; an optional window such as 09:00-18:00" />
+                </StackPanel>
+                <StackPanel Visibility="{Binding IsAt, Converter={StaticResource BoolToVisibility}}">
+                    <TextBox Text="{Binding At, UpdateSourceTrigger=PropertyChanged}" Width="200" HorizontalAlignment="Left" Margin="0,6,0,0"
+                             FontFamily="{StaticResource MonoFont}" AutomationProperties.AutomationId="ScheduleAt" AutomationProperties.Name="At" />
+                    <TextBlock Style="{StaticResource Hint}" Text="A local date and time, e.g. 2026-12-24T18:00" />
+                </StackPanel>
+                <StackPanel Visibility="{Binding IsFileChanged, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBox Text="{Binding FileChanged, UpdateSourceTrigger=PropertyChanged}" Width="280" FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="ScheduleFileChanged" AutomationProperties.Name="Files" />
+                        <TextBlock Text="debounce" Margin="12,6,6,0" />
+                        <TextBox Text="{Binding Debounce, UpdateSourceTrigger=PropertyChanged}" Width="80" FontFamily="{StaticResource MonoFont}"
+                                 AutomationProperties.AutomationId="ScheduleDebounce" AutomationProperties.Name="Debounce" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}" Text="A glob relative to the workspace, e.g. assets/**/*.png; debounce such as 5s" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0" Visibility="{Binding IsAfterRun, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="After" Margin="0,6,6,0" />
+                    <ComboBox ItemsSource="{Binding Targets}" SelectedValuePath="Reference" SelectedValue="{Binding AfterRun}" DisplayMemberPath="Label"
+                              MinWidth="240" AutomationProperties.AutomationId="ScheduleAfterRun" AutomationProperties.Name="After" />
+                    <ComboBox ItemsSource="{x:Static vm:ScheduleEditorViewModel.ResultChoices}" SelectedValuePath="Value"
+                              SelectedValue="{Binding AfterRunResult}" DisplayMemberPath="Label" Margin="6,0,0,0"
+                              AutomationProperties.AutomationId="ScheduleAfterRunResult" AutomationProperties.Name="Result" />
+                </StackPanel>
+                <TextBlock Text="{Binding Preview}" Margin="0,8,0,0" FontStyle="Italic" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="SchedulePreview" />
+
+                <TextBlock Text="Values" Style="{StaticResource Label}"
+                           Visibility="{Binding Form, Converter={StaticResource NullToCollapsed}}" />
+                <views:ParameterForm DataContext="{Binding Form}" Visibility="{Binding Converter={StaticResource NullToCollapsed}}" />
+
+                <StackPanel Visibility="{Binding IsTimed, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="Missed runs" Style="{StaticResource Label}" />
+                    <ComboBox ItemsSource="{x:Static vm:ScheduleEditorViewModel.MissedChoices}" SelectedValuePath="Value"
+                              SelectedValue="{Binding Missed}" DisplayMemberPath="Label"
+                              AutomationProperties.AutomationId="ScheduleMissed" AutomationProperties.Name="Missed runs" />
+                </StackPanel>
+                <TextBlock Text="When the previous run is still going" Style="{StaticResource Label}" />
+                <ComboBox ItemsSource="{x:Static vm:ScheduleEditorViewModel.OverlapChoices}" SelectedValuePath="Value"
+                          SelectedValue="{Binding Overlap}" DisplayMemberPath="Label"
+                          AutomationProperties.AutomationId="ScheduleOverlap" AutomationProperties.Name="Overlap" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

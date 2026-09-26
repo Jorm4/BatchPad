@@ -21,6 +21,9 @@ public abstract partial class OutputTabViewModel(string title, NodeViewModel? no
     [ObservableProperty]
     private bool autoScroll = true;
 
+    /// <summary>The log that search and F8 act on: the run's, or the selected workflow step's.</summary>
+    public virtual OutputLog? Log => null;
+
     [RelayCommand(CanExecute = nameof(IsRunning))]
     private Task Stop() => StopRunAsync();
 

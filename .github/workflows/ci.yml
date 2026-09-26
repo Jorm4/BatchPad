@@ -52,16 +52,22 @@ jobs:
           Write-Output $version
           $expected = if ($env:RELEASE_VERSION) { [regex]::Escape($env:RELEASE_VERSION.TrimStart('v')) } else { '\S' }
           if ($p.ExitCode -ne 0 -or $version -notmatch "^BatchPad $expected") { throw "BatchPad.exe --version failed (exit $($p.ExitCode))" }
+          # batchpad.com is a console app, so the shell waits for it and relays BatchPad.exe's output and exit code.
+          $comVersion = & ./dist/batchpad.com --version | Out-String
+          Write-Output $comVersion
+          if ($LASTEXITCODE -ne 0 -or $comVersion -notmatch "^BatchPad $expected") { throw "batchpad.com --version failed (exit $LASTEXITCODE)" }
       - name: Publish GitHub release
         if: github.ref_type == 'tag'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:RELEASE_VERSION dist/BatchPad.exe --title "BatchPad $env:RELEASE_VERSION" --generate-notes --verify-tag
+        run: gh release create $env:RELEASE_VERSION dist/BatchPad.exe dist/batchpad.com --title "BatchPad $env:RELEASE_VERSION" --generate-notes --verify-tag
       - name: Upload BatchPad.exe
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v7
         with:
           name: BatchPad-win-x64
-          path: dist/BatchPad.exe
+          path: |
+            dist/BatchPad.exe
+            dist/batchpad.com
           retention-days: 14

@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Text.Json.Nodes;
 using BatchPad.App.ViewModels.Editor;
 using BatchPad.App.ViewModels.Parameters;
@@ -30,7 +32,10 @@ public sealed record StepBinding(string Parameter, string Template)
 /// <summary>What a step runs, resolved from its <c>run</c> reference.</summary>
 public sealed record StepTarget(string Reference, RunnableNode? Definition, ScriptTree? Tree, string Name, string Location);
 
-/// <summary>One step card of the workflow editor (§4.1, §5.1): its values in the generated form, for-each, <c>when</c> and flow chips.</summary>
+/// <summary>
+/// One step card of the workflow editor (§4.1, §5.1): its values in the generated form, for-each, <c>when</c>, flow chips and run
+/// options; or a parallel group card holding member cards.
+/// </summary>
 public sealed partial class StepCardViewModel : ObservableObject
 {
     private const string ItemValue = "${item}";
@@ -50,6 +55,13 @@ public sealed partial class StepCardViewModel : ObservableObject
         id = step.Id ?? "";
         emptyArgs = step.EmptyArgs is { } args ? ArgvQuoter.Join(args) : "";
         when = WhenOption.All.First(o => o.Value == (step.When ?? StepWhen.Success));
+        IsGroup = step.Parallel is not null;
+        continueOnError = step.ContinueOnError == true;
+        failFast = step.FailFast == true;
+        confirm = step.Confirm == true;
+        parallelDegree = step.MaxParallel?.ToString(CultureInfo.InvariantCulture) ?? "";
+        retryCount = step.Retry is { Count: > 0 } retry ? retry.Count.ToString(CultureInfo.InvariantCulture) : "";
+        retryDelay = step.Retry is { DelaySeconds: > 0 } delayed ? delayed.DelaySeconds.ToString(CultureInfo.InvariantCulture) : "";
         if (step.ForEach is { } forEach && ParamName(forEach) is { } listName)
         {
             isForEach = true;
@@ -64,6 +76,32 @@ public sealed partial class StepCardViewModel : ObservableObject
 
     [ObservableProperty]
     private string emptyArgs;
+
+    public bool IsGroup { get; }
+    public ObservableCollection<StepCardViewModel> Members { get; } = [];
+
+    public StepCardViewModel? Group { get; private set; }
+
+    public bool IsMember => Group is not null;
+
+    [ObservableProperty]
+    private bool continueOnError;
+
+    [ObservableProperty]
+    private bool failFast;
+
+    [ObservableProperty]
+    private bool confirm;
+
+    /// <summary>How many <c>forEach</c> items run at once; empty for one at a time.</summary>
+    [ObservableProperty]
+    private string parallelDegree;
+
+    [ObservableProperty]
+    private string retryCount;
+
+    [ObservableProperty]
+    private string retryDelay;
     public StepTarget Target { get; }
     public IReadOnlyList<ParameterDefinition> TargetParameters { get; }
 
@@ -161,6 +199,23 @@ public sealed partial class StepCardViewModel : ObservableObject
     private void Remove() => _owner.RemoveStep(this);
 
     [RelayCommand]
+    private void Ungroup() => _owner.Ungroup(this);
+
+    internal void AddMember(StepCardViewModel member)
+    {
+        member.Group = this;
+        member.OnPropertyChanged(nameof(IsMember));
+        Members.Add(member);
+    }
+
+    internal void RemoveMember(StepCardViewModel member)
+    {
+        member.Group = null;
+        member.OnPropertyChanged(nameof(IsMember));
+        Members.Remove(member);
+    }
+
+    [RelayCommand]
     private void MoveUp() => _owner.MoveStep(this, Index - 2);
 
     [RelayCommand]
@@ -170,6 +225,23 @@ public sealed partial class StepCardViewModel : ObservableObject
     {
         var step = ConfigEntries.Clone(_step);
         step.Id = GeneralTabViewModel.NullIfEmpty(Id) ?? _step.Id;
+        step.ContinueOnError = ContinueOnError ? true : null;
+        if (IsGroup)
+        {
+            step.Parallel = [.. Members.Select(m => m.ToStep())];
+            return step;
+        }
+        step.Confirm = Confirm ? true : null;
+        step.FailFast = IsForEach && FailFast ? true : null;
+        step.MaxParallel = IsForEach && int.TryParse(ParallelDegree, CultureInfo.InvariantCulture, out var degree) && degree > 1 ? degree : null;
+        if (int.TryParse(RetryCount, CultureInfo.InvariantCulture, out var count) && count > 0)
+        {
+            step.Retry ??= new StepRetry();
+            step.Retry.Count = count;
+            step.Retry.DelaySeconds = double.TryParse(RetryDelay, CultureInfo.InvariantCulture, out var delay) ? Math.Max(0, delay) : 0;
+        }
+        else
+            step.Retry = null;
         step.EmptyArgs = ParameterEditorViewModel.SplitOrNull(EmptyArgs);
         var values = Form?.Values.ToDictionary(v => v.Key, v => v.Value?.DeepClone()) ?? [];
         foreach (var (name, template) in _bindings)
@@ -227,7 +299,7 @@ public sealed partial class StepCardViewModel : ObservableObject
             (values ?? new Dictionary<string, JsonNode?>()).Where(v => !_bindings.ContainsKey(v.Key)).ToDictionary(v => v.Key, v => v.Value), "");
         try
         {
-            var built = ParameterFormViewModel.For(_owner.Workspace, definition, tree, stored, _owner.Dialogs, p => !_bindings.ContainsKey(p.Name!));
+            var built = ParameterFormViewModel.For(_owner.Workspace, definition, tree, stored, _owner.Dialogs, _owner.CommandChoices, p => !_bindings.ContainsKey(p.Name!));
             built.Changed += Changed;
             return built;
         }

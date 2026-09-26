@@ -33,7 +33,7 @@ public sealed class AfterRunTests
         Assert.AreEqual(@"Listening on port (\d+)", saved.Ready!.Pattern);
         Assert.AreEqual("http://localhost:$1/", saved.Ready.Open);
         Assert.AreEqual("stop-serve", saved.Stop);
-        Assert.AreEqual("build/junit.xml", saved.TestReport);
+        Assert.AreEqual("build/junit.xml", saved.TestReport?.Path);
         CollectionAssert.AreEqual(new[] { "--fast", "two words" }, saved.Args);
         Assert.AreEqual("Hello ${param:x}", saved.NameTemplate);
 

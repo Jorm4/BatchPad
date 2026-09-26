@@ -15,6 +15,8 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.Resources>
                 <Style TargetType="TextBlock">
@@ -33,16 +35,42 @@
             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding OpenUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
                      ToolTip="A URL or file; $1 is the pattern's first group, ${param:port} a parameter"
                      AutomationProperties.AutomationId="ReadyOpenUrl" AutomationProperties.Name="Open URL" />
-            <TextBlock Grid.Row="2" Text="Stop with" />
-            <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding StopChoices}" SelectedItem="{Binding Stop}" DisplayMemberPath="Label"
+            <TextBlock Grid.Row="2" Text="Test the pattern" />
+            <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,8">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Use last run's output" Command="{Binding UseLastOutputCommand}" Margin="6,0,0,0"
+                            VerticalAlignment="Top" AutomationProperties.AutomationId="UseLastOutput" />
+                    <TextBox Text="{Binding SampleOutput, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="60" MaxHeight="160"
+                             VerticalScrollBarVisibility="Auto" FontFamily="{StaticResource MonoFont}" Margin="0"
+                             AutomationProperties.AutomationId="ReadySample" AutomationProperties.Name="Sample output" />
+                </DockPanel>
+                <TextBlock Text="{Binding TesterResult}" Margin="0,4,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="ReadyTesterResult" />
+            </StackPanel>
+            <TextBlock Grid.Row="3" Text="Error lines" />
+            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ErrorPatterns, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True"
+                     MinHeight="48" FontFamily="{StaticResource MonoFont}"
+                     ToolTip="One regular expression per line; matching output lines are marked, for example LNK\d{4}"
+                     AutomationProperties.AutomationId="ErrorPatterns" AutomationProperties.Name="Error patterns" />
+            <TextBlock Grid.Row="4" Text="Stop with" />
+            <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding StopChoices}" SelectedItem="{Binding Stop}" DisplayMemberPath="Label"
                       HorizontalAlignment="Left" MinWidth="260" Margin="0,0,0,8"
                       AutomationProperties.AutomationId="StopCompanion" AutomationProperties.Name="Stop companion" />
-            <TextBlock Grid.Row="3" Text="Test report" />
-            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding TestReport, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="JUnit XML the script writes, for example build/qa/junit.xml"
-                     AutomationProperties.AutomationId="TestReportPath" AutomationProperties.Name="Test report" />
-            <TextBlock Grid.Row="4" Text="Artifacts" />
-            <StackPanel Grid.Row="4" Grid.Column="1">
+            <TextBlock Grid.Row="5" Text="Test report" />
+            <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,0,0,8">
+                <TextBox Text="{Binding TestReport, UpdateSourceTrigger=PropertyChanged}" Margin="0"
+                         ToolTip="JUnit XML the script writes, for example build/qa/junit.xml"
+                         AutomationProperties.AutomationId="TestReportPath" AutomationProperties.Name="Test report" />
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Text="Re-run failed fills" Margin="0,6,8,0" />
+                    <ComboBox ItemsSource="{Binding RerunParamChoices}" SelectedItem="{Binding RerunParam}" DisplayMemberPath="Label" MinWidth="200"
+                              AutomationProperties.AutomationId="RerunParam" AutomationProperties.Name="Re-run parameter" />
+                    <TextBlock Text="with" Margin="8,6,8,0" />
+                    <ComboBox ItemsSource="{Binding RerunByChoices}" SelectedItem="{Binding RerunScope}" DisplayMemberPath="Label" MinWidth="160"
+                              AutomationProperties.AutomationId="RerunBy" AutomationProperties.Name="Re-run by" />
+                </StackPanel>
+            </StackPanel>
+            <TextBlock Grid.Row="6" Text="Artifacts" />
+            <StackPanel Grid.Row="6" Grid.Column="1">
                 <views:FlatItemsControl ItemsSource="{Binding Artifacts}" AutomationProperties.AutomationId="ArtifactRows">
                     <views:FlatItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:ArtifactRowViewModel}">

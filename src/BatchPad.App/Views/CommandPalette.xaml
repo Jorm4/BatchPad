@@ -1,0 +1,48 @@
+<UserControl x:Class="BatchPad.App.Views.CommandPalette"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels"
+             IsVisibleChanged="OnIsVisibleChanged" IsKeyboardFocusWithinChanged="OnFocusWithinChanged"
+             AutomationProperties.AutomationId="CommandPalette">
+    <Border Width="560" MaxHeight="420" VerticalAlignment="Top" Margin="0,48,0,0" Padding="8" CornerRadius="8" BorderThickness="1"
+            Background="{DynamicResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.3" />
+        </Border.Effect>
+        <DockPanel>
+            <TextBox x:Name="QueryBox" DockPanel.Dock="Top" Margin="0,0,0,8" Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.AutomationId="PaletteQuery" AutomationProperties.Name="Search scripts and commands">
+                <TextBox.InputBindings>
+                    <KeyBinding Key="Enter" Command="{Binding RunCommand}" />
+                    <KeyBinding Key="Enter" Modifiers="Shift" Command="{Binding SelectCommand}" />
+                    <KeyBinding Key="Escape" Command="{Binding CloseCommand}" />
+                    <KeyBinding Key="Down" Command="{Binding MoveCommand}" CommandParameter="1" />
+                    <KeyBinding Key="Up" Command="{Binding MoveCommand}" CommandParameter="-1" />
+                    <KeyBinding Key="PageDown" Command="{Binding MoveCommand}" CommandParameter="10" />
+                    <KeyBinding Key="PageUp" Command="{Binding MoveCommand}" CommandParameter="-10" />
+                </TextBox.InputBindings>
+            </TextBox>
+            <ListBox x:Name="ResultList" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedItem}" BorderThickness="0"
+                     Background="Transparent" Focusable="False" MouseDoubleClick="OnResultDoubleClick"
+                     AutomationProperties.AutomationId="PaletteResults" SelectionChanged="OnSelectionChanged">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="Focusable" Value="False" />
+                        <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:PaletteItem}">
+                        <DockPanel>
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding Icon}" Margin="0,0,10,0" VerticalAlignment="Center" />
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Detail}" Opacity="0.6" Margin="12,0,0,0" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="260" />
+                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+    </Border>
+</UserControl>

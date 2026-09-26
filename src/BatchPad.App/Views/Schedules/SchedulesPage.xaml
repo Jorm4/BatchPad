@@ -1,0 +1,90 @@
+<UserControl x:Class="BatchPad.App.Views.Schedules.SchedulesPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Schedules"
+             xmlns:views="clr-namespace:BatchPad.App.Views"
+             xmlns:local="clr-namespace:BatchPad.App.Views.Schedules">
+    <Grid>
+        <DockPanel Visibility="{Binding IsEditorOpen, Converter={StaticResource InverseBoolToVisibility}}">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Command="{Binding AddCommand}" Style="{DynamicResource AccentButtonStyle}"
+                            AutomationProperties.AutomationId="AddScheduleButton" AutomationProperties.Name="Add schedule">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Add schedule" />
+                        </StackPanel>
+                    </Button>
+                    <Button Content="Close" Command="{Binding CloseCommand}" Margin="6,0,0,0"
+                            AutomationProperties.AutomationId="SchedulesCloseButton" />
+                </StackPanel>
+                <TextBlock Text="Schedules" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="SchedulesError" />
+            <TextBlock DockPanel.Dock="Top" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,8"
+                       Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"
+                       Text="No schedules yet. A schedule runs a script or workflow unattended while BatchPad is open; it is kept in your user.json, never in the shared workspace file." />
+
+            <CheckBox DockPanel.Dock="Bottom" Margin="0,8,0,0" IsChecked="{Binding KeepRunningInTray}"
+                      Content="Keep running in the tray while schedules are enabled"
+                      AutomationProperties.AutomationId="KeepRunningInTray" />
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <views:FlatItemsControl ItemsSource="{Binding Items}" AutomationProperties.AutomationId="ScheduleList">
+                    <views:FlatItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:ScheduleItemViewModel}">
+                            <Border Margin="0,0,8,8" Padding="12,10" CornerRadius="6" Background="#0A000000"
+                                    AutomationProperties.AutomationId="ScheduleItem" AutomationProperties.Name="{Binding TargetName}">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                                        <Button Content="Run now" Command="{Binding RunNowCommand}"
+                                                AutomationProperties.AutomationId="ScheduleRunNow" />
+                                        <Button Content="Edit" Command="{Binding EditCommand}" Margin="6,0,0,0"
+                                                AutomationProperties.AutomationId="ScheduleEdit" />
+                                        <Button Margin="6,0,0,0" Command="{Binding RemoveCommand}" ToolTip="Remove"
+                                                AutomationProperties.AutomationId="ScheduleRemove" AutomationProperties.Name="Remove schedule">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" />
+                                        </Button>
+                                    </StackPanel>
+                                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsEnabled}" VerticalAlignment="Top" Margin="0,2,4,0"
+                                              ToolTip="Enabled" AutomationProperties.AutomationId="ScheduleEnabled" AutomationProperties.Name="Enabled" />
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding TargetName}" FontWeight="SemiBold"
+                                                       AutomationProperties.AutomationId="ScheduleTargetName" />
+                                            <TextBlock Text="{Binding Location}" Margin="8,0,0,0" FontSize="11" Opacity="0.6" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding TriggerText}" AutomationProperties.AutomationId="ScheduleTrigger" />
+                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Opacity="0.8">
+                                            <TextBlock Text="Next: " />
+                                            <TextBlock Text="{Binding NextRunText}" AutomationProperties.AutomationId="ScheduleNextRun" />
+                                            <TextBlock Text="Last: " Margin="16,0,0,0" />
+                                            <TextBlock Text="{Binding LastRunText}" AutomationProperties.AutomationId="ScheduleLastRun" />
+                                            <TextBlock x:Name="LastResult" Text="{Binding LastResultText}" Margin="6,0,0,0" Foreground="#C42B1C"
+                                                       AutomationProperties.AutomationId="ScheduleLastResult" />
+                                        </StackPanel>
+                                        <DockPanel Margin="0,6,0,0" Visibility="{Binding StatusText, Converter={StaticResource NullToCollapsed}}">
+                                            <Button DockPanel.Dock="Right" Content="Re-confirm" Command="{Binding ReconfirmCommand}" Margin="6,0,0,0"
+                                                    Visibility="{Binding NeedsReview, Converter={StaticResource BoolToVisibility}}"
+                                                    ToolTip="Accept the changed definition and resume the schedule"
+                                                    AutomationProperties.AutomationId="ScheduleReconfirm" />
+                                            <TextBlock Text="{Binding StatusText}" Foreground="#9D5D00" TextWrapping="Wrap" VerticalAlignment="Center"
+                                                       AutomationProperties.AutomationId="ScheduleStatus" />
+                                        </DockPanel>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding LastSucceeded}" Value="True">
+                                    <Setter TargetName="LastResult" Property="Foreground" Value="#0F7B0F" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </views:FlatItemsControl.ItemTemplate>
+                </views:FlatItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+        <local:ScheduleEditor DataContext="{Binding Editor}"
+                              Visibility="{Binding Converter={StaticResource NullToCollapsed}}" />
+    </Grid>
+</UserControl>

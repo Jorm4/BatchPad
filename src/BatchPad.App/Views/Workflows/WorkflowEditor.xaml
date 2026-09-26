@@ -11,6 +11,136 @@
             <Setter Property="CornerRadius" Value="10" />
             <Setter Property="Background" Value="#1A005FB8" />
         </Style>
+        <DataTemplate x:Key="StepCardTemplate" DataType="{x:Type wf:StepCardViewModel}">
+            <Border Tag="StepCard" Margin="0,0,0,8" Padding="12,10" CornerRadius="6" BorderThickness="1" BorderBrush="#33000000"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel>
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Ungroup" Command="{Binding UngroupCommand}" Margin="0,0,4,0"
+                                    Visibility="{Binding IsGroup, Converter={StaticResource BoolToVisibility}}"
+                                    AutomationProperties.AutomationId="{Binding Index, StringFormat=Ungroup_{0}}" />
+                            <Button FontFamily="{StaticResource IconFont}" Content="&#xE70E;" Command="{Binding MoveUpCommand}"
+                                    Visibility="{Binding IsMember, Converter={StaticResource InverseBoolToVisibility}}"
+                                    ToolTip="Move up" AutomationProperties.AutomationId="{Binding Id, StringFormat=StepUp_{0}}"
+                                    AutomationProperties.Name="Move up" />
+                            <Button FontFamily="{StaticResource IconFont}" Content="&#xE70D;" Command="{Binding MoveDownCommand}"
+                                    Visibility="{Binding IsMember, Converter={StaticResource InverseBoolToVisibility}}"
+                                    Margin="4,0,0,0" ToolTip="Move down" AutomationProperties.AutomationId="{Binding Id, StringFormat=StepDown_{0}}"
+                                    AutomationProperties.Name="Move down" />
+                            <Button FontFamily="{StaticResource IconFont}" Content="&#xE74D;" Command="{Binding RemoveCommand}"
+                                    Margin="4,0,0,0" ToolTip="Remove step" AutomationProperties.AutomationId="{Binding Id, StringFormat=StepRemove_{0}}"
+                                    AutomationProperties.Name="Remove step" />
+                        </StackPanel>
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Opacity="0.5" Margin="0,0,8,0"
+                                   VerticalAlignment="Center" Cursor="SizeAll" Tag="{Binding}"
+                                   PreviewMouseLeftButtonDown="OnCardHandleDown" />
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Target.Location, StringFormat=' — {0}'}" Opacity="0.7" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <StackPanel Visibility="{Binding IsGroup, Converter={StaticResource InverseBoolToVisibility}}">
+                        <views:FlatItemsControl ItemsSource="{Binding FlowChips}" Margin="0,6,0,0">
+                            <views:FlatItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </views:FlatItemsControl.ItemsPanel>
+                            <views:FlatItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource Chip}">
+                                        <TextBlock Text="{Binding}" AutomationProperties.Name="{Binding}" />
+                                    </Border>
+                                </DataTemplate>
+                            </views:FlatItemsControl.ItemTemplate>
+                        </views:FlatItemsControl>
+                        <WrapPanel Margin="0,4,0,0">
+                            <CheckBox Content="For each" IsChecked="{Binding IsForEach}" VerticalAlignment="Center"
+                                      AutomationProperties.AutomationId="{Binding Id, StringFormat=ForEach_{0}}" />
+                            <ComboBox ItemsSource="{Binding ForEachOptions}" SelectedItem="{Binding ForEachParameter}" MinWidth="100"
+                                      Margin="6,0,0,0" IsEnabled="{Binding IsForEach}"
+                                      AutomationProperties.AutomationId="{Binding Id, StringFormat=ForEachList_{0}}"
+                                      AutomationProperties.Name="List" />
+                            <TextBlock Text="into" VerticalAlignment="Center" Margin="6,0" />
+                            <ComboBox ItemsSource="{Binding ItemTargetOptions}" SelectedItem="{Binding ItemTarget}" MinWidth="100"
+                                      IsEnabled="{Binding IsForEach}"
+                                      AutomationProperties.AutomationId="{Binding Id, StringFormat=ForEachTarget_{0}}"
+                                      AutomationProperties.Name="Parameter receiving each item" />
+                            <TextBlock Text="When" VerticalAlignment="Center" Margin="16,0,6,0" />
+                            <ComboBox ItemsSource="{Binding WhenOptions}" SelectedItem="{Binding When}" DisplayMemberPath="Label" MinWidth="120"
+                                      AutomationProperties.AutomationId="{Binding Id, StringFormat=When_{0}}" AutomationProperties.Name="When" />
+                        </WrapPanel>
+                        <WrapPanel Margin="0,4,0,0">
+                            <TextBlock Text="Step id" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <TextBox Text="{Binding Id, UpdateSourceTrigger=LostFocus}" MinWidth="90" FontFamily="{StaticResource MonoFont}"
+                                     ToolTip="Names this step for ${steps.&lt;id&gt;.result}"
+                                     AutomationProperties.AutomationId="StepId" AutomationProperties.Name="Step id" />
+                            <TextBlock Text="If nothing is picked, pass" VerticalAlignment="Center" Margin="16,0,6,0" />
+                            <TextBox Text="{Binding EmptyArgs, UpdateSourceTrigger=PropertyChanged}" MinWidth="120"
+                                     FontFamily="{StaticResource MonoFont}"
+                                     ToolTip="Overrides the script's own arguments for an empty list, for example --tests"
+                                     AutomationProperties.AutomationId="StepEmptyArgs" AutomationProperties.Name="Arguments when nothing is picked" />
+                        </WrapPanel>
+                        <views:FlatItemsControl ItemsSource="{Binding Bindings}" Margin="0,4,0,0">
+                            <views:FlatItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type wf:StepBinding}">
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                        <TextBlock Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
+                                        <Button Content="✕" Margin="6,0,0,0" ToolTip="Remove"
+                                                Command="{Binding DataContext.RemoveBindingCommand, RelativeSource={RelativeSource AncestorType=views:FlatItemsControl}}"
+                                                CommandParameter="{Binding}"
+                                                AutomationProperties.AutomationId="{Binding Parameter, StringFormat=RemoveBinding_{0}}"
+                                                AutomationProperties.Name="Remove value" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </views:FlatItemsControl.ItemTemplate>
+                        </views:FlatItemsControl>
+                        <WrapPanel Margin="0,4,0,0">
+                            <TextBlock Text="Give" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <ComboBox ItemsSource="{Binding ItemTargetOptions}" SelectedItem="{Binding BindingTarget}" MinWidth="100"
+                                      AutomationProperties.AutomationId="BindingTarget" AutomationProperties.Name="Parameter to set" />
+                            <TextBlock Text="the value" VerticalAlignment="Center" Margin="6,0" />
+                            <TextBox Text="{Binding BindingTemplate, UpdateSourceTrigger=PropertyChanged}" MinWidth="200"
+                                     FontFamily="{StaticResource MonoFont}" ToolTip="A template, for example ${param:config.testFlag}"
+                                     AutomationProperties.AutomationId="BindingTemplate" AutomationProperties.Name="Template value" />
+                            <Button Content="Set" Command="{Binding AddBindingCommand}" Margin="6,0,0,0"
+                                    AutomationProperties.AutomationId="AddBinding" />
+                        </WrapPanel>
+                        <TextBlock Text="{Binding ForEachText}" Opacity="0.7" Margin="0,4,0,0"
+                                   Visibility="{Binding IsForEach, Converter={StaticResource BoolToVisibility}}" />
+                        <views:ParameterForm DataContext="{Binding Form}" Margin="0,8,0,0" />
+                        <WrapPanel Margin="0,4,0,0">
+                            <CheckBox Content="Continue on error" IsChecked="{Binding ContinueOnError}" VerticalAlignment="Center"
+                                      ToolTip="A failure here doesn't fail the workflow"
+                                      AutomationProperties.AutomationId="{Binding Id, StringFormat=ContinueOnError_{0}}" />
+                            <CheckBox Content="Ask first" IsChecked="{Binding Confirm}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                      AutomationProperties.AutomationId="{Binding Id, StringFormat=Confirm_{0}}" />
+                            <TextBlock Text="Retry" VerticalAlignment="Center" Margin="16,0,6,0" />
+                            <TextBox Text="{Binding RetryCount, UpdateSourceTrigger=PropertyChanged}" Width="40"
+                                     ToolTip="How many more times to run the step if it fails"
+                                     AutomationProperties.AutomationId="{Binding Id, StringFormat=RetryCount_{0}}" AutomationProperties.Name="Retries" />
+                            <TextBlock Text="times, waiting" VerticalAlignment="Center" Margin="6,0" />
+                            <TextBox Text="{Binding RetryDelay, UpdateSourceTrigger=PropertyChanged}" Width="40"
+                                     AutomationProperties.AutomationId="{Binding Id, StringFormat=RetryDelay_{0}}"
+                                     AutomationProperties.Name="Seconds between retries" />
+                            <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,0,0" />
+                        </WrapPanel>
+                        <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsForEach, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="Run" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <TextBox Text="{Binding ParallelDegree, UpdateSourceTrigger=PropertyChanged}" Width="40"
+                                     ToolTip="How many items run at once; empty for one at a time"
+                                     AutomationProperties.AutomationId="{Binding Id, StringFormat=ParallelDegree_{0}}"
+                                     AutomationProperties.Name="Items at once" />
+                            <TextBlock Text="items at once" VerticalAlignment="Center" Margin="6,0,0,0" />
+                            <CheckBox Content="Stop at the first failure" IsChecked="{Binding FailFast}" VerticalAlignment="Center" Margin="16,0,0,0"
+                                      AutomationProperties.AutomationId="{Binding Id, StringFormat=FailFast_{0}}" />
+                        </WrapPanel>
+                    </StackPanel>
+                    <views:FlatItemsControl ItemsSource="{Binding Members}" ItemTemplate="{DynamicResource StepCardTemplate}" Margin="16,8,0,0"
+                                            Visibility="{Binding IsGroup, Converter={StaticResource BoolToVisibility}}"
+                                            AutomationProperties.AutomationId="GroupMembers" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
     </UserControl.Resources>
     <DockPanel AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop">
         <Border DockPanel.Dock="Top" Margin="0,0,0,10" Padding="10,6" CornerRadius="4" Background="#FFF4CE"
@@ -101,104 +231,8 @@
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <views:FlatItemsControl ItemsSource="{Binding Steps}" AutomationProperties.AutomationId="StepCards">
-                    <views:FlatItemsControl.ItemTemplate>
-                        <DataTemplate DataType="{x:Type wf:StepCardViewModel}">
-                            <Border Margin="0,0,0,8" Padding="12,10" CornerRadius="6" BorderThickness="1" BorderBrush="#33000000"
-                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                                <StackPanel>
-                                    <DockPanel>
-                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                            <Button FontFamily="{StaticResource IconFont}" Content="&#xE70E;" Command="{Binding MoveUpCommand}"
-                                                    ToolTip="Move up" AutomationProperties.AutomationId="{Binding Id, StringFormat=StepUp_{0}}"
-                                                    AutomationProperties.Name="Move up" />
-                                            <Button FontFamily="{StaticResource IconFont}" Content="&#xE70D;" Command="{Binding MoveDownCommand}"
-                                                    Margin="4,0,0,0" ToolTip="Move down" AutomationProperties.AutomationId="{Binding Id, StringFormat=StepDown_{0}}"
-                                                    AutomationProperties.Name="Move down" />
-                                            <Button FontFamily="{StaticResource IconFont}" Content="&#xE74D;" Command="{Binding RemoveCommand}"
-                                                    Margin="4,0,0,0" ToolTip="Remove step" AutomationProperties.AutomationId="{Binding Id, StringFormat=StepRemove_{0}}"
-                                                    AutomationProperties.Name="Remove step" />
-                                        </StackPanel>
-                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Opacity="0.5" Margin="0,0,8,0"
-                                                   VerticalAlignment="Center" Cursor="SizeAll" Tag="{Binding}"
-                                                   PreviewMouseLeftButtonDown="OnCardHandleDown" />
-                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding Target.Location, StringFormat=' — {0}'}" Opacity="0.7" VerticalAlignment="Center" />
-                                    </DockPanel>
-                                    <views:FlatItemsControl ItemsSource="{Binding FlowChips}" Margin="0,6,0,0">
-                                        <views:FlatItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel />
-                                            </ItemsPanelTemplate>
-                                        </views:FlatItemsControl.ItemsPanel>
-                                        <views:FlatItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Style="{StaticResource Chip}">
-                                                    <TextBlock Text="{Binding}" AutomationProperties.Name="{Binding}" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </views:FlatItemsControl.ItemTemplate>
-                                    </views:FlatItemsControl>
-                                    <WrapPanel Margin="0,4,0,0">
-                                        <CheckBox Content="For each" IsChecked="{Binding IsForEach}" VerticalAlignment="Center"
-                                                  AutomationProperties.AutomationId="{Binding Id, StringFormat=ForEach_{0}}" />
-                                        <ComboBox ItemsSource="{Binding ForEachOptions}" SelectedItem="{Binding ForEachParameter}" MinWidth="100"
-                                                  Margin="6,0,0,0" IsEnabled="{Binding IsForEach}"
-                                                  AutomationProperties.AutomationId="{Binding Id, StringFormat=ForEachList_{0}}"
-                                                  AutomationProperties.Name="List" />
-                                        <TextBlock Text="into" VerticalAlignment="Center" Margin="6,0" />
-                                        <ComboBox ItemsSource="{Binding ItemTargetOptions}" SelectedItem="{Binding ItemTarget}" MinWidth="100"
-                                                  IsEnabled="{Binding IsForEach}"
-                                                  AutomationProperties.AutomationId="{Binding Id, StringFormat=ForEachTarget_{0}}"
-                                                  AutomationProperties.Name="Parameter receiving each item" />
-                                        <TextBlock Text="When" VerticalAlignment="Center" Margin="16,0,6,0" />
-                                        <ComboBox ItemsSource="{Binding WhenOptions}" SelectedItem="{Binding When}" DisplayMemberPath="Label" MinWidth="120"
-                                                  AutomationProperties.AutomationId="{Binding Id, StringFormat=When_{0}}" AutomationProperties.Name="When" />
-                                    </WrapPanel>
-                                    <WrapPanel Margin="0,4,0,0">
-                                        <TextBlock Text="Step id" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                        <TextBox Text="{Binding Id, UpdateSourceTrigger=LostFocus}" MinWidth="90" FontFamily="{StaticResource MonoFont}"
-                                                 ToolTip="Names this step for ${steps.&lt;id&gt;.result}"
-                                                 AutomationProperties.AutomationId="StepId" AutomationProperties.Name="Step id" />
-                                        <TextBlock Text="If nothing is picked, pass" VerticalAlignment="Center" Margin="16,0,6,0" />
-                                        <TextBox Text="{Binding EmptyArgs, UpdateSourceTrigger=PropertyChanged}" MinWidth="120"
-                                                 FontFamily="{StaticResource MonoFont}"
-                                                 ToolTip="Overrides the script's own arguments for an empty list, for example --tests"
-                                                 AutomationProperties.AutomationId="StepEmptyArgs" AutomationProperties.Name="Arguments when nothing is picked" />
-                                    </WrapPanel>
-                                    <views:FlatItemsControl ItemsSource="{Binding Bindings}" Margin="0,4,0,0">
-                                        <views:FlatItemsControl.ItemTemplate>
-                                            <DataTemplate DataType="{x:Type wf:StepBinding}">
-                                                <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                                                    <TextBlock Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
-                                                    <Button Content="✕" Margin="6,0,0,0" ToolTip="Remove"
-                                                            Command="{Binding DataContext.RemoveBindingCommand, RelativeSource={RelativeSource AncestorType=views:FlatItemsControl}}"
-                                                            CommandParameter="{Binding}"
-                                                            AutomationProperties.AutomationId="{Binding Parameter, StringFormat=RemoveBinding_{0}}"
-                                                            AutomationProperties.Name="Remove value" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </views:FlatItemsControl.ItemTemplate>
-                                    </views:FlatItemsControl>
-                                    <WrapPanel Margin="0,4,0,0">
-                                        <TextBlock Text="Give" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                        <ComboBox ItemsSource="{Binding ItemTargetOptions}" SelectedItem="{Binding BindingTarget}" MinWidth="100"
-                                                  AutomationProperties.AutomationId="BindingTarget" AutomationProperties.Name="Parameter to set" />
-                                        <TextBlock Text="the value" VerticalAlignment="Center" Margin="6,0" />
-                                        <TextBox Text="{Binding BindingTemplate, UpdateSourceTrigger=PropertyChanged}" MinWidth="200"
-                                                 FontFamily="{StaticResource MonoFont}" ToolTip="A template, for example ${param:config.testFlag}"
-                                                 AutomationProperties.AutomationId="BindingTemplate" AutomationProperties.Name="Template value" />
-                                        <Button Content="Set" Command="{Binding AddBindingCommand}" Margin="6,0,0,0"
-                                                AutomationProperties.AutomationId="AddBinding" />
-                                    </WrapPanel>
-                                    <TextBlock Text="{Binding ForEachText}" Opacity="0.7" Margin="0,4,0,0"
-                                               Visibility="{Binding IsForEach, Converter={StaticResource BoolToVisibility}}" />
-                                    <views:ParameterForm DataContext="{Binding Form}" Margin="0,8,0,0" />
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </views:FlatItemsControl.ItemTemplate>
-                </views:FlatItemsControl>
+                <views:FlatItemsControl ItemsSource="{Binding Steps}" ItemTemplate="{StaticResource StepCardTemplate}"
+                                        AutomationProperties.AutomationId="StepCards" />
                 <Grid Height="56" AutomationProperties.AutomationId="StepDropZone">
                     <Rectangle Stroke="#8A8A8A" StrokeDashArray="4 3" RadiusX="6" RadiusY="6" />
                     <TextBlock Text="Drop a script here to add a step" Opacity="0.7" HorizontalAlignment="Center" VerticalAlignment="Center" />

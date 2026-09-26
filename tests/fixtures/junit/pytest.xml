@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="pytest" errors="0" failures="2" skipped="1" tests="5" time="0.412" timestamp="2026-09-26T10:00:00" hostname="build">
+    <testcase classname="tests.test_math" name="test_add" time="0.001" />
+    <testcase classname="tests.test_math" name="test_divide" time="0.003">
+      <failure message="ZeroDivisionError: division by zero">def test_divide():
+&gt;       assert 1 / 0 == 0
+E       ZeroDivisionError: division by zero</failure>
+    </testcase>
+    <testcase classname="tests.test_io" name="test_read" time="0.002">
+      <skipped type="pytest.skip" message="no sample file">tests/test_io.py:4: no sample file</skipped>
+    </testcase>
+    <testcase classname="tests.test_io" name="test_write" time="0.010">
+      <failure message="AssertionError: assert 'b' == 'a'">def test_write():
+&gt;       assert "b" == "a"
+E       AssertionError: assert 'b' == 'a'</failure>
+    </testcase>
+    <testcase classname="tests.test_io" name="test_exists" time="0.001" />
+  </testsuite>
+</testsuites>

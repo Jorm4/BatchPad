@@ -31,14 +31,13 @@ public sealed class CustomisationResolver(LoadedWorkspace workspace)
 
         if (!visiting.Add(entry))
             return Broken(entry, $"'{reference}' refers back to itself.");
-        var parsed = ReferenceResolver.Parse(reference, TreeKind.MyScripts);
         var baseNode = workspace.References.Resolve(reference, TreeKind.MyScripts);
-        if (parsed is null || baseNode is null)
+        if (baseNode is null)
             return Broken(entry, $"The base '{reference}' no longer exists.");
         if (baseNode is not RunnableNode runnable)
             return Broken(entry, $"The base '{reference}' is not a script or workflow.");
 
-        var baseTree = workspace.Trees.First(t => t.Kind == parsed.Value.Tree);
+        var baseTree = workspace.References.TreeOf(baseNode)!;
         IReadOnlyDictionary<string, JsonNode?>? baseValues = null;
         IReadOnlyDictionary<string, Dictionary<string, JsonNode?>>? baseStepValues = null;
         if (runnable is ScriptNode { Base: not null } chained)

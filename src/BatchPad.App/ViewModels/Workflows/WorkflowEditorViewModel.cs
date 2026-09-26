@@ -54,8 +54,9 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
         {
             Lists = Workspace.Workspace.File.Lists,
             Templates = new TemplateContext { WorkspaceDir = Workspace.Directory, Variables = Workspace.Workspace.File.Variables },
+            Commands = main.CommandChoices,
         };
-        ChoiceEnvironment = new ChoiceEnvironment(Workspace.Directory, p => resolver.Resolve(p, context), main.Services.Dialogs);
+        ChoiceEnvironment = new ChoiceEnvironment(Workspace.Directory, p => resolver.Resolve(p, context), main.Services.Dialogs, main.CommandChoices);
         Parameters.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ParametersTabViewModel.Selected))
@@ -64,17 +65,21 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
         choices = BuildChoices();
         StepChoices = BuildStepChoices();
         foreach (var step in Definition.Steps)
-            Steps.Add(new StepCardViewModel(this, step, Resolve(step.Run)));
+            Steps.Add(CardFor(step));
         _loading = false;
         Refresh();
     }
 
     public LoadedWorkspace Workspace { get; }
     public IFileDialogService Dialogs => _main.Services.Dialogs;
+    public CommandChoiceSource CommandChoices => _main.CommandChoices;
     public WorkflowNode Definition { get; }
     public ParametersTabViewModel Parameters { get; }
     public ChoiceEnvironment ChoiceEnvironment { get; }
     public ObservableCollection<StepCardViewModel> Steps { get; } = [];
+
+    /// <summary>Every script step card, members of parallel groups included.</summary>
+    public IEnumerable<StepCardViewModel> AllCards => Steps.SelectMany(s => s.IsGroup ? s.Members : [s]);
     public ObservableCollection<ParameterChip> ParameterChips { get; } = [];
     public IReadOnlyList<StepChoice> StepChoices { get; }
     public bool IsShared => _tree.Kind != TreeKind.MyScripts;
@@ -133,7 +138,7 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
         ParameterChips.Clear();
         foreach (var parameter in ParameterNames)
         {
-            var receivers = Steps.Where(s => s.Receives().Contains(parameter, StringComparer.OrdinalIgnoreCase)).Select(s => s.Target.Name);
+            var receivers = AllCards.Where(s => s.Receives().Contains(parameter, StringComparer.OrdinalIgnoreCase)).Select(s => s.Target.Name);
             ParameterChips.Add(new ParameterChip(parameter, string.Join(", ", receivers)));
         }
     }
@@ -143,7 +148,7 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
     {
         if (ReferenceFor(node) is not { } reference)
             return false;
-        var ids = Steps.Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ids = AllCards.Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var step = new WorkflowStep { Id = IdAssigner.FromName(ReferenceResolver.IdOf(node.Node!) ?? node.Name, ids), Run = reference };
         var card = new StepCardViewModel(this, step, Resolve(reference));
         Steps.Insert(Math.Clamp(index ?? Steps.Count, 0, Steps.Count), card);
@@ -155,6 +160,13 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
 
     public void MoveStep(StepCardViewModel card, int index)
     {
+        if (card.Group is not null)
+        {
+            Detach(card);
+            Steps.Insert(Math.Clamp(index, 0, Steps.Count), card);
+            Renumber();
+            return;
+        }
         var from = Steps.IndexOf(card);
         var to = Math.Clamp(index, 0, Steps.Count - 1);
         if (from < 0 || from == to)
@@ -165,8 +177,81 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
 
     public void RemoveStep(StepCardViewModel card)
     {
-        Steps.Remove(card);
+        Detach(card);
         Renumber();
+    }
+
+    /// <summary>Runs <paramref name="dropped"/> at the same time as <paramref name="target"/>, joining or making a parallel group (§4.1).</summary>
+    public void Group(StepCardViewModel dropped, StepCardViewModel target)
+    {
+        target = target.Group ?? target;
+        if (dropped == target || dropped.Group == target)
+            return;
+        Detach(dropped);
+        var members = dropped.IsGroup ? dropped.Members.ToList() : [dropped];
+        if (target.IsGroup)
+        {
+            foreach (var member in members)
+                target.AddMember(member);
+        }
+        else
+        {
+            var group = new StepCardViewModel(this, new WorkflowStep { Parallel = [] }, GroupTarget);
+            Steps[Steps.IndexOf(target)] = group;
+            foreach (var member in members.Prepend(target))
+                group.AddMember(member);
+        }
+        Renumber();
+    }
+
+    /// <summary>Adds a step running <paramref name="node"/> to <paramref name="target"/>'s parallel group.</summary>
+    public bool GroupWith(NodeViewModel node, StepCardViewModel target)
+    {
+        if (!AddStep(node))
+            return false;
+        Group(Steps[^1], target);
+        return true;
+    }
+
+    public void Ungroup(StepCardViewModel group)
+    {
+        var index = Steps.IndexOf(group);
+        if (!group.IsGroup || index < 0)
+            return;
+        Steps.RemoveAt(index);
+        foreach (var member in group.Members.ToList())
+        {
+            group.RemoveMember(member);
+            Steps.Insert(index++, member);
+        }
+        Renumber();
+    }
+
+    /// <summary>Takes a card out of the list or out of its group; a group left with one member becomes that step.</summary>
+    private void Detach(StepCardViewModel card)
+    {
+        if (card.Group is not { } group)
+        {
+            Steps.Remove(card);
+            return;
+        }
+        group.RemoveMember(card);
+        if (group.Members.Count == 1)
+            Ungroup(group);
+        else if (group.Members.Count == 0)
+            Steps.Remove(group);
+    }
+
+    private static readonly StepTarget GroupTarget = new("", null, null, "Parallel", "runs its steps at once");
+
+    private StepCardViewModel CardFor(WorkflowStep step)
+    {
+        if (step.Parallel is not { } members)
+            return new StepCardViewModel(this, step, Resolve(step.Run));
+        var group = new StepCardViewModel(this, step, GroupTarget);
+        foreach (var member in members)
+            group.AddMember(CardFor(member));
+        return group;
     }
 
     private bool CanAddSelectedStep() => SelectedStepChoice is not null;
@@ -200,7 +285,7 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
             {
                 if (_original?.Id is { } id && Replace(file.Scripts, id, saved))
                     return;
-                saved.Id ??= IdAssigner.FromName(saved.Name ?? "workflow", ConfigEntries.Ids(file.Scripts));
+                saved.Id ??= IdAssigner.FromName(saved.Name ?? "workflow", ConfigEntries.Ids(file.Scripts, Workspace, _tree));
                 ConfigEntries.FolderItems(file.Scripts, folderPath).Add(saved);
             });
         }
@@ -231,7 +316,11 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
     private void Renumber()
     {
         for (var i = 0; i < Steps.Count; i++)
+        {
             Steps[i].Index = i + 1;
+            foreach (var member in Steps[i].Members)
+                member.Index = i + 1;
+        }
         Refresh();
     }
 
@@ -246,8 +335,8 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
         return node.Tree.Kind switch
         {
             TreeKind.MyScripts => _tree.Kind == TreeKind.MyScripts ? id : null,
-            TreeKind.Workspace => _tree.Kind == TreeKind.Global ? null : $"workspace:{id}",
-            _ => $"global:{id}",
+            TreeKind.Workspace when _tree.Kind == TreeKind.Global => null,
+            _ => ReferenceResolver.Qualified(node.Tree, id),
         };
     }
 
@@ -257,10 +346,9 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
 
     private StepTarget Resolve(string? reference)
     {
-        if (reference is null || Workspace.References.Resolve(reference, _tree.Kind) is not RunnableNode target
-            || ReferenceResolver.Parse(reference, _tree.Kind) is not { } parsed)
+        if (reference is null || Workspace.References.Resolve(reference, _tree) is not RunnableNode target)
             return new StepTarget(reference ?? "", null, null, reference ?? "(nothing)", "Missing");
-        var tree = Workspace.Trees.First(t => t.Kind == parsed.Tree);
+        var tree = Workspace.References.TreeOf(target)!;
         var (definition, definitionTree) = target is ScriptNode { Base: not null } entry
             && new CustomisationResolver(Workspace).Resolve(entry) is { Definition: { } resolved, DefinitionTree: { } resolvedTree }
             ? (resolved, resolvedTree)

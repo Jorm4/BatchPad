@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using BatchPad.App.Services;
+using BatchPad.Core.Output;
 using BatchPad.Core.Running;
 using BatchPad.Core.Workflows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -7,20 +8,37 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace BatchPad.App.ViewModels.Workflows;
 
-/// <summary>Stops a step that outlives its workflow and opens its ready URL and artifacts.</summary>
-public sealed record StepActions(Func<RunHandle, RunRequest, Task> Stop, IShellOpener Opener);
+/// <summary>Stops a step that outlives its workflow and opens its ready URL, artifacts and source locations.</summary>
+public sealed record StepActions(Func<RunHandle, RunRequest, Task> Stop, IShellOpener Opener, SourceOpener? Sources = null);
 
-/// <summary>A step, or one <c>forEach</c> item of it, in a workflow run tab's step list, with its own log.</summary>
-public sealed partial class StepRowViewModel(StepRun step, string name, IUiDispatcher dispatcher, StepActions? actions = null)
+/// <summary>
+/// A row of a workflow run tab's step list, with its own log: a step, a <c>forEach</c> item, a parallel group or its member,
+/// or a step of a nested workflow, indented by <see cref="Depth"/>.
+/// </summary>
+public sealed partial class StepRowViewModel(StepRun step, string name, IUiDispatcher dispatcher, StepActions? actions = null, int depth = 0,
+    Action? onErrorSelected = null)
     : ObservableObject, IDisposable
 {
     private IDisposable? _subscription;
+    private RunHandle? _subscribed;
 
     public StepRun Step { get; } = step;
-    public string Name { get; } = step.Item ?? name;
+    public string Name { get; } = step.Item ?? (step.IsGroup ? "Parallel" : name);
+    public int Depth { get; } = depth;
+    public double IndentWidth => Depth * 16;
     public bool IsItem => Step.Item is not null;
     public string AutomationId => IsItem ? $"Step_{Step.Id}_{Step.Item}" : $"Step_{Step.Id}";
-    public ObservableCollection<OutputLineViewModel> Lines { get; } = [];
+    public OutputLog Log { get; } = new(onErrorSelected);
+    public ObservableCollection<OutputLineViewModel> Lines => Log.Lines;
+
+    /// <summary>Whether the rows of <see cref="StepRun.Nested"/> have been added under this one.</summary>
+    internal bool ShowsNested { get; set; }
+
+    public string? OutputsText => Step.Outputs.Count == 0 ? null : string.Join("  ", Step.Outputs.Select(o => $"{o.Key}={o.Value}"));
+
+    public string? AttemptsText => Step.MaxAttempts > 1 && Step.Attempts.Count > 0
+        ? $"attempt {Math.Min(Step.Attempts.Count + (Step.Status == StepStatus.Running ? 1 : 0), Step.MaxAttempts)} of {Step.MaxAttempts}"
+        : null;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Glyph), nameof(StatusText), nameof(TimeText))]
@@ -46,7 +64,7 @@ public sealed partial class StepRowViewModel(StepRun step, string name, IUiDispa
 
     public string Glyph => Status switch
     {
-        StepStatus.Succeeded or StepStatus.Ready => "✓",
+        StepStatus.Succeeded or StepStatus.Ready or StepStatus.Reused => "✓",
         StepStatus.Running => "●",
         StepStatus.Failed => "✗",
         StepStatus.Skipped or StepStatus.Stopped => "–",
@@ -60,18 +78,25 @@ public sealed partial class StepRowViewModel(StepRun step, string name, IUiDispa
         StepStatus.Ready => "ready",
         StepStatus.Skipped => "skipped",
         StepStatus.Stopped => "stopped",
+        StepStatus.Reused => "earlier run",
         _ when Step.Result is { } result => RunViewModel.StatusOf(result),
-        _ => Step.Items.Count > 0 ? Status == StepStatus.Succeeded ? "passed" : "failed" : "failed to start",
+        _ => Step.Items.Count > 0 || Step.IsGroup || Step.Nested is not null ? Status == StepStatus.Succeeded ? "passed" : "failed" : "failed to start",
     };
 
     public string TimeText => Step.Duration is { } duration ? OutputTabViewModel.FormatDuration(duration) : "";
 
     public void Refresh()
     {
-        if (_subscription is null && Step.Handle is { } handle)
-            _subscription = handle.Subscribe(line => dispatcher.Post(() => Lines.Add(new OutputLineViewModel(line.Text, line.Stream))));
+        if (Step.Handle is { } handle && handle != _subscribed)
+        {
+            _subscription?.Dispose();
+            _subscribed = handle;
+            if (Step.Attempts.Count > 0)
+                Log.Add(new OutputLineViewModel($"Attempt {Step.Attempts.Count + 1} of {Step.MaxAttempts}", OutputStream.Info));
+            _subscription = Subscribe(handle, Step.Request);
+        }
         if (Step.Error is { } error && !Lines.Any(l => l.Text == error))
-            Lines.Add(new OutputLineViewModel(error, OutputStream.Stderr));
+            Log.Add(new OutputLineViewModel(error, OutputStream.Stderr));
         if (Artifacts.Count == 0 && actions is not null)
             foreach (var artifact in Step.Artifacts)
                 Artifacts.Add(new ArtifactLinkViewModel(artifact, actions.Opener));
@@ -84,6 +109,24 @@ public sealed partial class StepRowViewModel(StepRun step, string name, IUiDispa
         StopCommand.NotifyCanExecuteChanged();
         OpenReadyUrlCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(TimeText));
+        OnPropertyChanged(nameof(OutputsText));
+        OnPropertyChanged(nameof(AttemptsText));
+    }
+
+    private IDisposable Subscribe(RunHandle handle, RunRequest? request)
+    {
+        var parser = new OutputLineParser(request?.Script.ErrorPatterns);
+        var secrets = request is null ? [] : SecretMasker.SecretValues(request);
+        var links = request is not null && actions?.Sources is { } sources
+            ? new SourceLinks(() => RunPlanner.WorkingDirectoryFor(request), sources)
+            : null;
+        return handle.Subscribe(line =>
+        {
+            if (line.Stream == OutputStream.Stdout && StepOutputs.IsSetLine(line.Text))
+                return;
+            var parsed = OutputLineViewModel.From(parser.Parse(SecretMasker.Mask(line.Text, secrets)), line.Stream, links);
+            dispatcher.Post(() => Log.Add(parsed));
+        });
     }
 
     public void Dispose() => _subscription?.Dispose();
@@ -96,21 +139,25 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
     private readonly IUiDispatcher _dispatcher;
     private readonly Func<StepRun, string> _nameOf;
     private readonly StepActions? _actions;
+    private readonly Action<WorkflowRequest>? _rerun;
 
     public WorkflowRunViewModel(string title, NodeViewModel? node, WorkflowRun run, Func<StepRun, string> nameOf, IUiDispatcher dispatcher,
-        StepActions? actions = null)
+        StepActions? actions = null, Action<WorkflowRequest>? rerun = null)
         : base(title, node)
     {
         _run = run;
+        _rerun = rerun;
         _dispatcher = dispatcher;
         _nameOf = nameOf;
         _actions = actions;
         node?.OnRunStarted();
         foreach (var step in run.Steps)
-            Steps.Add(new StepRowViewModel(step, nameOf(step), dispatcher, actions));
+            AddRows(step, 0, Steps.Count);
         selectedStep = Steps.FirstOrDefault();
         run.StepChanged += OnStepChanged;
-        foreach (var step in run.Steps.SelectMany(s => s.Items.Prepend(s)))
+        run.WaitingChanged += OnWaitingChanged;
+        OnWaitingChanged();
+        foreach (var step in run.Steps.SelectMany(s => s.SelfAndChildren()))
             dispatcher.Post(() => Update(step));
         Finished = WatchAsync();
     }
@@ -118,19 +165,30 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
     public ObservableCollection<StepRowViewModel> Steps { get; } = [];
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Log))]
     private StepRowViewModel? selectedStep;
 
+    public override OutputLog? Log => SelectedStep?.Log;
+
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsRunning), nameof(Succeeded), nameof(StatusText), nameof(DurationText))]
-    [NotifyCanExecuteChangedFor(nameof(StopCommand))]
+    [NotifyPropertyChangedFor(nameof(IsRunning), nameof(Succeeded), nameof(StatusText), nameof(DurationText), nameof(CanRerunFromFailed),
+        nameof(RerunLabel))]
+    [NotifyCanExecuteChangedFor(nameof(StopCommand), nameof(RerunFromFailedCommand))]
     private WorkflowResult? result;
+
+    public bool CanRerunFromFailed => _rerun is not null && Result?.Outcome == WorkflowOutcome.Failed && _run.FailedStep is not null;
+
+    public string RerunLabel => _run.FailedStep is { } failed ? $"Re-run from {_nameOf(failed)}" : "";
+
+    [RelayCommand(CanExecute = nameof(CanRerunFromFailed))]
+    private void RerunFromFailed() => _rerun!(WorkflowRequest.ResumeFrom(_run, _run.FailedStep!.Id));
 
     public override bool IsRunning => Result is null;
     public override bool Succeeded => Result?.Succeeded == true;
 
     public override string StatusText => Result?.Outcome switch
     {
-        null => "running",
+        null => _run.WaitingForLock is { } name ? $"waiting for lock {name}" : "running",
         WorkflowOutcome.Succeeded => Steps.Any(s => s.Status == StepStatus.Ready) ? "running · ready" : "passed",
         WorkflowOutcome.Stopped => "stopped",
         _ => "failed",
@@ -140,9 +198,18 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
 
     protected override Task StopRunAsync() => _run.StopAsync();
 
+    private void OnWaitingChanged() => _dispatcher.Post(() =>
+    {
+        if (!IsRunning)
+            return;
+        OnPropertyChanged(nameof(StatusText));
+        Node?.OnRunWaiting(_run.WaitingForLock);
+    });
+
     public override void Dispose()
     {
         _run.StepChanged -= OnStepChanged;
+        _run.WaitingChanged -= OnWaitingChanged;
         foreach (var step in Steps)
             step.Dispose();
     }
@@ -154,14 +221,48 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
         var row = Steps.FirstOrDefault(r => r.Step == step);
         if (row is null)
         {
-            if (step.Item is null || Steps.LastOrDefault(r => r.Step.Id == step.Id && r.Step.Step == step.Step) is not { } after)
+            if (Steps.FirstOrDefault(r => r.Step.Items.Contains(step)) is not { } parent)
                 return;
-            row = new StepRowViewModel(step, _nameOf(step), _dispatcher, _actions);
-            Steps.Insert(Steps.IndexOf(after) + 1, row);
+            row = NewRow(step, parent.Depth + 1);
+            Steps.Insert(EndOf(parent), row);
+        }
+        if (step.Nested is { } nested && !row.ShowsNested)
+        {
+            row.ShowsNested = true;
+            var start = EndOf(row);
+            var at = start;
+            foreach (var inner in nested.Steps)
+                at = AddRows(inner, row.Depth + 1, at);
+            for (var i = start; i < at; i++)
+                Steps[i].Refresh();
         }
         row.Refresh();
         if (step.Status == StepStatus.Running && (SelectedStep is null || SelectedStep.Status != StepStatus.Running))
             SelectedStep = row;
+    }
+
+    private static IEnumerable<StepRun> WithNested(IEnumerable<StepRun> steps) =>
+        steps.SelectMany(s => s.SelfAndChildren()).SelectMany(s => s.Nested is { } nested ? [s, .. WithNested(nested.Steps)] : new[] { s });
+
+    private StepRowViewModel NewRow(StepRun step, int depth) =>
+        new(step, _nameOf(step), _dispatcher, _actions, depth, () => AutoScroll = false);
+
+    /// <summary>Adds rows for <paramref name="step"/> and its group members at <paramref name="at"/>; returns the index after them.</summary>
+    private int AddRows(StepRun step, int depth, int at)
+    {
+        Steps.Insert(at++, NewRow(step, depth));
+        foreach (var member in step.Members)
+            at = AddRows(member, depth + 1, at);
+        return at;
+    }
+
+    /// <summary>The index just past <paramref name="row"/> and the rows indented under it.</summary>
+    private int EndOf(StepRowViewModel row)
+    {
+        var index = Steps.IndexOf(row) + 1;
+        while (index < Steps.Count && Steps[index].Depth > row.Depth)
+            index++;
+        return index;
     }
 
     private async Task WatchAsync()
@@ -170,7 +271,7 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
         var shown = new TaskCompletionSource();
         _dispatcher.Post(() =>
         {
-            foreach (var step in _run.Steps.SelectMany(s => s.Items.Prepend(s)))
+            foreach (var step in WithNested(_run.Steps))
                 Update(step);
             Result = outcome;
             Node?.OnRunFinished(new RunResult(

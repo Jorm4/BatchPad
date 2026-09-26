@@ -42,8 +42,8 @@ public sealed class ScriptEditorTests
         using var test = new TestWorkspace();
         var (main, demo) = OpenWithDiscoveredTool(test);
         var editor = Edit(main, Discovered(main));
-        var release = editor.Parameters.Proposals.Single(p => p.Parameter.Arg == "--release");
-        Assert.AreEqual(ParameterType.Flag, release.Parameter.Type);
+        var release = editor.Parameters.Proposals.Single(p => p.Parameter?.Arg == "--release");
+        Assert.AreEqual(ParameterType.Flag, release.Parameter!.Type);
 
         release.AcceptCommand.Execute(null);
         Assert.AreSame(release.Parameter, editor.Parameters.Items.Single().Definition);
@@ -63,11 +63,11 @@ public sealed class ScriptEditorTests
         var (main, demo) = OpenWithDiscoveredTool(test);
         var editor = Edit(main, Discovered(main));
 
-        editor.Parameters.Proposals.Single(p => p.Parameter.Arg == "--clean").DismissCommand.Execute(null);
+        editor.Parameters.Proposals.Single(p => p.Parameter?.Arg == "--clean").DismissCommand.Execute(null);
         editor.General.Description = "Builds it.";
         editor.SaveCommand.Execute(null);
 
-        Assert.IsFalse(editor.Parameters.Proposals.Any(p => p.Parameter.Arg == "--clean"));
+        Assert.IsFalse(editor.Parameters.Proposals.Any(p => p.Parameter?.Arg == "--clean"));
         Assert.IsEmpty(editor.Parameters.Items);
         var saved = ReadTool(demo);
         Assert.AreEqual("Builds it.", saved.Description);
@@ -124,6 +124,28 @@ public sealed class ScriptEditorTests
         Assert.AreEqual(9999, (int)launcher.Requests.Single().Script.Params!.Single(p => p.Name == "port").Default!);
         Assert.HasCount(1, main.Output.Tabs);
         Assert.Contains("\"default\": 8123", File.ReadAllText(Path.Combine(demo, "batchpad.json")));
+    }
+
+    [TestMethod]
+    public void SavingAnIncludedEntryChangesOnlyItsOwnFile()
+    {
+        using var test = new TestWorkspace();
+        var root = Directory.CreateDirectory(Path.Combine(test.Root, "composed", "tools")).Parent!.FullName;
+        var fixtures = Path.Combine(AppContext.BaseDirectory, "fixtures", "config");
+        File.Copy(Path.Combine(fixtures, "with_include.json"), Path.Combine(root, "batchpad.json"));
+        File.Copy(Path.Combine(fixtures, "part.json"), Path.Combine(root, "tools", "part.json"));
+        File.WriteAllText(Path.Combine(root, "tools", "regen.bat"), "@echo regen");
+        var workspaceBefore = File.ReadAllText(Path.Combine(root, "batchpad.json"));
+        var main = test.OpenMain(root, trusted: true);
+
+        var editor = Edit(main, main.Tree!.AllNodes.Single(n => n.Name == "Regenerate"));
+        editor.General.Name = "Regenerate all";
+        editor.SaveCommand.Execute(null);
+
+        Assert.AreEqual(workspaceBefore, File.ReadAllText(Path.Combine(root, "batchpad.json")));
+        var part = ConfigReader.ReadFile(Path.Combine(root, "tools", "part.json"));
+        Assert.AreEqual("Regenerate all", ((ScriptNode)((FolderNode)part.Scripts.Single()).Items.Single()).Name);
+        Assert.AreEqual("Regenerate all", main.SelectedNode!.Name);
     }
 
     private static (MainViewModel, string) OpenWithDiscoveredTool(TestWorkspace test)

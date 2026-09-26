@@ -149,6 +149,12 @@
                         <CheckBox Grid.Column="4" Content="All matches" IsChecked="{Binding AllMatches}" Margin="12,0,0,0"
                                   VerticalAlignment="Center" AutomationProperties.AutomationId="PickerAllMatches" />
                     </Grid>
+                    <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                        <TextBlock Text="Example value" Margin="0,6,12,0" />
+                        <TextBox Text="{Binding ExampleValue, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}"
+                                 ToolTip="Paste or type one value from the selected line; BatchPad derives a pattern that finds it and its siblings"
+                                 AutomationProperties.AutomationId="PickerExample" AutomationProperties.Name="Example value" />
+                    </DockPanel>
                     <ListBox ItemsSource="{Binding Lines}" SelectedItem="{Binding SelectedLine}" Height="180" Margin="0,6,0,0"
                              AutomationProperties.AutomationId="PickerLines">
                         <ListBox.ItemContainerStyle>
@@ -172,6 +178,20 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
+
+                <StackPanel Visibility="{Binding IsScript, Converter={StaticResource BoolToVisibility}}">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshScriptCommand}" Margin="6,0,0,0"
+                                AutomationProperties.AutomationId="PickerRefreshScript" />
+                        <Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseScriptCommand}" Margin="6,0,0,0"
+                                AutomationProperties.AutomationId="PickerBrowseScript" />
+                        <TextBlock Text="Script" Margin="0,6,12,0" Width="60" />
+                        <TextBox Text="{Binding ScriptPath, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.AutomationId="PickerScript" AutomationProperties.Name="Script" />
+                    </DockPanel>
+                    <TextBlock Text="The script runs (in a trusted workspace only) and each line it prints becomes a choice."
+                               Margin="0,8,0,0" Opacity="0.7" TextWrapping="Wrap" />
+                </StackPanel>
 
                 <StackPanel Visibility="{Binding IsFixed, Converter={StaticResource BoolToVisibility}}">
                     <views:FlatItemsControl ItemsSource="{Binding FixedRows}" AutomationProperties.AutomationId="PickerFixedRows">

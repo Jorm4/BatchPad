@@ -1,0 +1,10 @@
+{
+  "id": "cli-fixture",
+  "name": "CLI fixture",
+  "scripts": [
+    { "id": "exit-three", "name": "Exit three", "path": "../run/exit3.bat",
+      "params": [ { "name": "who", "type": "text", "arg": "--who" } ] },
+    { "id": "deploy", "name": "Deploy", "path": "../run/exit3.bat", "confirm": "Deploy to production?" },
+    { "id": "flow", "name": "Flow", "steps": [ { "id": "three", "run": "exit-three" } ] }
+  ]
+}

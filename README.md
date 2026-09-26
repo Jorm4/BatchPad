@@ -16,7 +16,7 @@ and plain executables are all first-class.
 > little support: issues and pull requests are welcome but may get a slow
 > answer or none. If you need something changed, forking is encouraged.
 >
-> **Status:** early MVP. The core features below work; see
+> **Status:** the MVP and v1 features are built. See
 > [docs/DESIGN.md](docs/DESIGN.md) for the design and the roadmap.
 
 ## Features
@@ -41,8 +41,20 @@ and plain executables are all first-class.
   read from the project itself (build scripts, CMake lists, folders), and
   checklists pick all or some tests and benchmarks.
 - **Workflows.** Chain scripts into a pipeline in the app (build → run,
-  build → test → report), with conditions and a step that runs once per
-  picked item.
+  build → test → report), with conditions, a step that runs once per picked
+  item, parallel groups, values handed from one step to the next, retries for
+  flaky steps, and "Re-run from the failed step".
+- **Schedules and triggers.** Run a script or workflow on a timetable (cron,
+  every N minutes, once at a time), when files change, when BatchPad starts or
+  after another run. While schedules are enabled, closing the window keeps
+  BatchPad in the tray, and a failed scheduled run raises a notification.
+- **History.** Every run is recorded with its values and log; the tree shows
+  each script's last result, and any past run can be run again.
+- **Readable output.** ANSI colours, error lines highlighted, clickable
+  `file:line` locations, search, F8 to the next error, and a test-results view
+  for scripts that write JUnit XML.
+- **Safe to run together.** Named locks queue runs that must not overlap,
+  and `dependsOn` runs a script's prerequisites first.
 - **Long-running processes.** Servers and watchers show a running indicator,
   open their URL when ready, and stop from the app, through a matching stop
   script or by ending the whole process tree.
@@ -53,12 +65,15 @@ and plain executables are all first-class.
 - **Standalone.** One self-contained executable that depends on nothing in the
   projects it serves.
 
-Not there yet: schedules and triggers, run history, a command-line mode,
-parallel workflow steps. They are planned in [docs/DESIGN.md](docs/DESIGN.md) §10.
+Not there yet: exporting schedules to Windows Task Scheduler, benchmark
+result comparison, and Windows shell integration (jump lists, taskbar
+progress). Also open: reading unattended secrets from Windows Credential
+Manager, and a command-line way to trust a workspace. See
+[docs/DESIGN.md](docs/DESIGN.md) §10.
 
 ## Getting BatchPad
 
-Download `BatchPad.exe` from the
+Download `BatchPad.exe` (and `batchpad.com` for the command line) from the
 [latest release](https://github.com/Jorm4/BatchPad/releases/latest), or build
 it from source (below).
 
@@ -77,12 +92,24 @@ otherwise Windows PowerShell.
   else the most recent one.
 - `BatchPad.exe <folder or batchpad.json>` opens that workspace.
 - `BatchPad.exe --version` prints the version and exits.
+- From a terminal, `batchpad run <id or name> [--workspace <path>] [--set name=value]… [--yes]`
+  runs one script or workflow without the window: output streams to the
+  console and the exit code is the script's. Nobody is there to answer, so a
+  `confirm` script needs `--yes` and `ask` or `secret` values need `--set`.
+  The workspace must already be trusted. `batchpad list` prints the ids and
+  names. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
+  so that cmd waits for the run. Runs from the command line show in the
+  app's history too.
+- **Schedules** (toolbar, or "Schedules" in the Ctrl+K palette) lists every
+  schedule with its next and last run. Add one by picking a script or
+  workflow, a trigger and its values; it is stored in your own `user.json`,
+  never in the shared `batchpad.json`. Schedules run while BatchPad is open.
 - To adopt a project, use **New workspace** (the button next to the workspace
   list): pick the project folder, tick the scripts to show, name it and trust
   it. BatchPad writes `batchpad.json` at the project root; commit it to share
   the setup.
 - Keyboard: Enter runs the selected script, F4 edits it, F2 renames and Del
-  deletes a My Scripts entry, Ctrl+K searches, Esc leaves the editor.
+  deletes a My Scripts entry, Ctrl+K opens the command palette, Esc leaves the editor.
 
 **Trust.** A `batchpad.json` comes with a cloned repository, so it is someone
 else's code. BatchPad runs nothing from a workspace until you trust its
@@ -177,7 +204,7 @@ demo workspace and rewrites `docs/images/main-window.png`.
 | `src/BatchPad.Core` | model, config, discovery, running, workflows (no UI) |
 | `src/BatchPad.App` | the WPF app (`BatchPad.exe`) |
 | `tests/` | Core and view-model tests (headless), UI tests (FlaUI) |
-| `samples/demo` | a demo workspace with one script per runner |
+| `samples/demo` | a demo workspace: one script per runner, and a release pipeline with a parallel group, step outputs, a flaky step and JUnit test results |
 | `tools/` | `publish.bat` (single-file exe), `screenshot.cs` (README image) |
 | `docs/DESIGN.md` | design, file formats, feature research and roadmap |
 

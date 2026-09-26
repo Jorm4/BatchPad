@@ -7,6 +7,14 @@
         <TextBlock Text="Name" />
         <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10"
                  AutomationProperties.AutomationId="NewItemName" AutomationProperties.Name="Name" />
+        <StackPanel Visibility="{Binding IsScript, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="Type" />
+            <ComboBox ItemsSource="{Binding ScriptTypes}" SelectedItem="{Binding ScriptType}" Margin="0,4,0,10"
+                      AutomationProperties.AutomationId="NewScriptType" AutomationProperties.Name="Type" />
+            <TextBlock Text="Script folder" />
+            <ComboBox ItemsSource="{Binding ScriptFolders}" SelectedItem="{Binding ScriptFolder}" Margin="0,4,0,10"
+                      AutomationProperties.AutomationId="NewScriptFolder" AutomationProperties.Name="Script folder" />
+        </StackPanel>
         <StackPanel Visibility="{Binding HasTarget, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Text="{Binding TargetLabel}" TextWrapping="Wrap" />
             <DockPanel Margin="0,4,0,10">

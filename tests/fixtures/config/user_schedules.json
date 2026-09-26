@@ -1,0 +1,18 @@
+{
+  "scripts": [
+    { "folder": "Daily", "items": [
+      { "base": "workspace:build", "name": "Build Release", "values": { "config": "--release", "apps": ["SpaceTrader"] } },
+      { "base": "workspace:qa-sweep", "name": "Nightly QA sweep", "stepValues": { "report": { "open": "never" } } }
+    ] }
+  ],
+  "seenPaths": ["tools/build.bat"],
+  "schedules": [
+    { "id": "nightly", "target": "workspace:qa-sweep", "values": { "app": "RallyRacer" },
+      "trigger": { "cron": "0 2 * * 1-5" }, "missed": "runOnce", "overlap": "queue", "enabled": true },
+    { "target": "workspace:tests", "trigger": { "every": "30m", "between": "09:00-18:00" } },
+    { "target": "workspace:release", "trigger": { "at": "2026-12-24T18:00" } },
+    { "target": "workspace:regen-assets", "trigger": { "fileChanged": "assets/**/*.png", "debounce": "5s" } },
+    { "target": "workspace:serve", "trigger": { "onStart": true } },
+    { "target": "global:toast", "trigger": { "afterRun": "workspace:build", "result": "failure" } }
+  ]
+}

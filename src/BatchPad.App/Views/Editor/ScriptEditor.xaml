@@ -29,7 +29,7 @@
                      AutomationProperties.AutomationId="EditorPreview" AutomationProperties.Name="Command preview" />
         </Border>
 
-        <TabControl AutomationProperties.AutomationId="EditorTabs">
+        <TabControl SelectedIndex="{Binding SelectedTab}" AutomationProperties.AutomationId="EditorTabs">
             <TabItem Header="General" AutomationProperties.AutomationId="GeneralTab">
                 <editor:GeneralTab DataContext="{Binding General}" />
             </TabItem>
@@ -40,7 +40,9 @@
                      AutomationProperties.AutomationId="ChoicesTab">
                 <editor:ChoicesTab DataContext="{Binding Choices}" />
             </TabItem>
-            <TabItem Header="Environment" IsEnabled="False" AutomationProperties.AutomationId="EnvironmentTab" />
+            <TabItem Header="Environment" AutomationProperties.AutomationId="EnvironmentTab">
+                <editor:EnvironmentTab DataContext="{Binding Environment}" />
+            </TabItem>
             <TabItem Header="After run" AutomationProperties.AutomationId="AfterRunTab">
                 <editor:AfterRunTab DataContext="{Binding AfterRun}" />
             </TabItem>

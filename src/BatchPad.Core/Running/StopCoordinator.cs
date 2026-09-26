@@ -39,10 +39,9 @@ public sealed class StopCoordinator(RunGate gate, InterpreterLocator interpreter
     public static RunRequest? CompanionFor(RunRequest request)
     {
         if (request.Script.Stop is not { } reference
-            || ReferenceResolver.Parse(reference, request.Tree.Kind) is not { } parsed
-            || request.Workspace.References.Resolve(reference, request.Tree.Kind) is not ScriptNode stopScript)
+            || request.Workspace.References.Resolve(reference, request.Tree) is not ScriptNode stopScript)
             return null;
-        var tree = request.Workspace.Trees.First(t => t.Kind == parsed.Tree);
+        var tree = request.Workspace.References.TreeOf(stopScript)!;
         return new RunRequest(request.Workspace, tree, stopScript) { Values = request.Values, BaseEnvironment = request.BaseEnvironment };
     }
 }
