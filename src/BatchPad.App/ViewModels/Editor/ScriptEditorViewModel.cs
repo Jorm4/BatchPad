@@ -1,4 +1,4 @@
-using BatchPad.Core.Choices;
+using BatchPad.App.Services;
 using BatchPad.Core.Config;
 using BatchPad.Core.Detection;
 using BatchPad.Core.Discovery;
@@ -23,7 +23,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
         _main = main;
         _node = node;
         _original = node.Script!;
-        Definition = ConfigEntries.Clone(_original);
+        Definition = ConfigJson.Clone(_original);
         General = new GeneralTabViewModel(Definition, node.Name, Refresh);
         var proposals = DetectProposals();
         Parameters = new ParametersTabViewModel(Definition, main.Workspace!.Workspace.File.SharedParams?.Keys ?? Enumerable.Empty<string>(),
@@ -38,9 +38,8 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
         if (proposals.StopCompanion is { } companion)
             Parameters.Proposals.Add(new ProposalViewModel(ProposalTracker.StopKey(companion), $"stop with {companion}",
                 "Runs it with the same values to stop this script", Parameters) { Apply = () => AcceptStop(companion) });
-        var resolver = new ChoiceResolver();
-        var context = RunPlanner.ChoicesFor(Request()) with { Commands = main.CommandChoices };
-        ChoiceEnvironment = new ChoiceEnvironment(context.BaseDirectory, p => resolver.Resolve(p, context), main.Services.Dialogs, main.CommandChoices);
+        ChoiceEnvironment = new ChoiceEnvironment(ChoiceEnvironment.ContextFor(main.Workspace, node.Tree, Definition, main.CommandChoices),
+            main.Services.Dialogs, main.Services.Dispatcher);
         Parameters.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ParametersTabViewModel.Selected))
@@ -92,7 +91,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
             var current = File.Exists(_node.Tree.FilePath) ? ConfigReader.ReadFile(_node.Tree.FilePath) : new WorkspaceFile();
             return EntryMerge.StillApplies(current, _original, _node.Item?.HasEntry == true);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             return false;
         }
@@ -110,7 +109,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
             Preview = string.Join(System.Environment.NewLine,
                 RunPlanner.Plan(Request(), _main.Services.Interpreters).Select(s => s.Command.DisplayRelativeTo(_main.Workspace!.Directory)));
         }
-        catch (Exception ex) when (DetailsViewModel.IsRunProblem(ex))
+        catch (Exception ex) when (RunProblems.IsRunProblem(ex))
         {
             Preview = $"⚠ {ex.Message}";
         }
@@ -123,7 +122,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanTestRun))]
     private void TestRun() =>
-        _main.Details.Launch(new RunRequest(_main.Workspace!, _node.Tree, ConfigEntries.Clone(Definition)), _node);
+        _main.Details.Launch(new RunRequest(_main.Workspace!, _node.Tree, ConfigJson.Clone(Definition)), _node);
 
     [RelayCommand]
     private void Cancel() => Closed?.Invoke(false);
@@ -140,7 +139,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
             {
                 if (_newCompanion is { } companion)
                     AddCompanionEntry(file.Scripts, companion.Path, companion.Id);
-                saved = ConfigEntries.Clone(Definition);
+                saved = ConfigJson.Clone(Definition);
                 if (!ConfigEntries.Replace(file.Scripts, indexPath, _original, saved))
                 {
                     saved.Id ??= IdAssigner.FromFileName(saved.Path ?? saved.Name ?? "script", ConfigEntries.Ids(file.Scripts, _main.Workspace!, tree));
@@ -148,7 +147,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
                 }
             });
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             Error = ex.Message;
             return;
@@ -164,9 +163,10 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
         new(null, "None — close its windows, then end it"),
         .. main.Tree!.AllNodes
             .Where(n => n != self && n.Node is ScriptNode { Id: not null } && (n.Tree.Kind == self.Tree.Kind || n.Tree.Kind != TreeKind.MyScripts))
+            .Select(n => (Node: n, Id: ((ScriptNode)n.Node!).Id!))
             .Select(n => new EditorOption<string?>(
-                n.Tree.Kind == self.Tree.Kind ? ((ScriptNode)n.Node!).Id : $"{n.Tree.Kind.ToString().ToLowerInvariant()}:{((ScriptNode)n.Node!).Id}",
-                $"{n.Location} › {n.Name}")),
+                n.Node.Tree.Scope == self.Tree.Scope ? n.Id : ReferenceResolver.Qualified(n.Node.Tree, n.Id),
+                $"{n.Node.Location} › {n.Node.Name}")),
     ];
 
     /// <summary>Which editor tab is shown; the tree's proposal badge opens Parameters.</summary>

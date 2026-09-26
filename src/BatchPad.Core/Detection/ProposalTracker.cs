@@ -52,14 +52,15 @@ public static class ProposalTracker
             .Where(p => !taken.Contains(p.Name ?? "") && !(p.Arg is { } arg && taken.Contains(arg)) && !dismissed.Contains(KeyOf(p)))
             .ToList();
         var longRunning = entry.LongRunning is null && !dismissed.Contains(LongRunningKey) ? detected.LongRunningReason : null;
-        var stop = entry.Stop is null && StopCompanionFor(scriptPath, detected) is { } companion && !dismissed.Contains(StopKey(companion))
+        var stop = entry.Stop is null && StopCompanionFor(scriptPath, detected, probes, cachedProbesOnly) is { } companion && !dismissed.Contains(StopKey(companion))
             ? companion
             : null;
         return new ScriptProposals(parameters, longRunning, stop);
     }
 
     /// <summary>For <c>serve_X</c>, a <c>stop_X</c> beside it that takes the same parameters (or neither takes any); relative to the script's folder.</summary>
-    public static string? StopCompanionFor(string scriptPath, DetectionResult? detected = null)
+    public static string? StopCompanionFor(string scriptPath, DetectionResult? detected = null, ScriptProbes? probes = null,
+        bool cachedProbesOnly = false)
     {
         var name = Path.GetFileNameWithoutExtension(scriptPath);
         if (!name.StartsWith("serve_", StringComparison.OrdinalIgnoreCase))
@@ -70,8 +71,8 @@ public static class ProposalTracker
             .FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).Equals(stem, StringComparison.OrdinalIgnoreCase));
         if (companion is null)
             return null;
-        var serveNames = (detected ?? Detector.Detect(scriptPath)).Parameters.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var stopNames = Detector.Detect(companion).Parameters.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var serveNames = (detected ?? Detector.Detect(scriptPath, probes, cachedProbesOnly)).Parameters.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stopNames = Detector.Detect(companion, probes, cachedProbesOnly).Parameters.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return serveNames.Count == stopNames.Count && serveNames.Count == 0 || serveNames.Overlaps(stopNames) ? Path.GetFileName(companion) : null;
     }
 }

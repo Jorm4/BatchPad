@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using BatchPad.App.Services;
-using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.History;
 using BatchPad.Core.Config;
 using BatchPad.Core.Customisation;
@@ -22,6 +21,7 @@ public sealed class CliRunner
     private readonly AppPaths _paths;
     private readonly TextWriter _out;
     private readonly TextWriter _error;
+    private readonly TrustStore _trust;
     private readonly IRunLauncher _launcher;
     private readonly IWorkflowLauncher _workflows;
 
@@ -32,7 +32,8 @@ public sealed class CliRunner
         _out = output;
         _error = error;
         var interpreters = new InterpreterLocator(settings.Interpreters);
-        var gate = new RunGate(new TrustStore(settings, paths.SettingsFile));
+        _trust = new TrustStore(settings, paths.SettingsFile);
+        var gate = new RunGate(_trust);
         _launcher = launcher ?? new GatedRunLauncher(gate, interpreters);
         _workflows = workflows ?? new GatedWorkflowLauncher(gate, interpreters, new ShellOpener(new ShellService()));
     }
@@ -59,7 +60,7 @@ public sealed class CliRunner
                 _error.WriteLine("No batchpad.json found here or above; pass --workspace <path>.");
                 return UsageError;
             }
-            workspace = WorkspaceLoader.Load(file, _paths);
+            workspace = WorkspaceLoader.Load(file, _paths, _trust);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
         {
@@ -128,7 +129,7 @@ public sealed class CliRunner
                 return ExitCodeOf(result);
             }
         }
-        catch (Exception ex) when (ex is RunException or UntrustedWorkspaceException or WorkflowException or InvalidOperationException)
+        catch (Exception ex) when (ex is WorkflowException or InvalidOperationException || RunProblems.IsRunProblem(ex))
         {
             _error.WriteLine(ex.Message);
             return Failure;
@@ -204,7 +205,7 @@ public sealed class CliRunner
             {
                 if (node is not RunnableNode runnable || ReferenceResolver.IdOf(node) is not { Length: > 0 } id)
                     continue;
-                var key = NodeViewModel.KeyFor(tree, node, (node as ScriptNode)?.Path)!;
+                var key = tree.NodeKey(node, (node as ScriptNode)?.Path)!;
                 var reference = ReferenceResolver.Qualified(tree, id);
                 if (tree.Kind == TreeKind.MyScripts && node is ScriptNode entry)
                 {

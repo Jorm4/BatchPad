@@ -1,3 +1,5 @@
+using BatchPad.App.Services;
+using BatchPad.Core.Trust;
 using BatchPad.App.ViewModels.Editor;
 using BatchPad.App.ViewModels.Workspace;
 using BatchPad.Core.Config;
@@ -101,7 +103,7 @@ public sealed partial class DragDropHandler(MainViewModel main, MyScriptsViewMod
                 });
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             myScripts.Error = ex.Message;
         }
@@ -110,7 +112,6 @@ public sealed partial class DragDropHandler(MainViewModel main, MyScriptsViewMod
             : n => n.Tree.FilePath == tree.FilePath && string.Equals(n.ScriptFullPath, selected, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <returns>The copy's full path.</returns>
     private static string CopyIntoScriptFolder(ScriptTree tree, string script)
     {
         var name = Path.GetFileName(script);
@@ -127,9 +128,9 @@ public sealed partial class DragDropHandler(MainViewModel main, MyScriptsViewMod
         new() { Name = Detector.ReadableName(script), Path = Path.GetFullPath(script) };
 
     /// <param name="tree">A local target is stored relative to this tree's folder; null keeps it absolute.</param>
-    private static LinkNode Link(string item, ScriptTree? tree)
+    internal static LinkNode Link(string item, ScriptTree? tree)
     {
-        if (Uri.TryCreate(item, UriKind.Absolute, out var uri) && !uri.IsFile)
+        if (LinkPolicy.AsUrl(item) is { } uri)
             return new LinkNode { Name = uri.Host.Length > 0 ? uri.Host : item, Url = item };
         var full = Path.GetFullPath(item);
         return new LinkNode

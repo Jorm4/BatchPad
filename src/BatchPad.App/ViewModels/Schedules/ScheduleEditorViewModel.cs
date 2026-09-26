@@ -1,8 +1,8 @@
+using BatchPad.App.Services;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.Arguments;
-using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Scheduling;
@@ -28,7 +28,7 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject
     {
         _main = main;
         _existing = existing;
-        _wasGlobal = existing?.Key.StartsWith("global:", StringComparison.Ordinal) == true;
+        _wasGlobal = existing?.IsGlobal == true;
         var workspace = main.Workspace!;
         _allTargets = main.Tree!.AllNodes
             .Where(n => n is { IsRunnable: true, IsBroken: false, IsOrphan: false, Node: not null })
@@ -209,8 +209,6 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject
         var oldKey = _existing?.Schedule.Key;
         try
         {
-            if (_existing is not null && _wasGlobal != IsGlobal)
-                SchedulesViewModel.WriteSchedules(_main, _wasGlobal, schedules => schedules.RemoveAll(s => s.Key == oldKey));
             SchedulesViewModel.WriteSchedules(_main, IsGlobal, schedules =>
             {
                 var schedule = schedules.FirstOrDefault(s => oldKey is not null && s.Key == oldKey && _wasGlobal == IsGlobal);
@@ -227,8 +225,10 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject
                 schedule.Overlap = Overlap;
                 schedule.DefinitionHash = hash;
             });
+            if (_existing is not null && _wasGlobal != IsGlobal)
+                SchedulesViewModel.WriteSchedules(_main, _wasGlobal, schedules => schedules.RemoveAll(s => s.Key == oldKey));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             Error = ex.Message;
             return;
@@ -264,7 +264,7 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject
         try
         {
             var form = ParameterFormViewModel.For(workspace, _target.Definition, _target.Tree, new ParameterValues(stored, ""),
-                _main.Services.Dialogs, _main.CommandChoices, p => p.Type != ParameterType.Secret);
+                _main.Services, _main.CommandChoices, p => p.Type != ParameterType.Secret);
             form.HasExtraArguments = false;
             Form = form;
         }

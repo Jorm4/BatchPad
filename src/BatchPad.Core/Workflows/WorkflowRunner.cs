@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using BatchPad.Core.Arguments;
 using BatchPad.Core.Choices;
-using BatchPad.Core.Customisation;
+using BatchPad.Core.Config;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Templating;
@@ -12,10 +12,7 @@ using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Workflows;
 
-/// <summary>
-/// Runs workflows for the MVP (§4.1): steps in order with <c>when</c>, parameters flowing by name with their types,
-/// <c>forEach</c>, per-step <c>emptyArgs</c>, nested workflows, and a long-running last step that ends the workflow at ready.
-/// </summary>
+/// <summary>Runs workflows (§4.1).</summary>
 public sealed partial class WorkflowRunner(
     LoadedWorkspace workspace, IStepLauncher launcher, IShellOpener? opener = null, LockManager? locks = null, TimeProvider? time = null)
 {
@@ -29,9 +26,9 @@ public sealed partial class WorkflowRunner(
     }
 
     /// <exception cref="WorkflowException">The workflow runs itself.</exception>
-    public WorkflowRun Start(WorkflowRequest request) => Start(request, lockOwner: null);
+    public WorkflowRun Start(WorkflowRequest request) => Start(request, lockOwner: null, stepChanged: null);
 
-    private WorkflowRun Start(WorkflowRequest request, object? lockOwner)
+    private WorkflowRun Start(WorkflowRequest request, object? lockOwner, Action<StepRun>? stepChanged)
     {
         if (WorkflowValidator.CycleFrom(request.Workflow, request.Tree, workspace.References) is { } cycle)
             throw new WorkflowException($"Workflow '{ScriptTree.DisplayName(request.Workflow)}' runs itself: {cycle}.");
@@ -40,18 +37,20 @@ public sealed partial class WorkflowRunner(
             throw new WorkflowException($"'{ScriptTree.DisplayName(request.Workflow)}' needs confirmation, and nobody is there to give it.");
 
         var steps = request.Workflow.Steps.Select((step, index) => new StepRun(step, step.Id ?? $"step{index + 1}")).ToList();
-        if (request.Resume is { } resume && !steps.Any(s => s.SelfAndChildren().Any(c => c.Id == resume.StepId)))
+        var resumeAt = 0;
+        if (request.Resume is { } resume
+            && (resumeAt = steps.FindIndex(s => s.SelfAndChildren().Any(c => c.Id == resume.StepId))) < 0)
             throw new WorkflowException($"'{ScriptTree.DisplayName(request.Workflow)}' has no step '{resume.StepId}' to re-run from.");
         var run = new WorkflowRun(request, steps, launcher, lockOwner);
+        run.StepChanged += stepChanged;
         _ = Task.Run(async () =>
         {
             try
             {
-                using var lease = string.IsNullOrWhiteSpace(request.Workflow.Lock)
-                    ? null
-                    : await _locks.AcquireAsync([request.Workflow.Lock], run.LockOwner, run.Wait, run.StopRequested);
+                var lockNames = LocksHeldThroughout(request);
+                using var lease = lockNames.Count == 0 ? null : await _locks.AcquireAsync(lockNames, run.LockOwner, run.Wait, run.StopRequested);
                 run.Wait(null);
-                run.Complete(await ExecuteAsync(run, request));
+                run.Complete(await ExecuteAsync(run, request, resumeAt));
             }
             catch (OperationCanceledException) when (run.IsStopping)
             {
@@ -69,18 +68,45 @@ public sealed partial class WorkflowRunner(
         return run;
     }
 
-    private async Task<WorkflowOutcome> ExecuteAsync(WorkflowRun run, WorkflowRequest request)
+    /// <summary>
+    /// A workflow's <c>lock</c> plus every lock its steps take, so all are taken in one ordered acquire: taking a step's
+    /// lock later, while holding the workflow's, could deadlock with a run that holds them the other way round.
+    /// </summary>
+    private List<string> LocksHeldThroughout(WorkflowRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Workflow.Lock))
+            return [];
+        var names = new List<string>();
+        var visited = new HashSet<TreeNode>(ReferenceEqualityComparer.Instance);
+        Add(request.Workflow, request.Tree);
+        if (request.Target?.Script.Lock is { } targetLock && !string.IsNullOrWhiteSpace(targetLock))
+            names.Add(targetLock);
+        return names;
+
+        void Add(RunnableNode node, ScriptTree tree)
+        {
+            if (!visited.Add(node))
+                return;
+            if (!string.IsNullOrWhiteSpace(node.Lock))
+                names.Add(node.Lock);
+            if (node is not WorkflowNode workflow)
+                return;
+            foreach (var step in workflow.Steps.SelectMany(s => s.Leaves()))
+            {
+                if (step.Run is { } reference && workspace.References.Resolve(reference, tree) is RunnableNode target
+                    && workspace.References.TreeOf(target) is { } targetTree)
+                    Add(target, targetTree);
+            }
+        }
+    }
+
+    private async Task<WorkflowOutcome> ExecuteAsync(WorkflowRun run, WorkflowRequest request, int resumeAt)
     {
         var parameters = BindParameters(request);
         var failed = false;
         var stepResults = run.StepResults;
-        var resumeAt = 0;
-        if (request.Resume is { } resume)
-        {
-            foreach (var (id, results) in resume.StepResults)
-                stepResults[id] = results;
-            resumeAt = run.Steps.ToList().FindIndex(s => s.SelfAndChildren().Any(c => c.Id == resume.StepId));
-        }
+        foreach (var (id, results) in request.Resume?.StepResults ?? new Dictionary<string, IReadOnlyDictionary<string, string>>())
+            stepResults[id] = results;
         for (var index = 0; index < run.Steps.Count; index++)
         {
             var step = run.Steps[index];
@@ -177,10 +203,18 @@ public sealed partial class WorkflowRunner(
         if (step.Step.Run is not { } reference
             || workspace.References.Resolve(reference, request.Tree) is not RunnableNode target)
             return Fail(run, step, $"Step '{step.Id}' runs '{step.Step.Run}', which does not exist.");
-        var targetTree = workspace.References.TreeOf(target)!;
+        StepTarget prepared;
+        try
+        {
+            prepared = Prepare(target, step.Step.EmptyArgs);
+        }
+        catch (ArgumentAssemblyException ex)
+        {
+            return Fail(run, step, ex.Message);
+        }
 
         if (step.Step.ForEach is not { } forEach)
-            return await RunTargetAsync(run, step, request, parameters, target, targetTree, context, isLast);
+            return await RunTargetAsync(run, step, request, parameters, prepared, context, isLast);
 
         IReadOnlyList<TemplateValue> items;
         try
@@ -193,7 +227,7 @@ public sealed partial class WorkflowRunner(
         }
 
         run.Update(step, StepStatus.Running);
-        var rows = items.Select(item => (Row: step.AddItem(item.Text), Item: item)).ToList();
+        var rows = step.SetItems(items.Select(item => item.Text)).Zip(items, (row, item) => (Row: row, Item: item)).ToList();
         foreach (var (row, _) in rows)
             run.Raise(row);
         var next = 0;
@@ -212,7 +246,7 @@ public sealed partial class WorkflowRunner(
                     index = next++;
                 }
                 var (row, item) = rows[index];
-                if (!await RunTargetAsync(run, row, request, parameters, target, targetTree, context with { Item = item }, isLast: false))
+                if (!await RunTargetAsync(run, row, request, parameters, prepared, context with { Item = item }, isLast: false))
                     lock (rows)
                         anyFailed = true;
             }
@@ -226,28 +260,27 @@ public sealed partial class WorkflowRunner(
     }
 
     private async Task<bool> RunTargetAsync(WorkflowRun run, StepRun row, WorkflowRequest request, BoundParameters parameters,
-        RunnableNode target, ScriptTree targetTree, TemplateContext context, bool isLast)
+        StepTarget target, TemplateContext context, bool isLast)
     {
         Dictionary<string, JsonNode?> values;
         try
         {
-            values = StepValues(row, request, parameters.Flowing, target, context);
+            values = StepValues(row, request, parameters.Flowing, target.Params, context);
         }
         catch (Exception ex) when (ex is TemplateException or ArgumentAssemblyException)
         {
             return Fail(run, row, ex.Message);
         }
 
-        if (target is WorkflowNode nestedWorkflow)
+        if (target.Node is WorkflowNode nestedWorkflow)
         {
-            var nested = Start(new WorkflowRequest(targetTree, nestedWorkflow)
+            var nested = Start(new WorkflowRequest(target.Tree, nestedWorkflow)
             {
                 Values = values,
                 BaseEnvironment = request.BaseEnvironment,
                 Unattended = request.Unattended,
                 Confirmed = request.Confirmed,
-            }, run.LockOwner);
-            nested.StepChanged += run.Raise;
+            }, run.LockOwner, run.Raise);
             row.Nested = nested;
             run.Update(row, StepStatus.Running);
             if (run.IsStopping)
@@ -262,8 +295,7 @@ public sealed partial class WorkflowRunner(
             return result.Succeeded;
         }
 
-        var script = WithEmptyArgs((ScriptNode)target, row.Step.EmptyArgs);
-        var runRequest = new RunRequest(workspace, targetTree, script)
+        var runRequest = new RunRequest(workspace, target.Tree, (ScriptNode)target.Node)
         {
             Values = values,
             BaseEnvironment = request.BaseEnvironment,
@@ -364,7 +396,7 @@ public sealed partial class WorkflowRunner(
     {
         var file = workspace.Workspace.File;
         var templates = new TemplateContext { WorkspaceDir = workspace.Directory, Variables = file.Variables };
-        var choiceContext = new ChoiceContext(workspace.Directory) { Lists = file.Lists, Templates = templates };
+        var choiceContext = new ChoiceContext(workspace.Directory) { Lists = file.Lists, Templates = templates, Paths = request.Tree.Paths };
         var assembly = new AssemblyRequest(new ScriptNode { Params = request.Workflow.Params }, templates)
         {
             SharedParams = file.SharedParams,
@@ -382,11 +414,11 @@ public sealed partial class WorkflowRunner(
     }
 
     /// <summary>Workflow parameters sharing a name with the target's, then the step's own values, then the request's per-step overrides.</summary>
-    private Dictionary<string, JsonNode?> StepValues(StepRun row, WorkflowRequest request, IReadOnlySet<string> flowing,
-        RunnableNode target, TemplateContext context)
+    private static Dictionary<string, JsonNode?> StepValues(StepRun row, WorkflowRequest request, IReadOnlySet<string> flowing,
+        IReadOnlyList<ParameterDefinition> targetParams, TemplateContext context)
     {
         var values = new Dictionary<string, JsonNode?>();
-        foreach (var parameter in SharedParameters.MergeAll(target.Params, workspace.Workspace.File.SharedParams))
+        foreach (var parameter in targetParams)
         {
             if (parameter.Name is { } name && flowing.Contains(name) && context.Params.TryGetValue(name, out var value))
                 values[name] = ToJson(value);
@@ -409,15 +441,19 @@ public sealed partial class WorkflowRunner(
         return [.. list.Select(item => choices.FirstOrDefault(c => c.Value == item) is { } choice ? TemplateValue.OfChoice(choice) : TemplateValue.Of(item))];
     }
 
-    private ScriptNode WithEmptyArgs(ScriptNode script, List<string>? emptyArgs)
+    private sealed record StepTarget(RunnableNode Node, ScriptTree Tree, IReadOnlyList<ParameterDefinition> Params);
+
+    private StepTarget Prepare(RunnableNode target, List<string>? emptyArgs)
     {
-        if (emptyArgs is null)
-            return script;
-        var copy = CustomisationResolver.Clone(script);
-        copy.Params = [.. SharedParameters.MergeAll(copy.Params, workspace.Workspace.File.SharedParams)];
+        var tree = workspace.References.TreeOf(target)!;
+        var shared = workspace.Workspace.File.SharedParams;
+        if (emptyArgs is null || target is not ScriptNode script)
+            return new StepTarget(target, tree, SharedParameters.MergeAll(target.Params, shared));
+        var copy = ConfigJson.Clone(script);
+        copy.Params = [.. SharedParameters.MergeAll(copy.Params, shared)];
         foreach (var parameter in copy.Params.Where(p => p.Type == ParameterType.Multichoice))
             parameter.EmptyArgs = emptyArgs;
-        return copy;
+        return new StepTarget(copy, tree, copy.Params);
     }
 
     private static JsonNode? Expand(JsonNode? value, TemplateContext context) => value switch

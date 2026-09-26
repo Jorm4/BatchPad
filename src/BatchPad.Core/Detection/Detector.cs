@@ -1,17 +1,45 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using BatchPad.Core.Config;
 
 namespace BatchPad.Core.Detection;
 
 public static partial class Detector
 {
+    private static readonly ConcurrentDictionary<string, (DateTime Stamp, long Length, DetectionResult Result)> Cache =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <param name="probes">Runs the Python and PowerShell parameter probes; without it those scripts get no parameters.</param>
     /// <param name="cachedProbesOnly">Uses only probe results already cached, starting no process.</param>
     public static DetectionResult Detect(string path, ScriptProbes? probes = null, bool cachedProbesOnly = false)
     {
-        var result = Detect(Path.GetFileName(path), File.ReadAllText(path));
-        if (probes?.Parameters(path, cachedProbesOnly) is { } probed)
-            result.Parameters = probed;
-        return result;
+        var file = new FileInfo(path);
+        var (stamp, length) = (file.LastWriteTimeUtc, file.Length);
+        if (!Cache.TryGetValue(file.FullName, out var cached) || cached.Stamp != stamp || cached.Length != length)
+        {
+            if (Cache.Count > 2000)
+                Cache.Clear();
+            Cache[file.FullName] = cached = (stamp, length, Detect(file.Name, ReadOrEmpty(path)));
+        }
+        return new DetectionResult
+        {
+            Name = cached.Result.Name,
+            Description = cached.Result.Description,
+            LongRunningReason = cached.Result.LongRunningReason,
+            Parameters = probes?.Parameters(path, cachedProbesOnly) ?? ConfigJson.Clone(cached.Result.Parameters),
+        };
+    }
+
+    private static string ReadOrEmpty(string path)
+    {
+        try
+        {
+            return ConfigReader.ReadText(path);
+        }
+        catch (FileTooLargeException)
+        {
+            return "";
+        }
     }
 
     public static DetectionResult Detect(string fileName, string content)
@@ -36,7 +64,10 @@ public static partial class Detector
 
     private static string? LongRunningReason(string fileName, string content)
     {
-        if (Path.GetFileNameWithoutExtension(fileName).Contains("serve", StringComparison.OrdinalIgnoreCase))
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        if (WordSeparators().Split(stem)[0].ToLowerInvariant() is "stop" or "kill" or "shutdown")
+            return null;
+        if (stem.Contains("serve", StringComparison.OrdinalIgnoreCase))
             return "\"serve\" in the name";
         if (content.Contains("http.server", StringComparison.Ordinal))
             return "starts http.server";

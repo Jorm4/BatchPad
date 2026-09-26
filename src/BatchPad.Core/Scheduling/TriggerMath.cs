@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BatchPad.Core.Model;
@@ -7,10 +8,13 @@ namespace BatchPad.Core.Scheduling;
 /// <summary>When time triggers fire (§4.2). Times are wall-clock times in a time zone, so daylight-saving changes are honoured.</summary>
 public static partial class TriggerMath
 {
+    private static readonly TimeSpan MaxDuration = TimeSpan.FromDays(366);
+    private static readonly ConcurrentDictionary<string, Cron?> CronCache = new();
+
     /// <summary>The next fire strictly after <paramref name="after"/>; null for an event trigger, a past <c>at</c>, or an invalid trigger.</summary>
     public static DateTimeOffset? NextFire(Trigger trigger, DateTimeOffset after, TimeZoneInfo zone) => trigger.Kind switch
     {
-        TriggerKind.Cron => Cron.TryParse(trigger.Cron!, out var cron, out _) ? cron.Next(after, zone) : null,
+        TriggerKind.Cron => ParsedCron(trigger.Cron!)?.Next(after, zone),
         TriggerKind.Every => ParseDuration(trigger.Every!) is { } interval && TryParseWindow(trigger.Between, out var window)
             ? NextEvery(interval, window, after, zone)
             : null,
@@ -36,7 +40,7 @@ public static partial class TriggerMath
         return null;
     }
 
-    /// <summary>Parses <c>90s</c>, <c>30m</c>, <c>1h30m</c> or <c>2d</c>; null when it isn't a positive duration.</summary>
+    /// <summary>Parses <c>90s</c>, <c>30m</c>, <c>1h30m</c> or <c>2d</c>; null unless it is positive and at most 366 days.</summary>
     public static TimeSpan? ParseDuration(string text)
     {
         var match = DurationPattern().Match(text.Trim());
@@ -53,6 +57,8 @@ public static partial class TriggerMath
                 "h" => TimeSpan.FromHours(amount),
                 _ => TimeSpan.FromDays(amount),
             };
+            if (total > MaxDuration)
+                return null;
         }
         return total > TimeSpan.Zero ? total : null;
     }
@@ -117,6 +123,9 @@ public static partial class TriggerMath
             }
         }
     }
+
+    private static Cron? ParsedCron(string expression) =>
+        CronCache.GetOrAdd(expression, text => Cron.TryParse(text, out var cron, out _) ? cron : null);
 
     [GeneratedRegex(@"^(?:(?<n>\d{1,6})(?<unit>[smhd]))+$")]
     private static partial Regex DurationPattern();

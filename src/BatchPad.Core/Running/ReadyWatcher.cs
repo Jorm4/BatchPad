@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using BatchPad.Core.Model;
 using BatchPad.Core.Templating;
+using BatchPad.Core.Trust;
 
 namespace BatchPad.Core.Running;
 
@@ -13,15 +14,17 @@ public sealed record ReadySignal(string? Url, OutputLine? Line);
 /// </summary>
 public sealed partial class ReadyWatcher : IDisposable
 {
+    private static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(250);
+
     private readonly TaskCompletionSource<ReadySignal?> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IDisposable _subscription;
 
     private ReadyWatcher(IRunOutput run, ReadyDefinition? ready, TemplateContext templates, IShellOpener? opener)
     {
-        var pattern = ready?.Pattern is { } text ? new Regex(text) : null;
+        var pattern = ready?.Pattern is { } text ? new Regex(text, RegexOptions.None, PatternTimeout) : null;
         _ = _ready.Task.ContinueWith(t =>
         {
-            if (t.Result?.Url is { } url)
+            if (t.Result?.Url is { } url && LinkPolicy.OpensUnasked(url))
                 opener?.Open(url);
         }, TaskContinuationOptions.OnlyOnRanToCompletion);
 
@@ -33,7 +36,7 @@ public sealed partial class ReadyWatcher : IDisposable
         }
         _subscription = run.Subscribe(line =>
         {
-            if (_ready.Task.IsCompleted || line.Stream == OutputStream.Info || pattern.Match(line.Text) is not { Success: true } match)
+            if (_ready.Task.IsCompleted || line.Stream == OutputStream.Info || Match(pattern, line.Text) is not { Success: true } match)
                 return;
             try
             {
@@ -49,33 +52,37 @@ public sealed partial class ReadyWatcher : IDisposable
 
     public Task<ReadySignal?> Ready => _ready.Task;
 
-    /// <param name="opener">Opens the ready URL when given.</param>
     public static ReadyWatcher Watch(IRunOutput run, RunRequest request, IShellOpener? opener = null) =>
         new(run, request.Script.Ready, RunPlanner.BoundTemplatesFor(request), opener);
 
-    public static ReadyWatcher Watch(IRunOutput run, ReadyDefinition? ready, TemplateContext templates, IShellOpener? opener = null) =>
+    internal static ReadyWatcher Watch(IRunOutput run, ReadyDefinition? ready, TemplateContext templates, IShellOpener? opener = null) =>
         new(run, ready, templates, opener);
 
-    /// <summary>Replaces <c>$1</c>… with the match's groups, then expands <c>${…}</c> variables.</summary>
+    /// <summary>Expands <c>${…}</c> variables, then replaces <c>$1</c>… with the match's groups, which are output and so never expanded.</summary>
     public static string? Expand(string? open, Match? match, TemplateContext templates)
     {
         if (open is null)
             return null;
-        var withGroups = GroupReference().Replace(open, m =>
-            match is not null && int.Parse(m.Groups[1].Value) is var index && index < match.Groups.Count
+        return GroupReference().Replace(TemplateExpander.ExpandText(open, templates), m =>
+            match is not null && int.TryParse(m.Groups[1].ValueSpan, out var index) && index < match.Groups.Count
                 ? match.Groups[index].Value
                 : "");
-        return TemplateExpander.ExpandText(withGroups, templates);
+    }
+
+    private static Match? Match(Regex pattern, string text)
+    {
+        try
+        {
+            return pattern.Match(text);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return null;
+        }
     }
 
     public void Dispose() => _subscription.Dispose();
 
     [GeneratedRegex(@"\$(\d+)")]
     private static partial Regex GroupReference();
-
-    private sealed class Disposable : IDisposable
-    {
-        public static readonly Disposable None = new();
-        public void Dispose() { }
-    }
 }

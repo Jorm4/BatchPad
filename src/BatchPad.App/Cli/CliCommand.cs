@@ -20,8 +20,12 @@ public sealed record CliCommand(CliVerb Verb)
     /// <exception cref="CliUsageException" />
     public static CliCommand Parse(IReadOnlyList<string> args)
     {
-        if (args.Count == 0 || !Enum.TryParse<CliVerb>(args[0], ignoreCase: true, out var verb))
-            throw new CliUsageException("Expected 'run' or 'list'.");
+        var verb = args switch
+        {
+            ["run", ..] => CliVerb.Run,
+            ["list", ..] => CliVerb.List,
+            _ => throw new CliUsageException("Expected 'run' or 'list'."),
+        };
         string? target = null, workspace = null;
         var yes = false;
         var values = new Dictionary<string, string>(StringComparer.Ordinal);

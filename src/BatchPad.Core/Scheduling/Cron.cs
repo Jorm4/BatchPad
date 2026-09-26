@@ -58,6 +58,10 @@ public sealed class Cron
     }
 
     /// <summary>The first matching wall-clock minute in <paramref name="zone"/> strictly after <paramref name="after"/>.</summary>
+    /// <remarks>
+    /// The hour repeated when the clocks go back fires only on its first pass, so a cron that fires within that hour
+    /// skips the second pass.
+    /// </remarks>
     public DateTimeOffset? Next(DateTimeOffset after, TimeZoneInfo zone)
     {
         var afterWall = TimeZoneInfo.ConvertTime(after, zone).DateTime;

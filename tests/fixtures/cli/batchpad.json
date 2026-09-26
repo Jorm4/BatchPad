@@ -3,8 +3,11 @@
   "name": "CLI fixture",
   "scripts": [
     { "id": "exit-three", "name": "Exit three", "path": "../run/exit3.bat",
-      "params": [ { "name": "who", "type": "text", "arg": "--who" } ] },
+      "params": [ { "name": "who", "type": "text", "arg": "--who" },
+                  { "name": "speed", "type": "choice", "arg": "--speed", "choices": [
+                    { "value": "1", "label": "Fast" }, { "value": "2", "label": "Fast" } ] } ] },
     { "id": "deploy", "name": "Deploy", "path": "../run/exit3.bat", "confirm": "Deploy to production?" },
-    { "id": "flow", "name": "Flow", "steps": [ { "id": "three", "run": "exit-three" } ] }
+    { "id": "flow", "name": "Flow", "steps": [ { "id": "drei-✓", "run": "exit-three" } ] },
+    { "id": "greeting", "name": "Grüße ✓", "path": "../run/exit3.bat" }
   ]
 }

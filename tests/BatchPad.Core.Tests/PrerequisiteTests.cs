@@ -6,8 +6,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class PrerequisiteTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
-
     [TestMethod]
     public async Task AFailingPrerequisiteStopsTheScriptFromRunning()
     {

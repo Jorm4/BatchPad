@@ -1,3 +1,4 @@
+using BatchPad.Core.Trust;
 using System.Collections.ObjectModel;
 using BatchPad.Core.Customisation;
 using BatchPad.Core.Detection;
@@ -47,7 +48,6 @@ public sealed partial class NodeViewModel : ObservableObject
     public bool IsRunnable => Kind is NodeKind.Script or NodeKind.Workflow;
     public bool IsMyScript => Tree.Kind == TreeKind.MyScripts && Item?.HasEntry == true;
 
-    /// <summary>A My Scripts script entry with its base applied; null elsewhere.</summary>
     public ResolvedCustomisation? Customisation { get; }
     public bool IsBroken => Customisation?.IsBroken == true;
 
@@ -62,15 +62,12 @@ public sealed partial class NodeViewModel : ObservableObject
 
     public string? FilePath => Item?.ScriptPath ?? Script?.Path;
 
-    /// <summary>Folders from the root down to this node's parent, e.g. <c>Workspace › Hello</c>.</summary>
     public string Location => string.Join(" › ", Ancestors().Reverse().Select(a => a.Kind == NodeKind.Root ? RootLabel(a.Tree.Kind) : a.Name));
 
     public string AutomationId => Parent is null ? Tree.Kind.ToString() : $"{Parent.AutomationId}/{Name}";
 
     /// <summary>Identifies the node across reloads and renames: its tree plus its id, else its file.</summary>
-    public string Key => KeyFor(Tree, Node, FilePath) ?? $"{Tree.Kind}:{AutomationId}";
-
-    public static string? KeyFor(ScriptTree tree, TreeNode? node, string? filePath) => tree.NodeKey(node, filePath);
+    public string Key => Tree.NodeKey(Node, FilePath) ?? $"{Tree.Kind}:{AutomationId}";
 
     public string Icon => Kind switch
     {
@@ -98,21 +95,18 @@ public sealed partial class NodeViewModel : ObservableObject
     [ObservableProperty]
     private bool isNew;
 
-    /// <summary>Detection's suggestions not yet accepted or dismissed, e.g. <c>1 new option: --gated</c>.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasProposals))]
     private string? proposalBadge;
 
     public bool HasProposals => ProposalBadge is not null;
 
-    /// <summary>For a link to a local file, e.g. <c>updated 2 h ago</c>.</summary>
     [ObservableProperty]
     private string? linkAge;
 
     [ObservableProperty]
     private bool isMissing;
 
-    /// <summary>The node's schedules in words, one per line; null when it has none.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsScheduled))]
     private string? scheduleText;
@@ -121,8 +115,7 @@ public sealed partial class NodeViewModel : ObservableObject
 
     public void RefreshLinkState(TimeProvider time)
     {
-        if (Node is not LinkNode { Url: { Length: > 0 } url } || url.Contains("${")
-            || (Uri.TryCreate(url, UriKind.Absolute, out var uri) && !uri.IsFile && uri.Scheme.Length > 1))
+        if (Node is not LinkNode { Url: { Length: > 0 } url } || url.Contains("${") || LinkPolicy.AsUrl(url) is not null)
             return;
         var target = Path.GetFullPath(url, Tree.BaseDirectory);
         var isFile = File.Exists(target);
@@ -135,6 +128,13 @@ public sealed partial class NodeViewModel : ObservableObject
         : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago"
         : age.TotalDays < 1 ? $"{(int)age.TotalHours} h ago"
         : $"{(int)age.TotalDays} d ago";
+
+    public void Reveal()
+    {
+        for (var parent = Parent; parent is not null; parent = parent.Parent)
+            parent.IsExpanded = true;
+        IsSelected = true;
+    }
 
     public string? ScriptFullPath => FilePath is { } path && !path.Contains("${") ? Path.GetFullPath(path, Tree.BaseDirectory) : null;
 

@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using BatchPad.Core.Arguments;
+using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Workspace;
@@ -18,7 +19,7 @@ public static class Flattener
     {
         if (resolved is not { Definition: { } definition, DefinitionTree: { } from })
             throw new InvalidOperationException(resolved.Problem ?? "The entry has no definition.");
-        var shared = CustomisationResolver.Clone<TreeNode>(definition) as RunnableNode
+        var shared = ConfigJson.Clone<TreeNode>(definition) as RunnableNode
             ?? throw new InvalidOperationException("Clone lost the node type.");
         shared.Name = resolved.Name;
         shared.Id = IdAssigner.FromName(resolved.Name, takenIds);
@@ -55,7 +56,7 @@ public static class Flattener
     /// <summary>A standalone My Scripts copy of a shared script: paths made absolute and references qualified, so it runs the same command.</summary>
     public static ScriptNode ToStandalone(ScriptNode shared, ScriptTree from, string name)
     {
-        var copy = CustomisationResolver.Clone(shared);
+        var copy = ConfigJson.Clone(shared);
         copy.Id = null;
         copy.Hidden = null;
         copy.Name = name;

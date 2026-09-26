@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
+using BatchPad.App.Services;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Templating;
@@ -155,7 +156,7 @@ public sealed partial class AfterRunTabViewModel : ObservableObject
         }
         try
         {
-            var pattern = new Regex(ReadyPattern);
+            var pattern = new Regex(ReadyPattern, RegexOptions.None, UserPattern.Timeout);
             var match = SampleOutput.Split('\n').Select(line => pattern.Match(line.TrimEnd('\r'))).FirstOrDefault(m => m.Success);
             if (match is null)
                 TesterResult = "No match";
@@ -165,7 +166,7 @@ public sealed partial class AfterRunTabViewModel : ObservableObject
                 TesterResult = url is null ? $"Matches: {match.Value}" : $"Matches: {match.Value}{Environment.NewLine}Opens: {url}";
             }
         }
-        catch (Exception ex) when (ex is ArgumentException || DetailsViewModel.IsRunProblem(ex))
+        catch (Exception ex) when (ex is ArgumentException or RegexMatchTimeoutException || RunProblems.IsRunProblem(ex))
         {
             TesterResult = $"⚠ {ex.Message}";
         }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using BatchPad.App.Cli;
 using BatchPad.Core.History;
 using BatchPad.Core.Running;
@@ -29,6 +30,29 @@ public sealed class CliTests
         Assert.Throws<CliUsageException>(() => CliCommand.Parse(["run"]));
         Assert.Throws<CliUsageException>(() => CliCommand.Parse(["run", "build", "--force"]));
         Assert.Throws<CliUsageException>(() => CliCommand.Parse(["list", "--yes"]));
+    }
+
+    [TestMethod]
+    public void TheParserAcceptsOnlyTheVerbsThatSelectTheCli()
+    {
+        foreach (var verb in new[] { "RUN", "List", "0", "1" })
+        {
+            Assert.IsFalse(CliCommand.IsCli([verb, "x"]));
+            Assert.Throws<CliUsageException>(() => CliCommand.Parse([verb, "x"]));
+        }
+    }
+
+    [TestMethod]
+    public async Task AnAmbiguousChoiceIsAFailureNotACrash()
+    {
+        using var test = new TestWorkspace();
+        var settings = new Settings();
+        new TrustStore(settings, test.Paths.SettingsFile).Trust(Fixture);
+        var error = new StringWriter();
+        var runner = new CliRunner(test.Paths, settings, new StringWriter(), error);
+
+        Assert.AreEqual(CliRunner.Failure, await runner.RunAsync(["run", "exit-three", "--set", "speed=Fast", "-w", Fixture], test.Root));
+        StringAssert.Contains(error.ToString(), "label of 2 choices");
     }
 
     [TestMethod]
@@ -78,30 +102,33 @@ public sealed class CliTests
         var (runner, output, _) = Runner(test, new FakeLauncher());
 
         Assert.AreEqual(0, await runner.RunAsync(["list", "-w", Fixture], test.Root));
-        CollectionAssert.AreEqual(new[] { "exit-three\tExit three", "deploy\tDeploy", "flow\tFlow" },
+        CollectionAssert.AreEqual(new[] { "exit-three\tExit three", "deploy\tDeploy", "flow\tFlow", "greeting\tGrüße ✓" },
             output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
         Assert.AreEqual(CliRunner.UsageError, await runner.RunAsync(["run", "missing", "-w", Fixture], test.Root));
     }
 
     [TestMethod]
-    public void TheComShimRunsScriptsAndPassesTheExitCode()
+    public void UnreadableSettingsFallBackToDefaults()
     {
         using var test = new TestWorkspace();
-        var demo = test.CopyDemo();
-        var settings = new Settings();
-        var trust = new TrustStore(settings, test.Paths.SettingsFile);
-        trust.Trust(demo);
-        trust.Trust(Fixture);
+        Directory.CreateDirectory(test.Paths.DataDirectory);
+        using var locked = new FileStream(test.Paths.SettingsFile, FileMode.Create, FileAccess.Write, FileShare.None);
+        var error = new StringWriter();
 
-        var (hello, helloOutput) = RunShim(test, "run", "hello-bat", "--workspace", demo);
-        Assert.AreEqual(0, hello, helloOutput);
-        StringAssert.Contains(helloOutput, "Hello from batch!");
+        Assert.IsNotNull(App.LoadSettings(test.Paths, error));
+        Assert.IsFalse(string.IsNullOrEmpty(error.ToString()));
+    }
 
-        var (three, threeOutput) = RunShim(test, "run", "exit-three", "--workspace", Fixture);
-        Assert.AreEqual(3, three, threeOutput);
+    [TestMethod]
+    public void TheComShimRelaysAWorkflowsOutputAndExitCode()
+    {
+        using var test = new TestWorkspace();
+        new TrustStore(new Settings(), test.Paths.SettingsFile).Trust(Fixture);
 
-        var (flow, flowOutput) = RunShim(test, "run", "flow", "--workspace", Fixture);
-        Assert.AreEqual(3, flow, flowOutput);
+        var (code, output) = RunShim(test, "run", "flow", "--workspace", Fixture);
+
+        Assert.AreEqual(3, code, output);
+        StringAssert.Contains(output, "> drei-✓");
     }
 
     internal static (int ExitCode, string Output) RunShim(TestWorkspace test, params string[] args)
@@ -111,6 +138,8 @@ public sealed class CliTests
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
         };
         startInfo.Environment[App.DataDirectoryVariable] = test.Paths.DataDirectory;
         foreach (var arg in args)
@@ -118,7 +147,7 @@ public sealed class CliTests
         using var process = Process.Start(startInfo)!;
         var error = process.StandardError.ReadToEndAsync();
         var output = process.StandardOutput.ReadToEnd();
-        if (!process.WaitForExit(TimeSpan.FromSeconds(30)))
+        if (!process.WaitForExit(Limit))
         {
             process.Kill(entireProcessTree: true);
             Assert.Fail("batchpad.com did not exit.");

@@ -65,8 +65,7 @@ public sealed class ShareTests
         var user = test.Paths.UserFile("batchpad-demo");
         Directory.CreateDirectory(Path.GetDirectoryName(user)!);
         File.WriteAllText(user, """{ "scripts": [ { "base": "workspace:params-demo", "name": "Demo release", "values": { "config": "--release" } } ] }""");
-        var main = new MainViewModel(test.Paths, new Settings(), confirm: confirm);
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, confirm: confirm);
         return main;
     }
 }

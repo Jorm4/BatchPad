@@ -50,8 +50,7 @@ public sealed class HistoryStore
             System.IO.Directory.CreateDirectory(Directory);
             File.WriteAllLines(LogPath(saved), log);
             File.WriteAllText(RecordPath(saved), JsonSerializer.Serialize(saved, Json));
-            records.Insert(0, saved);
-            records.Sort(NewestFirst);
+            records.Insert(~records.BinarySearch(saved, NewestFirstComparer), saved);
             Prune(records);
         }
         RunRecorded?.Invoke(saved);
@@ -121,10 +120,12 @@ public sealed class HistoryStore
         {
             File.Delete(file);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
     }
+
+    private static readonly Comparer<RunRecord> NewestFirstComparer = Comparer<RunRecord>.Create(NewestFirst);
 
     private static int NewestFirst(RunRecord a, RunRecord b) =>
         b.StartedAt.CompareTo(a.StartedAt) is var byTime and not 0 ? byTime : string.CompareOrdinal(b.Id, a.Id);

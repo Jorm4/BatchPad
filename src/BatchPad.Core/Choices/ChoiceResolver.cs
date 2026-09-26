@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Templating;
@@ -15,6 +16,9 @@ public sealed record ChoiceContext(string BaseDirectory)
 
     /// <summary>Runs <c>command</c> sources; without it they add a problem instead.</summary>
     public CommandChoiceSource? Commands { get; init; }
+
+    /// <summary>Where <c>glob</c> and <c>file</c> may read; by default anywhere but network shares and devices.</summary>
+    public PathPolicy Paths { get; init; } = PathPolicy.Workspace(BaseDirectory, trusted: true);
 }
 
 /// <summary>A source that fails (missing file, bad regex) adds a problem and contributes no choices.</summary>
@@ -23,6 +27,9 @@ public sealed record ResolvedChoices(IReadOnlyList<ChoiceDefinition> Choices, IR
 /// <summary>Fixed choices followed by <c>choicesFrom</c> sources (§3.3), duplicates removed by value.</summary>
 public sealed class ChoiceResolver
 {
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
+    private static readonly ConcurrentDictionary<(string, RegexOptions), Regex> RegexCache = new();
+
     private readonly ConcurrentDictionary<string, (DateTime Stamp, IReadOnlyList<string> Found)> fileCache = new();
 
     public ResolvedChoices Resolve(ParameterDefinition parameter, ChoiceContext context)
@@ -43,9 +50,13 @@ public sealed class ChoiceResolver
                 }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException
-                                          or TemplateException or ChoiceSourceException)
+                                          or TemplateException or ChoiceSourceException or UnsafePathException)
             {
                 problems.Add(e.Message);
+            }
+            catch (RegexMatchTimeoutException e)
+            {
+                problems.Add($"The pattern \"{e.Pattern}\" took too long to match.");
             }
         }
         return new ResolvedChoices(choices, problems);
@@ -77,19 +88,19 @@ public sealed class ChoiceResolver
         var pattern = Expand(source.Glob!, context).Replace('\\', '/');
         var segments = pattern.Split('/');
         var fixedSegments = segments[..^1].TakeWhile(s => s.IndexOfAny(['*', '?']) < 0).Count();
-        var searchRoot = Path.GetFullPath(Path.Combine(context.BaseDirectory, string.Join('/', segments[..fixedSegments])));
+        var searchRoot = context.Paths.Resolve(string.Join('/', segments[..fixedSegments]), context.BaseDirectory);
         if (!Directory.Exists(searchRoot))
             return [];
 
         var remainder = string.Join('/', segments[fixedSegments..]);
         var recursive = remainder.Contains('/') || remainder.Contains("**");
-        var match = source.Match is null ? null : new Regex(source.Match, RegexOptions.CultureInvariant);
+        var match = source.Match is null ? null : CachedRegex(source.Match, RegexOptions.CultureInvariant);
         var relativeTo = source.RelativeTo is null
             ? context.BaseDirectory
             : Path.GetFullPath(Path.Combine(context.BaseDirectory, Expand(source.RelativeTo, context)));
 
         var found = new List<string>();
-        foreach (var file in Directory.EnumerateFiles(searchRoot, "*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
+        foreach (var file in Directory.EnumerateFiles(searchRoot, "*", ScriptFolderScanner.Enumeration(recursive)))
         {
             if (!Glob.IsMatch(remainder, Relative(searchRoot, file)))
                 continue;
@@ -107,14 +118,14 @@ public sealed class ChoiceResolver
 
     private IReadOnlyList<string> FindByRegex(ChoiceSource source, ChoiceContext context)
     {
-        var path = Path.GetFullPath(Path.Combine(context.BaseDirectory, Expand(source.File!, context)));
+        var path = context.Paths.Resolve(Expand(source.File!, context), context.BaseDirectory);
         var stamp = File.GetLastWriteTimeUtc(path);
         var key = string.Join('\n', path, source.Regex, source.Split, source.All);
         if (fileCache.TryGetValue(key, out var cached) && cached.Stamp == stamp)
             return cached.Found;
 
-        var content = File.ReadAllText(path);
-        var matches = Regex.Matches(content, source.Regex!, RegexOptions.Multiline | RegexOptions.CultureInvariant)
+        var content = ConfigReader.ReadText(path);
+        var matches = CachedRegex(source.Regex!, RegexOptions.Multiline | RegexOptions.CultureInvariant).Matches(content)
             .Take(source.All ? int.MaxValue : 1);
         var found = matches
             .Select(m => m.Groups.Count > 1 ? m.Groups[1].Value : m.Value)
@@ -125,6 +136,13 @@ public sealed class ChoiceResolver
             .ToList();
         fileCache[key] = (stamp, found);
         return found;
+    }
+
+    private static Regex CachedRegex(string pattern, RegexOptions options)
+    {
+        if (RegexCache.Count > 200)
+            RegexCache.Clear();
+        return RegexCache.GetOrAdd((pattern, options), key => new Regex(key.Item1, key.Item2, RegexTimeout));
     }
 
     private static string Relative(string from, string file) => Path.GetRelativePath(from, file).Replace('\\', '/');

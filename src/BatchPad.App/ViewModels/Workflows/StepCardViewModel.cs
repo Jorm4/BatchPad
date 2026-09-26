@@ -1,3 +1,4 @@
+using BatchPad.Core.Config;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -151,11 +152,11 @@ public sealed partial class StepCardViewModel : ObservableObject
     public IReadOnlyList<string> FlowChips =>
     [
         .. _bindings.Select(b => $"{b.Key} ← {(b.Value == ItemValue ? $"each {ForEachParameter}" : ParamName(b.Value) ?? b.Value)}"),
-        .. ImplicitFlow().Select(name => $"{name} ← {name}"),
+        .. ImplicitFlow(_owner.ParameterNames.ToHashSet(StringComparer.OrdinalIgnoreCase)).Select(name => $"{name} ← {name}"),
     ];
 
-    public IEnumerable<string> Receives() =>
-        ImplicitFlow()
+    public IEnumerable<string> Receives(IReadOnlySet<string> workflowParameters) =>
+        ImplicitFlow(workflowParameters)
             .Concat(_bindings.Values.Select(ParamName).OfType<string>())
             .Concat(IsForEach && ForEachParameter is { } list ? [list] : [])
             .Distinct(StringComparer.OrdinalIgnoreCase);
@@ -223,7 +224,7 @@ public sealed partial class StepCardViewModel : ObservableObject
 
     public WorkflowStep ToStep()
     {
-        var step = ConfigEntries.Clone(_step);
+        var step = ConfigJson.Clone(_step);
         step.Id = GeneralTabViewModel.NullIfEmpty(Id) ?? _step.Id;
         step.ContinueOnError = ContinueOnError ? true : null;
         if (IsGroup)
@@ -283,12 +284,11 @@ public sealed partial class StepCardViewModel : ObservableObject
         _owner.Refresh();
     }
 
-    private IEnumerable<string> ImplicitFlow()
+    private IEnumerable<string> ImplicitFlow(IReadOnlySet<string> workflowParameters)
     {
         var set = Form?.Values.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         return TargetParameters.Select(p => p.Name!)
-            .Where(name => !_bindings.ContainsKey(name) && !set.Contains(name)
-                && _owner.ParameterNames.Contains(name, StringComparer.OrdinalIgnoreCase));
+            .Where(name => !_bindings.ContainsKey(name) && !set.Contains(name) && workflowParameters.Contains(name));
     }
 
     private ParameterFormViewModel? BuildForm(IReadOnlyDictionary<string, JsonNode?>? values)
@@ -299,7 +299,8 @@ public sealed partial class StepCardViewModel : ObservableObject
             (values ?? new Dictionary<string, JsonNode?>()).Where(v => !_bindings.ContainsKey(v.Key)).ToDictionary(v => v.Key, v => v.Value), "");
         try
         {
-            var built = ParameterFormViewModel.For(_owner.Workspace, definition, tree, stored, _owner.Dialogs, _owner.CommandChoices, p => !_bindings.ContainsKey(p.Name!));
+            var built = ParameterFormViewModel.For(_owner.Workspace, definition, tree, stored, _owner.Services, _owner.CommandChoices,
+                p => p.Type != ParameterType.Secret && !_bindings.ContainsKey(p.Name!));
             built.Changed += Changed;
             return built;
         }

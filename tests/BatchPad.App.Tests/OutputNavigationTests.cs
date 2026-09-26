@@ -37,6 +37,32 @@ public sealed class OutputNavigationTests
     }
 
     [TestMethod]
+    public void WithoutAnEditorAScriptOpensInNotepadRatherThanRunning()
+    {
+        var shell = new FakeShell();
+
+        new SourceOpener(shell, new Settings(), codeOnPath: () => false).Open(new SourceLocation(@"C:\w\build.bat", 3, 1));
+
+        Assert.IsEmpty(shell.Opened);
+        CollectionAssert.AreEqual(new[] { @"notepad.exe ""C:\w\build.bat""" }, shell.Commands);
+    }
+
+    [TestMethod]
+    public void CmdSpecialCharactersInAnEditorPathStayInert()
+    {
+        const string path = @"C:\w\a&echo INJECTED|b^c%PATH%!x!.py";
+        var start = ShellService.CommandStartInfo("echo [!BP_FILE!]", new Dictionary<string, string> { ["BP_FILE"] = path });
+        start.RedirectStandardOutput = true;
+
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEnd().Trim();
+        process.WaitForExit();
+
+        Assert.AreEqual($"[{path}]", output);
+        Assert.AreEqual(Environment.SystemDirectory, start.WorkingDirectory);
+    }
+
+    [TestMethod]
     public void F8MovesThroughTheErrorLinesAndWraps()
     {
         using var test = new TestWorkspace();
@@ -80,10 +106,8 @@ public sealed class OutputNavigationTests
     private static (RunViewModel, FakeProcess) Start(TestWorkspace test, FakeShell shell, Settings settings, List<string>? errorPatterns = null)
     {
         var launcher = new FakeLauncher();
-        var main = new MainViewModel(test.Paths, settings, launcher, shell: shell);
-        main.Trust.Trust(TestWorkspace.DemoSource);
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
-        main.Tree!.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, settings: settings, launcher: launcher, shell: shell);
+        main.Select("Workspace/Hello/hello.bat");
         main.SelectedNode!.Script!.ErrorPatterns = errorPatterns;
         main.Details.RunCommand.Execute(null);
         return ((RunViewModel)main.Output.Tabs.Single(), launcher.Started.Single());

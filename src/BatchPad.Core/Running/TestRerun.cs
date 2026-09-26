@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using BatchPad.Core.Arguments;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
 using BatchPad.Core.Templating;
@@ -12,7 +11,7 @@ public static class TestRerun
     /// <exception cref="TemplateException">The path uses a variable that has no value.</exception>
     public static string? ReportPath(RunRequest request) =>
         request.Script.TestReport?.Path is { Length: > 0 } path
-            ? Path.GetFullPath(Path.Combine(request.Tree.BaseDirectory, TemplateExpander.ExpandText(path, RunPlanner.BoundTemplatesFor(request))))
+            ? TemplateExpander.ExpandPath(path, request.Tree.BaseDirectory, RunPlanner.BoundTemplatesFor(request))
             : null;
 
     public static IReadOnlyList<string> FailedNames(JUnitReport report, RerunBy by) =>
@@ -22,8 +21,7 @@ public static class TestRerun
     public static Dictionary<string, JsonNode?> Values(RunRequest request, string parameter, IReadOnlyList<string> names)
     {
         var values = request.Values?.ToDictionary(v => v.Key, v => v.Value?.DeepClone()) ?? [];
-        var definition = SharedParameters.MergeAll(request.Script.Params, request.Workspace.Workspace.File.SharedParams)
-            .FirstOrDefault(p => p.Name == parameter);
+        var definition = request.Parameters.FirstOrDefault(p => p.Name == parameter);
         values[parameter] = definition?.Type == ParameterType.Multichoice
             ? new JsonArray([.. names.Select(n => JsonValue.Create(n))])
             : JsonValue.Create(string.Join(" ", names));

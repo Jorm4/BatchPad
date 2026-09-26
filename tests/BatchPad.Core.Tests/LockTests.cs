@@ -8,14 +8,15 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class LockTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
-
     private const string Scripts = """
         { "id": "a", "path": "nap.py", "lock": "x" },
         { "id": "b", "path": "nap.py", "lock": "x" },
         { "id": "other", "path": "nap.py", "lock": "y" },
         { "id": "single", "path": "nap.py", "singleInstance": true },
-        { "id": "flow", "lock": "x", "steps": [ { "run": "a" }, { "run": "b" } ] }
+        { "id": "flow", "lock": "x", "steps": [ { "run": "a" }, { "run": "b" } ] },
+        { "id": "plain", "path": "nap.py" },
+        { "id": "x-then-y", "lock": "x", "steps": [ { "run": "plain" }, { "run": "other" } ] },
+        { "id": "y-then-x", "lock": "y", "steps": [ { "run": "plain" }, { "run": "a" } ] }
         """;
 
     [TestMethod]
@@ -66,14 +67,29 @@ public sealed class LockTests
         var workflow = (WorkflowNode)loaded.References.Resolve("flow", TreeKind.Workspace)!;
         var run = new WorkflowRunner(loaded, test.Workspace.Gate, RunWorkspace.Interpreters)
             .Start(new WorkflowRequest(loaded.Workspace, workflow));
-        while (!test.Workspace.Gate.Locks.IsHeld("x"))
-            await Task.Yield();
+        await Eventually(() => test.Workspace.Gate.Locks.IsHeld("x"));
 
         using var lone = test.Start("a");
         Assert.AreEqual("x", lone.WaitingForLock);
         await run.Completion.WaitAsync(Limit);
         await lone.Completion.WaitAsync(Limit);
         Assert.IsGreaterThanOrEqualTo(EndOf(run.Steps[1].Handle!), lone.StartedAt);
+    }
+
+    [TestMethod]
+    public async Task WorkflowsTakingEachOthersStepLocksDoNotDeadlock()
+    {
+        using var test = new LockTest();
+        var loaded = test.Workspace.Workspace;
+        var runner = new WorkflowRunner(loaded, test.Workspace.Gate, RunWorkspace.Interpreters);
+        WorkflowRun Start(string id) => runner.Start(new WorkflowRequest(loaded.Workspace, (WorkflowNode)loaded.References.Resolve(id, TreeKind.Workspace)!));
+
+        var first = Start("x-then-y");
+        var second = Start("y-then-x");
+        var results = await Task.WhenAll(first.Completion, second.Completion).WaitAsync(Limit);
+
+        Assert.IsTrue(results.All(r => r.Succeeded));
+        Assert.IsFalse(test.Workspace.Gate.Locks.IsHeld("x") || test.Workspace.Gate.Locks.IsHeld("y"));
     }
 
     [TestMethod]
@@ -145,7 +161,7 @@ public sealed class LockTests
         public LockTest()
         {
             Workspace = new RunWorkspace(Scripts);
-            File.WriteAllText(Workspace.Temp.Path("nap.py"), "import time\ntime.sleep(0.4)\n");
+            File.WriteAllText(Workspace.Temp.Path("nap.py"), "import time\ntime.sleep(0.2)\n");
             Assert.IsEmpty(Workspace.Workspace.Errors, string.Join('\n', Workspace.Workspace.Errors));
         }
 

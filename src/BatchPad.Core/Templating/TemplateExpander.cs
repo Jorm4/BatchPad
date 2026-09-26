@@ -21,6 +21,10 @@ public static class TemplateExpander
 
     public static bool HasVariables(string text) => text.Contains("${", StringComparison.Ordinal);
 
+    /// <summary>The full path of <paramref name="path"/>, expanded when <paramref name="context"/> is given, relative to <paramref name="baseDirectory"/>.</summary>
+    public static string ExpandPath(string path, string baseDirectory, TemplateContext? context) =>
+        Path.GetFullPath(Path.Combine(baseDirectory, context is null ? path : ExpandText(path, context)));
+
     private sealed class Expansion(TemplateContext context)
     {
         private readonly HashSet<string> variablesBeingExpanded = [];

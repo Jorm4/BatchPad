@@ -28,9 +28,6 @@ public sealed record OutputLineViewModel(string Text, OutputStream Stream, IRead
 }
 
 /// <summary>What a run tab needs beyond the process: the request it ran, for ready, stop companion and artifacts.</summary>
-/// <param name="StartCompanion">Starts a stop companion request and shows it; false when it could not start.</param>
-/// <param name="RunAgain">Runs a node again with new values and extra arguments, as History's "Run again" does.</param>
-/// <param name="PinLink">Adds an artifact's file to My Scripts as a link.</param>
 public sealed record RunContext(RunRequest Request, IShellOpener Opener, Func<RunRequest, bool> StartCompanion, SourceOpener? Sources = null,
     Action<string, IReadOnlyDictionary<string, JsonNode?>, string>? RunAgain = null, Action<string>? PinLink = null);
 
@@ -92,11 +89,9 @@ public sealed partial class RunViewModel : OutputTabViewModel
         var secrets = context is null ? [] : SecretMasker.SecretValues(context.Request);
         var parser = new OutputLineParser(context?.Request.Script.ErrorPatterns);
         var links = context?.Sources is { } sources ? new SourceLinks(() => RunPlanner.WorkingDirectoryFor(context.Request), sources) : null;
+        var poster = new OutputPoster(Log, dispatcher);
         _subscription = process.Subscribe(line =>
-        {
-            var parsed = OutputLineViewModel.From(parser.Parse(SecretMasker.Mask(line.Text, secrets)), line.Stream, links);
-            dispatcher.Post(() => Log.Add(parsed));
-        });
+            poster.Add(OutputLineViewModel.From(parser.Parse(SecretMasker.Mask(line.Text, secrets)), line.Stream, links)));
         process.WaitingChanged += () => dispatcher.Post(() => ShowWaiting(process.WaitingForLock));
         ShowWaiting(process.WaitingForLock);
         if (context is not null)

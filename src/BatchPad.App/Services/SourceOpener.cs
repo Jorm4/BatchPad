@@ -10,8 +10,8 @@ public sealed class SourceOpener(IShellService shell, Settings settings, Func<bo
 
     public void Open(SourceLocation location)
     {
-        if (EditorCommand.Template(settings.EditorCommand, _codeOnPath.Value) is { } template)
-            shell.RunCommand(EditorCommand.Expand(template, location));
+        if (EditorCommand.Template(settings.EditorCommand, _codeOnPath.Value, location.Path) is { } template)
+            shell.RunCommand(EditorCommand.Expand(template, location), EditorCommand.Environment(location));
         else
             shell.Open(location.Path);
     }

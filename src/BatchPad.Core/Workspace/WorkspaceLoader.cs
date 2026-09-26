@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using BatchPad.Core.Config;
+using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Scheduling;
+using BatchPad.Core.Trust;
 using BatchPad.Core.Workflows;
 
 namespace BatchPad.Core.Workspace;
@@ -21,16 +23,26 @@ public sealed class LoadedWorkspace
     public IEnumerable<ScriptTree> Trees => [MyScripts, Workspace, Global];
 
     public IEnumerable<ScriptTree> AllTrees => Trees.SelectMany(t => t.SelfAndParts());
+
+    public IEnumerable<string> ConfigDirectories => AllTrees.Select(t => t.BaseDirectory).Distinct(StringComparer.OrdinalIgnoreCase);
+
+    public IEnumerable<string> ScriptDirectories =>
+        AllTrees.SelectMany(t => t.ScriptFolderDirectories).Distinct(StringComparer.OrdinalIgnoreCase);
 }
 
 public static class WorkspaceLoader
 {
     /// <summary>Loads all three trees. Problems are collected in <see cref="LoadedWorkspace.Errors"/>; a file that fails to load becomes an empty tree.</summary>
-    public static LoadedWorkspace Load(string workspaceFile, AppPaths paths)
+    /// <param name="trust">Decides whether the workspace's files may reach outside its folder; without it they may not.</param>
+    public static LoadedWorkspace Load(string workspaceFile, AppPaths paths, TrustStore? trust = null)
     {
         var errors = new List<LoadError>();
         var fullPath = Path.GetFullPath(workspaceFile);
-        var workspace = new ScriptTree(TreeKind.Workspace, fullPath, ReadOrEmpty(fullPath, errors, reportMissing: true));
+        var directory = Path.GetDirectoryName(fullPath)!;
+        var workspace = new ScriptTree(TreeKind.Workspace, fullPath, ReadOrEmpty(fullPath, errors, reportMissing: true))
+        {
+            Paths = PathPolicy.Workspace(directory, trust?.IsTrusted(directory) == true),
+        };
         var id = ComputeId(workspace.File, fullPath);
         var global = new ScriptTree(TreeKind.Global, paths.GlobalFile, ReadOrEmpty(paths.GlobalFile, errors));
         var userFile = paths.UserFile(id);
@@ -42,7 +54,10 @@ public static class WorkspaceLoader
         var references = ReferenceResolver.Build(trees, errors);
         var allTrees = trees.SelectMany(t => t.SelfAndParts()).ToList();
         foreach (var tree in allTrees)
+        {
             CheckSchedules(tree, errors);
+            CheckScriptFolders(tree, errors);
+        }
         errors.AddRange(WorkflowValidator.FindCycles(allTrees, references));
         errors.AddRange(Prerequisites.FindCycles(allTrees, references));
         workspace.Rescan(myScripts.File.SeenPaths?.ToHashSet(StringComparer.OrdinalIgnoreCase));
@@ -65,13 +80,22 @@ public static class WorkspaceLoader
     {
         foreach (var include in tree.File.Include ?? [])
         {
-            var path = Path.GetFullPath(include, tree.BaseDirectory);
+            string path;
+            try
+            {
+                path = tree.Paths.Resolve(include, tree.BaseDirectory);
+            }
+            catch (Exception ex) when (ex is UnsafePathException or ArgumentException)
+            {
+                errors.Add(new LoadError($"Include '{include}': {ex.Message}", tree.FilePath));
+                continue;
+            }
             if (!loaded.Add(path))
             {
                 errors.Add(new LoadError($"'{include}' is included more than once.", tree.FilePath));
                 continue;
             }
-            var part = new ScriptTree(tree.Kind, path, ReadOrEmpty(path, errors, reportMissing: true)) { Library = tree.Library, IsPart = true };
+            var part = new ScriptTree(tree.Kind, path, ReadOrEmpty(path, errors, reportMissing: true)) { Library = tree.Library, IsPart = true, Paths = tree.Paths };
             tree.Parts.Add(part);
             AddIncludes(part, errors, loaded);
         }
@@ -113,6 +137,15 @@ public static class WorkspaceLoader
         }
     }
 
+    private static void CheckScriptFolders(ScriptTree tree, List<LoadError> errors)
+    {
+        foreach (var folder in tree.DeclaredScriptFolders)
+        {
+            if (tree.Paths.Problem(ScriptFolderScanner.FullPath(tree.BaseDirectory, folder)) is { } problem)
+                errors.Add(new LoadError($"Script folder '{folder.Path}' is skipped: {problem}", tree.FilePath));
+        }
+    }
+
     /// <summary>The file's <c>id</c>, or a hash of its full path (§3.7). The id names a folder, so an unsafe one is hashed too.</summary>
     public static string ComputeId(WorkspaceFile file, string fullPath)
     {
@@ -123,7 +156,7 @@ public static class WorkspaceLoader
     }
 
     private static bool IsSafeFolderName(string id) =>
-        id.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && id.Trim('.').Length > 0;
+        id.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && !id.EndsWith('.') && !id.EndsWith(' ') && !PathPolicy.IsDeviceName(id);
 
     private static WorkspaceFile ReadOrEmpty(string path, List<LoadError> errors, bool reportMissing = false)
     {
@@ -141,7 +174,7 @@ public static class WorkspaceLoader
         {
             errors.Add(new LoadError(ex.Message, path));
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             errors.Add(new LoadError(ex.Message, path));
         }

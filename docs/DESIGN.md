@@ -418,7 +418,9 @@ Recent workspaces, window layout, theme (System/Light/Dark), interpreter
 overrides (`python`, `pwsh`, `dotnet`), default editor, history retention.
 The editor is `editorCommand`, a command line with `{file}`, `{line}` and
 `{col}` (default `code -g "{file}:{line}"` when `code` is on PATH, otherwise
-the file's default app).
+the file's default app, or Notepad for script and program files). The path
+reaches the command through a variable, so `&`, `|`, `^` and `%` in it are
+inert.
 **Portable mode:** if `batchpad.portable` sits next to the exe, every
 `%APPDATA%\BatchPad` path moves to a `data\` folder beside it, and every
 `%LOCALAPPDATA%\BatchPad` path to `data\local\`. This supports
@@ -473,7 +475,7 @@ reads it without running it and proposes settings:
 | Parameters (PowerShell) | the `param()` block via the PowerShell parser (types, `ValidateSet`, defaults, `[switch]`) |
 | Parameters (batch) | usage lines in the header (`rem   build.bat --release [name]`) and `%~1`…`%~9` use, as flags and positional text |
 | Parameters (C#) | `args[n]` use, as positional text; `System.CommandLine` options later |
-| Long-running | `http.server`, `serve` in the name, `Press Ctrl+C` in the text |
+| Long-running | `http.server`, `serve` in the name, `Press Ctrl+C` in the text; never for a `stop_…`, `kill_…` or `shutdown_…` script |
 | Stop companion | a `serve_X` / `stop_X` pair with a shared parameter |
 
 The Python and PowerShell readers run a helper process (`py -3`, or the
@@ -512,7 +514,9 @@ UTF-8, and otherwise with the OEM code page. This matters because a batch
 file mixes OEM output from cmd with UTF-8 from the Python it calls.
 `PYTHONIOENCODING=utf-8` is set, and ANSI colour codes are rendered — the 16
 colours and bold, each line starting unstyled; other escapes are stripped
-(`FORCE_COLOR=1` is set for runners that honour it).
+(`FORCE_COLOR=1` is set for runners that honour it). A run keeps its last
+20,000 lines for tabs opened later and for history, after a
+"… N earlier lines not kept" note.
 
 **Quoting.** Arguments are quoted per target, never by one generic rule. Exes
 and Python get standard `CommandLineToArgvW` quoting. Anything that goes
@@ -671,8 +675,9 @@ Step semantics:
   steps before it are not run again: their results and outputs are reused.
   A failed member of a parallel group re-runs the whole group, and a failed
   `forEach` item the whole step. History records the run as a resumption.
-- A `lock` on the workflow applies to the whole run; otherwise each step's
-  own lock applies.
+- A `lock` on the workflow applies to the whole run, and the workflow then
+  takes its steps' locks up front too, so two workflows can't deadlock over
+  each other's locks; otherwise each step's own lock applies.
 
 The editor is a vertical list of step cards: drag to reorder, drop onto the
 middle of a card to make a parallel group (a group card can be ungrouped), and
@@ -690,8 +695,12 @@ workspace-independent jobs), never in the shared workspace file, so cloning a
 repo never starts jobs on your machine. A schedule in `global.json` that
 targets `workspace:…` must name the workspace (`"workspace": "C:/src/game"`).
 
-A schedule records a hash of the definition it was set up with. If `git
-pull` changes the scheduled script or workflow, the schedule pauses. The
+A schedule records a hash of the definition it was set up with: the
+scheduled script or workflow, every script and workflow it reaches, those
+scripts' file contents, and the workspace's `variables`, `sharedParams` and
+`lists`. If `git pull` changes any of them, the schedule pauses (checked on
+reload and again before each fire). Editing a scheduled script yourself
+pauses it too, until you re-confirm it. The
 Schedules view then shows *"definition changed — review"* until the user
 re-confirms it, so a change to a shared file cannot silently alter what
 runs unattended.
@@ -715,7 +724,7 @@ opened), and `afterRun` (another run finished, filtered by result).
 Time triggers use local wall-clock time. `cron` takes lists, ranges, steps
 and month and weekday names; when both the day and weekday fields are
 restricted, either one matching is enough. `every` takes `90s`, `30m`,
-`1h30m` or `2d` and counts from midnight, or from the start of its
+`1h30m` or `2d` (at most 366 days) and counts from midnight, or from the start of its
 `between` window (both ends included; a window may wrap past midnight).
 `at` is a local date and time unless it carries an offset. A time skipped
 when the clocks go forward fires when they jump; a time repeated when they go
@@ -745,7 +754,8 @@ default); the tray menu offers Open, Schedules and Exit, and Exit asks about
 active runs as closing does.
 
 A schedule written by hand without `definitionHash` adopts the definition it
-is first loaded with. Only a definition the user confirmed in the Schedules
+is first loaded with, unless BatchPad's saved schedule state could not be
+read: it then waits for a confirm. Only a definition the user confirmed in the Schedules
 view answers a `confirm` question; otherwise such a target fails unattended.
 `queue` holds at most one waiting fire. `runOnce` catches up one fire at
 start, counting from the last fire, or from when the schedule was first
@@ -764,6 +774,8 @@ A `batchpad.json` arrives with a `git clone`, so it is someone else's code.
 As in VS Code's workspace trust, each workspace folder is **untrusted** until
 the user trusts it. The New workspace wizard asks, and so does opening a
 workspace for the first time. The decision is stored per folder in settings.
+A script from a file the workspace includes from outside its folder runs only
+once that file's folder is trusted too.
 
 An untrusted workspace is read-only in effect. The tree shows, the editor
 works, and static detection (which reads files and runs nothing) works. It
@@ -773,13 +785,20 @@ does **not**:
 - run `argparse` or PowerShell detection, which calls the interpreter;
 - open links to executable file types (`.bat`, `.cmd`, `.exe`, `.lnk`, `.ps1`,
   and so on);
-- register hotkeys from shared definitions.
+- register hotkeys from shared definitions;
+- read outside the workspace folder through `include`, `scriptFolders` or
+  `choicesFrom` `file` and `glob`; such paths are skipped with a load problem.
 
 Even in trusted workspaces:
 - links only open executable file types after a confirmation;
+- a `ready.open` URL or an artifact opens by itself only when it is not an
+  executable type and not on a network or device path; otherwise it stays a
+  button;
 - interpreters are resolved to full paths from settings or the `py`
   launcher, never from the repository's own folder;
-- shared definitions cannot create schedules (§4.2).
+- shared definitions cannot create schedules (§4.2);
+- the workspace's files never reach device paths, or network shares outside
+  the workspace folder. `global.json` and `user.json` are yours, so they may.
 
 ## 5. UI
 

@@ -12,8 +12,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class SchedulerTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
-
     private const string Scripts = """
         { "id": "build", "path": "build.bat", "args": ["--fast"] },
         { "id": "flow", "name": "Nightly flow", "steps": [ { "run": "build" } ] }
@@ -41,7 +39,7 @@ public sealed class SchedulerTests
         Assert.AreEqual("RallyRacer", script.Values!["app"]!.GetValue<string>());
         run.Complete(0);
         var record = await h.Fires.Single().Recorded.WaitAsync(Limit);
-        Assert.AreEqual(RunTriggers.Schedule("nightly"), record.Trigger);
+        Assert.AreEqual(RunTriggers.Schedule("sched:nightly"), record.Trigger);
         Assert.AreEqual("Workspace:id:build", record.NodeKey);
         Assert.AreEqual(Local(2026, 9, 25, 2, 0), record.StartedAt);
         Assert.IsEmpty(h.Failures);
@@ -125,6 +123,61 @@ public sealed class SchedulerTests
     }
 
     [TestMethod]
+    public void AChangedScriptFilePausesTheScheduleBeforeItsNextFire()
+    {
+        using var h = new Harness("""{ "id": "hourly", "target": "workspace:build", "trigger": { "every": "1h" } }""");
+        File.WriteAllText(h.Temp.Path("build.bat"), "echo safe");
+        h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
+
+        File.WriteAllText(h.Temp.Path("build.bat"), "echo changed");
+        h.Time.Advance(TimeSpan.FromHours(1));
+
+        Assert.IsEmpty(h.Launcher.Runs);
+        Assert.IsTrue(h.Scheduler.Statuses().Single().Paused);
+    }
+
+    [TestMethod]
+    public void AChangedWorkspaceVariablePausesTheSchedule()
+    {
+        using var h = new Harness("""{ "id": "hourly", "target": "workspace:build", "trigger": { "every": "1h" } }""");
+        h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
+
+        File.WriteAllText(h.Temp.Path("batchpad.json"), $$"""{ "id": "sched", "variables": { "target": "prod" }, "scripts": [ {{Scripts}} ] }""");
+        h.Scheduler.Update(ScheduleEntry.For(h.Load()));
+
+        Assert.IsTrue(h.Scheduler.Statuses().Single().Paused);
+    }
+
+    [TestMethod]
+    public void AnUnreadableStateFileIsKeptAndAScheduleWithoutAHashWaitsForAConfirm()
+    {
+        using var h = new Harness("""{ "id": "hourly", "target": "workspace:build", "trigger": { "every": "1h" } }""");
+        Directory.CreateDirectory(Path.GetDirectoryName(h.State.FilePath)!);
+        File.WriteAllText(h.State.FilePath, "{ not json");
+
+        h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
+
+        Assert.IsTrue(h.Scheduler.Statuses().Single().Paused);
+        Assert.AreEqual("{ not json", File.ReadAllText(h.State.FilePath + ".bad"));
+        using var restarted = new Scheduler(h.History, h.Launcher, new ScheduleStateStore(h.State.FilePath), h.Time);
+        restarted.Start(ScheduleEntry.For(h.Workspace));
+        Assert.IsTrue(restarted.Statuses().Single().Paused);
+    }
+
+    [TestMethod]
+    public void ConfirmingADisabledScheduleDoesNotArmIt()
+    {
+        using var h = new Harness("""{ "id": "hourly", "target": "workspace:build", "trigger": { "every": "1h" }, "enabled": false }""");
+        h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
+        h.WriteWorkspace(Scripts.Replace("--fast", "--everything"));
+        h.Scheduler.Update(ScheduleEntry.For(h.Load()));
+
+        Assert.IsNotNull(h.Scheduler.Confirm(h.Scheduler.Statuses().Single().Entry.Key));
+
+        Assert.IsNull(h.Scheduler.Statuses().Single().NextFire);
+    }
+
+    [TestMethod]
     public void ADisabledScheduleNeverFires()
     {
         using var h = new Harness("""{ "target": "workspace:build", "trigger": { "every": "30m" }, "enabled": false, "missed": "runOnce" }""");
@@ -187,12 +240,38 @@ public sealed class SchedulerTests
         }, Limit));
     }
 
+    [TestMethod]
+    public void AScheduleThatFailsToStartHasItsSecretsMasked()
+    {
+        using var workspace = new RunWorkspace("""
+            { "id": "deploy", "path": "${param:token}.bat", "params": [ { "name": "token", "type": "secret" } ] }
+            """);
+        var time = new FakeTimeProvider(Local(2026, 9, 25, 1, 0).ToUniversalTime());
+        var history = new HistoryStore(workspace.Temp.Path("history"), time);
+        using var scheduler = new Scheduler(history, new GatedScheduleLauncher(workspace.Workspace, workspace.Gate, RunWorkspace.Interpreters),
+            new ScheduleStateStore(workspace.Temp.Path("schedules.json")), time, Berlin);
+        var failures = new List<ScheduleFailure>();
+        scheduler.ScheduleFailed += failures.Add;
+        var schedule = new Schedule
+        {
+            Id = "deploy", Target = "workspace:deploy", Trigger = new Trigger { Every = "1h" }, Values = new() { ["token"] = "hunter2" },
+        };
+        scheduler.Start([ScheduleEntry.Create("deploy", schedule, workspace.Workspace.Workspace, workspace.Workspace)]);
+
+        Assert.IsFalse(scheduler.RunNow("deploy"));
+
+        var failure = failures.Single();
+        StringAssert.Contains(failure.Message, "was not found");
+        Assert.DoesNotContain("hunter2", failure.Message);
+        Assert.DoesNotContain("hunter2", File.ReadAllText(history.LogPath(failure.Record!)));
+    }
+
     internal sealed class Harness : IDisposable
     {
         public Harness(string schedules)
         {
             Time.SetLocalTimeZone(Berlin);
-            Paths = new AppPaths(Temp.Path("data"), isPortable: false);
+            Paths = new AppPaths(Temp.Path("data"));
             WriteWorkspace(Scripts);
             Directory.CreateDirectory(Path.GetDirectoryName(Paths.UserFile("sched"))!);
             File.WriteAllText(Paths.UserFile("sched"), $$"""{ "schedules": [ {{schedules}} ] }""");
@@ -240,42 +319,5 @@ public sealed class SchedulerTests
             Scheduler.Dispose();
             Temp.Dispose();
         }
-    }
-
-    internal sealed class RecordingLauncher : IScheduleLauncher
-    {
-        private readonly List<(object Request, FakeRun Run)> _runs = [];
-
-        public List<(object Request, FakeRun Run)> Runs
-        {
-            get
-            {
-                lock (_runs)
-                    return [.. _runs];
-            }
-        }
-
-        public IRunOutput Start(RunRequest request) => Add(request);
-
-        public IRunOutput Start(WorkflowRequest request) => Add(request);
-
-        private FakeRun Add(object request)
-        {
-            var run = new FakeRun();
-            lock (_runs)
-                _runs.Add((request, run));
-            return run;
-        }
-    }
-
-    internal sealed class FakeRun : IRunOutput
-    {
-        private readonly TaskCompletionSource<RunResult> _completion = new();
-
-        public Task<RunResult> Completion => _completion.Task;
-
-        public IDisposable Subscribe(Action<OutputLine> onLine) => new CancellationTokenSource();
-
-        public void Complete(int exitCode) => _completion.SetResult(new RunResult(RunOutcome.Exited, exitCode, TimeSpan.FromSeconds(1)));
     }
 }

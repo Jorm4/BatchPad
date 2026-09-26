@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Workflows;
 
@@ -56,11 +55,6 @@ public partial class WorkflowEditor : UserControl
         }
     }
 
-    private static FrameworkElement? CardAt(DependencyObject? element)
-    {
-        for (; element is not null; element = element is Visual ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element))
-            if (element is Border { DataContext: StepCardViewModel, Tag: "StepCard" } card)
-                return card;
-        return null;
-    }
+    private static FrameworkElement? CardAt(DependencyObject? element) =>
+        VisualTree.FindAncestor<Border>(element, b => b is { DataContext: StepCardViewModel, Tag: "StepCard" });
 }

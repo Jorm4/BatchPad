@@ -32,19 +32,28 @@ Console.CancelKeyPress += (_, e) =>
     }
 };
 
-var relays = Task.WhenAll(Relay(process.StandardOutput, Console.Out), Relay(process.StandardError, Console.Error));
+var relays = Task.WhenAll(
+    Relay(process.StandardOutput, Console.IsOutputRedirected, Console.OpenStandardOutput, Console.Out),
+    Relay(process.StandardError, Console.IsErrorRedirected, Console.OpenStandardError, Console.Error));
 await process.WaitForExitAsync();
 // A process BatchPad left running may still hold the pipes open.
 await Task.WhenAny(relays, Task.Delay(TimeSpan.FromSeconds(1)));
 return process.ExitCode;
 
-static async Task Relay(StreamReader from, TextWriter to)
+// A pipe or file gets BatchPad's UTF-8 bytes unchanged; a console needs text in its own code page.
+static async Task Relay(StreamReader from, bool redirected, Func<Stream> openRaw, TextWriter console)
 {
+    if (redirected)
+    {
+        await using var raw = openRaw();
+        await from.BaseStream.CopyToAsync(raw);
+        return;
+    }
     var buffer = new char[4096];
     int read;
     while ((read = await from.ReadAsync(buffer)) > 0)
     {
-        to.Write(buffer, 0, read);
-        to.Flush();
+        console.Write(buffer, 0, read);
+        console.Flush();
     }
 }

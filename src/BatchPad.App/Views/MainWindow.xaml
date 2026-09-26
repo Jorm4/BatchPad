@@ -99,7 +99,8 @@
                 <TreeView x:Name="ScriptTreeView" ItemsSource="{Binding Tree.Roots}" BorderThickness="0" Background="Transparent"
                           AllowDrop="True" PreviewMouseRightButtonDown="OnTreeRightClick"
                           PreviewMouseLeftButtonDown="OnTreeMouseDown" PreviewMouseMove="OnTreeMouseMove"
-                          DragOver="OnTreeDragOver" Drop="OnTreeDrop" AutomationProperties.AutomationId="ScriptTree">
+                          DragOver="OnTreeDragOver" Drop="OnTreeDrop" VirtualizingPanel.IsVirtualizing="True"
+                          AutomationProperties.AutomationId="ScriptTree">
                     <TreeView.InputBindings>
                         <KeyBinding Key="Enter" Command="{Binding Details.RunCommand}" />
                         <KeyBinding Key="F2" Command="{Binding MyScripts.BeginRenameCommand}" CommandParameter="{Binding Tree.SelectedNode}" />

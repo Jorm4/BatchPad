@@ -112,7 +112,6 @@ public sealed class ArgumentAssemblerTests
         Assert.IsEmpty(invocation.Arguments);
         Assert.AreEqual("dummy", invocation.Environment["GAME_AUDIO_DRIVER"]);
         Assert.AreEqual(@"C:\repo", invocation.Environment["MODE"]);
-        Assert.AreEqual("GAME_AUDIO_DRIVER=dummy game.exe", invocation.Display);
     }
 
     [TestMethod]
@@ -144,7 +143,6 @@ public sealed class ArgumentAssemblerTests
         CollectionAssert.AreEqual(
             new[] { "--verbose", "--filter", "X", "--filter", "Y", "--name", "two words", "a", "b c" },
             invocation.Arguments.ToList());
-        Assert.AreEqual("run.bat --verbose --filter X --filter Y --name \"two words\" a \"b c\"", invocation.Display);
     }
 
     [TestMethod]

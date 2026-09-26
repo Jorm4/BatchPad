@@ -53,14 +53,17 @@ public sealed class CustomisationResolver(LoadedWorkspace workspace)
     }
 
     /// <summary>The name a customisation gets from its base's <c>nameTemplate</c> and values, else the base's name.</summary>
-    public string NameFor(RunnableNode definition, ScriptTree tree, IReadOnlyDictionary<string, JsonNode?>? values)
+    public string NameFor(RunnableNode definition, ScriptTree tree, IReadOnlyDictionary<string, JsonNode?>? values) =>
+        NameFor(definition, ScopeFor(definition, tree), values);
+
+    private string NameFor(RunnableNode definition, ChoiceScope scope, IReadOnlyDictionary<string, JsonNode?>? values)
     {
         var fallback = ScriptTree.DisplayName(definition);
         if (definition.NameTemplate is not { } template)
             return fallback;
         try
         {
-            var request = AssemblyFor(definition, tree, values);
+            var request = AssemblyFor(definition, scope, values);
             var templates = request.Templates with
             {
                 Params = ArgumentAssembler.Bind(request).ToDictionary(p => p.Definition.Name!, p => p.Value),
@@ -73,19 +76,17 @@ public sealed class CustomisationResolver(LoadedWorkspace workspace)
         }
     }
 
-    public static T Clone<T>(T value) =>
-        JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, ConfigJson.Options), ConfigJson.Options)!;
-
     private ResolvedCustomisation WithValues(ScriptNode entry, RunnableNode definition, ScriptTree tree,
         IReadOnlyDictionary<string, JsonNode?>? values, IReadOnlyDictionary<string, Dictionary<string, JsonNode?>>? stepValues)
     {
         var problems = new List<string>();
-        var normalized = Normalize(definition, tree, values ?? new Dictionary<string, JsonNode?>(), problems);
+        var scope = ScopeFor(definition, tree);
+        var normalized = Normalize(definition, scope, values ?? new Dictionary<string, JsonNode?>(), problems);
         return new ResolvedCustomisation(entry)
         {
             Definition = definition,
             DefinitionTree = tree,
-            Name = entry.Name ?? NameFor(definition, tree, normalized),
+            Name = entry.Name ?? NameFor(definition, scope, normalized),
             Values = normalized,
             StepValues = stepValues ?? new Dictionary<string, Dictionary<string, JsonNode?>>(),
             ValueProblems = problems,
@@ -102,8 +103,8 @@ public sealed class CustomisationResolver(LoadedWorkspace workspace)
 
     private static RunnableNode Overlay(RunnableNode baseNode, ScriptNode entry)
     {
-        var result = Clone<TreeNode>(baseNode) as RunnableNode ?? throw new InvalidOperationException("Clone lost the node type.");
-        var overlay = Clone(entry);
+        var result = ConfigJson.Clone<TreeNode>(baseNode) as RunnableNode ?? throw new InvalidOperationException("Clone lost the node type.");
+        var overlay = ConfigJson.Clone(entry);
         var fields = result is ScriptNode ? typeof(ScriptNode) : typeof(RunnableNode);
         foreach (var property in fields.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
@@ -119,17 +120,16 @@ public sealed class CustomisationResolver(LoadedWorkspace workspace)
         return result;
     }
 
-    private Dictionary<string, JsonNode?> Normalize(RunnableNode definition, ScriptTree tree,
+    private Dictionary<string, JsonNode?> Normalize(RunnableNode definition, ChoiceScope scope,
         IReadOnlyDictionary<string, JsonNode?> values, List<string> problems)
     {
         var normalized = values.ToDictionary(v => v.Key, v => v.Value?.DeepClone());
-        var context = ChoiceContextFor(definition, tree);
         foreach (var parameter in SharedParameters.MergeAll(definition.Params, workspace.Workspace.File.SharedParams))
         {
             if (parameter is not { Name: { } name, Type: ParameterType.Choice or ParameterType.Multichoice }
                 || !normalized.TryGetValue(name, out var stored) || stored is null)
                 continue;
-            var known = choices.Resolve(parameter, context).Choices;
+            var known = scope.Choices(parameter);
             normalized[name] = stored switch
             {
                 JsonArray list => new JsonArray([.. list.Select(item => (JsonNode?)Normalized(item, known, name, problems))]),
@@ -150,23 +150,32 @@ public sealed class CustomisationResolver(LoadedWorkspace workspace)
         return JsonValue.Create(result.Value);
     }
 
-    private AssemblyRequest AssemblyFor(RunnableNode definition, ScriptTree tree, IReadOnlyDictionary<string, JsonNode?>? values)
-    {
-        var context = ChoiceContextFor(definition, tree);
-        return new AssemblyRequest(definition as ScriptNode ?? new ScriptNode { Params = definition.Params }, context.Templates!)
+    private AssemblyRequest AssemblyFor(RunnableNode definition, ChoiceScope scope, IReadOnlyDictionary<string, JsonNode?>? values) =>
+        new(definition as ScriptNode ?? new ScriptNode { Params = definition.Params }, scope.Templates)
         {
             SharedParams = workspace.Workspace.File.SharedParams,
             Values = values,
-            Choices = p => choices.Resolve(p, context).Choices,
+            Choices = scope.Choices,
         };
-    }
 
-    private ChoiceContext ChoiceContextFor(RunnableNode definition, ScriptTree tree)
+    private sealed record ChoiceScope(TemplateContext Templates, Func<ParameterDefinition, IReadOnlyList<ChoiceDefinition>> Choices);
+
+    /// <summary>Resolves each parameter's choices once, for both normalising the values and binding the name template.</summary>
+    private ChoiceScope ScopeFor(RunnableNode definition, ScriptTree tree)
     {
         var templates = definition is ScriptNode script
             ? RunPlanner.TemplatesFor(new RunRequest(workspace, tree, script))
             : new TemplateContext { WorkspaceDir = workspace.Directory, Variables = workspace.Workspace.File.Variables };
-        return new ChoiceContext(workspace.Directory) { Lists = workspace.Workspace.File.Lists, Templates = templates };
+        var context = new ChoiceContext(workspace.Directory) { Lists = workspace.Workspace.File.Lists, Templates = templates, Paths = tree.Paths };
+        var resolved = new Dictionary<string, IReadOnlyList<ChoiceDefinition>>();
+        return new ChoiceScope(templates, parameter =>
+        {
+            if (parameter.Name is not { } name)
+                return choices.Resolve(parameter, context).Choices;
+            if (!resolved.TryGetValue(name, out var found))
+                resolved[name] = found = choices.Resolve(parameter, context).Choices;
+            return found;
+        });
     }
 
     private static Dictionary<string, JsonNode?>? Merge(IReadOnlyDictionary<string, JsonNode?>? under, IReadOnlyDictionary<string, JsonNode?>? over)

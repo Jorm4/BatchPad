@@ -1,11 +1,11 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Text;
 using BatchPad.Core.Model;
 using Microsoft.Win32.SafeHandles;
 
 namespace BatchPad.Core.Running;
 
-/// <summary>One process to start: its exact command line and its complete environment.</summary>
 public sealed record RunSpec(CommandLine Command, IReadOnlyDictionary<string, string> Environment)
 {
     public ConsoleMode Console { get; init; } = ConsoleMode.Captured;
@@ -15,11 +15,6 @@ public sealed record RunSpec(CommandLine Command, IReadOnlyDictionary<string, st
 /// <summary>Starts runs inside Job Objects (§4).</summary>
 internal static class ProcessRunner
 {
-    // Serialises inheritable-handle creation, so a concurrent launch cannot inherit another run's pipe ends.
-    private static readonly Lock CreateProcessLock = new();
-
-    public static RunHandle Start(RunSpec spec, TimeProvider? time = null) => Start([spec], time);
-
     /// <summary>Runs <paramref name="specs"/> one after another, stopping at the first failure.</summary>
     /// <exception cref="RunException">The first process could not be started.</exception>
     public static RunHandle Start(IReadOnlyList<RunSpec> specs, TimeProvider? time = null)
@@ -35,50 +30,77 @@ internal static class ProcessRunner
             ? throw new ArgumentException("Nothing to run.", nameof(specs))
             : new RunHandle(specs, time ?? TimeProvider.System);
 
-    internal static unsafe StartedProcess Launch(RunSpec spec, Action<string, OutputStream> onLine)
+    /// <exception cref="RunException">The process could not be started or tracked.</exception>
+    internal static StartedProcess Launch(RunSpec spec, Action<string, OutputStream> onLine)
+    {
+        try
+        {
+            return LaunchInJob(spec, onLine);
+        }
+        catch (Win32Exception ex)
+        {
+            throw new RunException($"Could not start '{spec.Command.FileName}': {ex.Message}");
+        }
+    }
+
+    private static unsafe StartedProcess LaunchInJob(RunSpec spec, Action<string, OutputStream> onLine)
     {
         var captured = spec.Console == ConsoleMode.Captured;
         var job = new JobObject();
         SafeFileHandle? stdoutRead = null, stderrRead = null;
         NativeMethods.ProcessInformation info;
+        var inherited = stackalloc nint[3];
         try
         {
-            lock (CreateProcessLock)
+            SafeFileHandle? stdinRead = null, stdinWrite = null, stdoutWrite = null, stderrWrite = null;
+            nint attributeList = 0;
+            try
             {
-                SafeFileHandle? stdinRead = null, stdinWrite = null, stdoutWrite = null, stderrWrite = null;
-                try
+                var startup = new NativeMethods.StartupInfoEx { StartupInfo = { Cb = sizeof(NativeMethods.StartupInfo) } };
+                var flags = NativeMethods.CreateSuspended | NativeMethods.CreateUnicodeEnvironment;
+                if (captured)
                 {
-                    var startup = new NativeMethods.StartupInfo { Cb = sizeof(NativeMethods.StartupInfo) };
-                    if (captured)
-                    {
-                        (stdinRead, stdinWrite) = CreatePipe(childReads: true);
-                        (stdoutRead, stdoutWrite) = CreatePipe(childReads: false);
-                        (stderrRead, stderrWrite) = CreatePipe(childReads: false);
-                        startup.Flags = NativeMethods.StartfUseStdHandles;
-                        startup.StdInput = stdinRead.DangerousGetHandle();
-                        startup.StdOutput = stdoutWrite.DangerousGetHandle();
-                        startup.StdError = stderrWrite.DangerousGetHandle();
-                    }
+                    (stdinRead, stdinWrite) = CreatePipe(childReads: true);
+                    (stdoutRead, stdoutWrite) = CreatePipe(childReads: false);
+                    (stderrRead, stderrWrite) = CreatePipe(childReads: false);
+                    inherited[0] = stdinRead.DangerousGetHandle();
+                    inherited[1] = stdoutWrite.DangerousGetHandle();
+                    inherited[2] = stderrWrite.DangerousGetHandle();
+                    attributeList = InheritOnly(inherited, 3);
+                    startup.StartupInfo.Cb = sizeof(NativeMethods.StartupInfoEx);
+                    startup.StartupInfo.Flags = NativeMethods.StartfUseStdHandles;
+                    startup.StartupInfo.StdInput = inherited[0];
+                    startup.StartupInfo.StdOutput = inherited[1];
+                    startup.StartupInfo.StdError = inherited[2];
+                    startup.AttributeList = attributeList;
+                    flags |= NativeMethods.CreateNoWindow | NativeMethods.ExtendedStartupInfoPresent;
+                }
+                else
+                {
+                    flags |= NativeMethods.CreateNewConsole;
+                }
 
-                    var flags = NativeMethods.CreateSuspended | NativeMethods.CreateUnicodeEnvironment
-                        | (captured ? NativeMethods.CreateNoWindow : NativeMethods.CreateNewConsole);
-                    var commandLine = $"{ArgvQuoter.Quote(spec.Command.FileName)} {spec.Command.Arguments}\0".ToCharArray();
-                    var environment = EnvironmentBlock(spec.Environment);
-                    fixed (char* commandLinePointer = commandLine)
-                    fixed (char* environmentPointer = environment)
-                    {
-                        if (!NativeMethods.CreateProcess(spec.Command.FileName, commandLinePointer, 0, 0, captured, flags,
-                                environmentPointer, spec.Command.WorkingDirectory, ref startup, out info))
-                            throw new RunException($"Could not start '{spec.Command.FileName}': {new Win32Exception().Message}");
-                    }
-                }
-                finally
+                var commandLine = $"{ArgvQuoter.Quote(spec.Command.FileName)} {spec.Command.Arguments}\0".ToCharArray();
+                var environment = EnvironmentBlock(spec.Environment);
+                fixed (char* commandLinePointer = commandLine)
+                fixed (char* environmentPointer = environment)
                 {
-                    stdinRead?.Dispose();
-                    stdinWrite?.Dispose();
-                    stdoutWrite?.Dispose();
-                    stderrWrite?.Dispose();
+                    if (!NativeMethods.CreateProcess(spec.Command.FileName, commandLinePointer, 0, 0, captured, flags,
+                            environmentPointer, spec.Command.WorkingDirectory, &startup, out info))
+                        throw new RunException($"Could not start '{spec.Command.FileName}': {new Win32Exception().Message}");
                 }
+            }
+            finally
+            {
+                if (attributeList != 0)
+                {
+                    NativeMethods.DeleteProcThreadAttributeList(attributeList);
+                    NativeMemory.Free((void*)attributeList);
+                }
+                stdinRead?.Dispose();
+                stdinWrite?.Dispose();
+                stdoutWrite?.Dispose();
+                stderrWrite?.Dispose();
             }
 
             try
@@ -111,6 +133,24 @@ internal static class ProcessRunner
         return new StartedProcess(job, new SafeProcessHandle(info.Process, ownsHandle: true), info.ProcessId, output);
     }
 
+    /// <summary>An attribute list that lets the child inherit <paramref name="handles"/> and nothing else, such as another launch's pipes.</summary>
+    private static unsafe nint InheritOnly(nint* handles, int count)
+    {
+        nuint size = 0;
+        NativeMethods.InitializeProcThreadAttributeList(0, 1, 0, ref size);
+        var list = (nint)NativeMemory.Alloc(size);
+        if (NativeMethods.InitializeProcThreadAttributeList(list, 1, 0, ref size))
+        {
+            if (NativeMethods.UpdateProcThreadAttribute(list, 0, NativeMethods.ProcThreadAttributeHandleList, handles,
+                    (nuint)(count * sizeof(nint)), 0, 0))
+                return list;
+            NativeMethods.DeleteProcThreadAttributeList(list);
+        }
+        var error = new Win32Exception();
+        NativeMemory.Free((void*)list);
+        throw error;
+    }
+
     private static (SafeFileHandle Read, SafeFileHandle Write) CreatePipe(bool childReads)
     {
         var attributes = new NativeMethods.SecurityAttributes
@@ -124,12 +164,12 @@ internal static class ProcessRunner
         return (read, write);
     }
 
-    private static char[] EnvironmentBlock(IReadOnlyDictionary<string, string> environment)
+    private static string EnvironmentBlock(IReadOnlyDictionary<string, string> environment)
     {
         var block = new StringBuilder();
         foreach (var (name, value) in environment.OrderBy(v => v.Key, StringComparer.OrdinalIgnoreCase))
             block.Append(name).Append('=').Append(value).Append('\0');
-        return block.Append('\0', environment.Count == 0 ? 2 : 1).ToString().ToCharArray();
+        return block.Append('\0', environment.Count == 0 ? 2 : 1).ToString();
     }
 
     private static Task ReadAsync(SafeFileHandle pipe, OutputStream stream, Action<string, OutputStream> onLine) =>

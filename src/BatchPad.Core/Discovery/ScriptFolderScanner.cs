@@ -1,3 +1,4 @@
+using System.IO.Enumeration;
 using BatchPad.Core.Model;
 
 namespace BatchPad.Core.Discovery;
@@ -51,34 +52,30 @@ public static class ScriptFolderScanner
         return include.Any(p => Glob.IsMatch(p, inFolder)) && !(folder.Exclude ?? []).Any(p => Glob.IsMatch(p, inFolder));
     }
 
-    private static IEnumerable<string> EnumerateFiles(string root, bool recurse)
+    public static EnumerationOptions Enumeration(bool recurse) => new()
     {
-        foreach (var file in Directory.EnumerateFiles(root))
-            yield return file;
-        if (!recurse)
-            yield break;
-        foreach (var dir in Directory.EnumerateDirectories(root))
+        RecurseSubdirectories = recurse,
+        IgnoreInaccessible = true,
+        AttributesToSkip = FileAttributes.ReparsePoint,
+    };
+
+    private static FileSystemEnumerable<string> EnumerateFiles(string root, bool recurse) =>
+        new(root, (ref entry) => entry.ToFullPath(), Enumeration(recurse))
         {
-            // .git, .vs and the like are never script folders.
-            if (Path.GetFileName(dir).StartsWith('.'))
-                continue;
-            foreach (var file in EnumerateFiles(dir, recurse))
-                yield return file;
-        }
-    }
+            ShouldIncludePredicate = (ref entry) => !entry.IsDirectory,
+            ShouldRecursePredicate = (ref entry) => !entry.FileName.StartsWith('.'),
+        };
 
     private static List<DiscoveredScript> GroupTopLevelByPrefix(List<DiscoveredScript> scripts)
     {
-        var groups = scripts
-            .Where(s => s.TreeFolders.Count == 0 && Prefix(s.FullPath) is not null)
-            .GroupBy(s => Prefix(s.FullPath)!, StringComparer.OrdinalIgnoreCase)
+        var prefixes = scripts.Select(s => s.TreeFolders.Count == 0 ? Prefix(s.FullPath) : null).ToList();
+        var groups = prefixes.OfType<string>()
+            .GroupBy(p => p, StringComparer.OrdinalIgnoreCase)
             .Where(g => g.Count() > 1)
             .ToDictionary(g => g.Key, g => char.ToUpperInvariant(g.Key[0]) + g.Key[1..], StringComparer.OrdinalIgnoreCase);
 
-        return [.. scripts.Select(s =>
-            s.TreeFolders.Count == 0 && Prefix(s.FullPath) is { } prefix && groups.TryGetValue(prefix, out var group)
-                ? s with { TreeFolders = [group] }
-                : s)];
+        return [.. scripts.Select((s, i) =>
+            prefixes[i] is { } prefix && groups.TryGetValue(prefix, out var group) ? s with { TreeFolders = [group] } : s)];
     }
 
     private static string? Prefix(string path)

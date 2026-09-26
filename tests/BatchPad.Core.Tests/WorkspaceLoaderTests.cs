@@ -13,7 +13,7 @@ public sealed class WorkspaceLoaderTests
     public void LoadsDemoIntoThreeTrees()
     {
         using var dir = new TempDir();
-        var paths = new AppPaths(dir.Root, isPortable: false);
+        var paths = new AppPaths(dir.Root);
         ConfigWriter.Write(paths.GlobalFile, new WorkspaceFile
         {
             Scripts = [new ScriptNode { Id = "clean-temp", Name = "Clean temp", Command = "echo clean" }],
@@ -45,7 +45,7 @@ public sealed class WorkspaceLoaderTests
     public void MissingGlobalAndUserFilesGiveEmptyTrees()
     {
         using var dir = new TempDir();
-        var loaded = WorkspaceLoader.Load(DemoFile, new AppPaths(dir.Root, isPortable: false));
+        var loaded = WorkspaceLoader.Load(DemoFile, new AppPaths(dir.Root));
 
         Assert.IsEmpty(loaded.Errors);
         Assert.IsEmpty(loaded.Global.File.Scripts);
@@ -63,7 +63,7 @@ public sealed class WorkspaceLoaderTests
             ] }
             """);
 
-        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data"), isPortable: false));
+        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data")));
 
         var error = loaded.Errors.Single();
         StringAssert.Contains(error.Message, "'build'");
@@ -78,7 +78,7 @@ public sealed class WorkspaceLoaderTests
         using var dir = new TempDir();
         File.WriteAllText(dir.Path("batchpad.json"), "{ \"scripts\": [ ");
 
-        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data"), isPortable: false));
+        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data")));
 
         Assert.AreEqual(dir.Path("batchpad.json"), loaded.Errors.Single().FilePath);
         Assert.IsEmpty(loaded.Workspace.File.Scripts);
@@ -91,7 +91,7 @@ public sealed class WorkspaceLoaderTests
         File.WriteAllText(dir.Path("batchpad.json"), """
             { "id": "ws", "scripts": [], "schedules": [ { "target": "workspace:tests", "trigger": { "onStart": true } } ] }
             """);
-        var paths = new AppPaths(dir.Path("data"), isPortable: false);
+        var paths = new AppPaths(dir.Path("data"));
         Directory.CreateDirectory(Path.GetDirectoryName(paths.UserFile("ws"))!);
         File.WriteAllText(paths.UserFile("ws"), """
             { "schedules": [ { "id": "bad", "target": "workspace:tests", "trigger": { "cron": "0 2 * *" } } ] }
@@ -115,5 +115,17 @@ public sealed class WorkspaceLoaderTests
         Assert.AreNotEqual(a, other);
         Assert.AreEqual(16, a.Length);
         Assert.AreNotEqual("..", WorkspaceLoader.ComputeId(new WorkspaceFile { Id = ".." }, @"C:\repo\batchpad.json"));
+    }
+
+    [TestMethod]
+    [DataRow("CON")]
+    [DataRow("nul.txt")]
+    [DataRow("lpt1")]
+    [DataRow("tools.")]
+    [DataRow("tools ")]
+    public void IdsWindowsCannotUseAsAFolderAreHashed(string id)
+    {
+        Assert.AreEqual(16, WorkspaceLoader.ComputeId(new WorkspaceFile { Id = id }, @"C:\repo\batchpad.json").Length);
+        Assert.AreEqual("my-tools", WorkspaceLoader.ComputeId(new WorkspaceFile { Id = "my-tools" }, @"C:\repo\batchpad.json"));
     }
 }

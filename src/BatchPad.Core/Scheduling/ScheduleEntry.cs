@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using BatchPad.Core.Customisation;
+using BatchPad.Core.History;
 using BatchPad.Core.Model;
 using BatchPad.Core.Workspace;
 
@@ -15,6 +16,9 @@ public sealed record ScheduleTarget(LoadedWorkspace Workspace, ScriptTree Tree, 
     public IReadOnlyDictionary<string, JsonNode?> Values { get; init; } = new Dictionary<string, JsonNode?>();
     public IReadOnlyDictionary<string, Dictionary<string, JsonNode?>>? StepValues { get; init; }
     public string? ExtraArguments { get; init; }
+
+    public RunRecord RecordTemplate(string trigger) =>
+        new() { NodeKey = NodeKey, Tree = Tree.Kind, NodeId = Definition.Id, Name = Name, Trigger = trigger };
 
     /// <summary>Resolves <paramref name="reference"/> from <paramref name="from"/>, applying a My Scripts customisation.</summary>
     public static ScheduleTarget? Resolve(string reference, ScriptTree from, LoadedWorkspace workspace, out string? problem)
@@ -50,6 +54,9 @@ public sealed record ScheduleTarget(LoadedWorkspace Workspace, ScriptTree Tree, 
 /// <summary>A schedule as the scheduler runs it: a key unique across workspaces, and its target or why there is none.</summary>
 public sealed record ScheduleEntry(string Key, Schedule Schedule)
 {
+    private const string GlobalPrefix = "global:";
+
+    public bool IsGlobal => Key.StartsWith(GlobalPrefix, StringComparison.Ordinal);
     public ScheduleTarget? Target { get; init; }
     public string? Problem { get; init; }
 
@@ -65,7 +72,7 @@ public sealed record ScheduleEntry(string Key, Schedule Schedule)
         foreach (var schedule in workspace.Global.File.Schedules ?? [])
         {
             if (schedule.Workspace is null || Names(workspace, schedule.Workspace))
-                entries.Add(Create($"global:{schedule.Key}", schedule, workspace.Global, workspace));
+                entries.Add(Create(GlobalPrefix + schedule.Key, schedule, workspace.Global, workspace));
         }
         return entries;
     }

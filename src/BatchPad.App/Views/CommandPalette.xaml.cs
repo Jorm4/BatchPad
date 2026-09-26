@@ -26,11 +26,5 @@ public partial class CommandPalette : UserControl
             palette.IsOpen = false;
     }
 
-    private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (ResultList.SelectedItem is { } item)
-            ResultList.ScrollIntoView(item);
-    }
-
     private void OnResultDoubleClick(object sender, MouseButtonEventArgs e) => Palette?.RunCommand.Execute(null);
 }

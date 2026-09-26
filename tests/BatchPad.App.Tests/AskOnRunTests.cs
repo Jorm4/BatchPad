@@ -3,21 +3,18 @@ using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.History;
 using BatchPad.Core.Running;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
 [TestClass]
 public sealed class AskOnRunTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
-
     [TestMethod]
     public async Task TheAskPickerDefaultsToTheLastRecordedValue()
     {
         using var test = new TestWorkspace();
         var (main, launcher, ask) = Open(test);
-        Select(main, "Workspace/Pick");
+        main.Select("Workspace/Pick");
         Assert.IsNull(main.Details.Form!.Field("app"));
 
         ask.Answer = form => Choose(form, "app", "game");
@@ -39,7 +36,7 @@ public sealed class AskOnRunTests
     {
         using var test = new TestWorkspace();
         var (main, launcher, ask) = Open(test);
-        Select(main, "Workspace/Pick");
+        main.Select("Workspace/Pick");
 
         ask.Result = false;
         main.Details.RunCommand.Execute(null);
@@ -53,7 +50,7 @@ public sealed class AskOnRunTests
     {
         using var test = new TestWorkspace();
         var (main, launcher, ask) = Open(test);
-        Select(main, "Workspace/Login");
+        main.Select("Workspace/Login");
         var secret = (SecretFieldViewModel)main.Details.Form!.Field("token")!;
         secret.Text = "hunter2";
 
@@ -87,13 +84,30 @@ public sealed class AskOnRunTests
     {
         using var test = new TestWorkspace();
         var (main, launcher, ask) = Open(test);
-        Select(main, "Workspace/Login");
+        main.Select("Workspace/Login");
 
         ask.Answer = form => ((SecretFieldViewModel)form.Field("token")!).Text = "s3cret";
         main.Details.RunCommand.Execute(null);
 
         Assert.AreEqual(1, ask.Asked);
         Assert.AreEqual("s3cret", launcher.Requests.Single().Values!["token"]!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public async Task AnAskedSecretIsNotPrefilledWithTheMaskFromHistory()
+    {
+        using var test = new TestWorkspace();
+        var (main, launcher, ask) = Open(test);
+        main.Select("Workspace/Login");
+        ask.Answer = form => ((SecretFieldViewModel)form.Field("token")!).Text = "s3cret";
+        main.Details.RunCommand.Execute(null);
+        await FinishAndRecord(main, launcher.Started.Single());
+
+        string? prefilled = null;
+        ask.Answer = form => prefilled = ((SecretFieldViewModel)form.Field("token")!).Text;
+        main.Details.RunCommand.Execute(null);
+
+        Assert.AreEqual("", prefilled);
     }
 
     private static (MainViewModel, FakeLauncher, FakeAsk) Open(TestWorkspace test)
@@ -109,13 +123,9 @@ public sealed class AskOnRunTests
             """);
         var launcher = new FakeLauncher();
         var ask = new FakeAsk();
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: new FakeShell(), ask: ask);
-        main.Trust.Trust(directory);
-        main.Open(Path.Combine(directory, "batchpad.json"));
+        var main = test.OpenMain(directory, trusted: true, launcher: launcher, shell: new FakeShell(), ask: ask);
         return (main, launcher, ask);
     }
-
-    private static void Select(MainViewModel main, string path) => main.Tree!.Find(path)!.IsSelected = true;
 
     private static void Choose(ParameterFormViewModel form, string name, string value)
     {

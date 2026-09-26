@@ -9,8 +9,6 @@ namespace BatchPad.Core.Scheduling;
 public static class EventTriggers
 {
     /// <summary>Adds the <c>fileChanged</c>, <c>onStart</c> and <c>afterRun</c> sources to the scheduler, before it starts.</summary>
-    /// <param name="watcher">Watches the workspace folder; without one, <c>fileChanged</c> schedules never fire.</param>
-    /// <returns>Stops listening to the watcher and to history.</returns>
     public static IDisposable Register(Scheduler scheduler, LoadedWorkspace workspace, FolderWatcher? watcher)
     {
         var afterRun = new AfterRunTriggerSource(scheduler);
@@ -35,7 +33,7 @@ public sealed class OnStartTriggerSource : ITriggerSource
 
     public bool Handles(TriggerKind kind) => kind == TriggerKind.OnStart;
 
-    public IDisposable Watch(ScheduleEntry entry, Action fire)
+    public IDisposable Watch(ScheduleEntry entry, Func<bool> fire)
     {
         bool first;
         lock (_started)
@@ -65,7 +63,7 @@ public sealed class FileChangedTriggerSource : ITriggerSource, IDisposable
 
     public bool Handles(TriggerKind kind) => kind == TriggerKind.FileChanged;
 
-    public IDisposable Watch(ScheduleEntry entry, Action fire)
+    public IDisposable Watch(ScheduleEntry entry, Func<bool> fire)
     {
         var trigger = entry.Schedule.Trigger;
         var debounce = trigger.Debounce is { } text ? TriggerMath.ParseDuration(text) ?? DefaultDebounce : DefaultDebounce;
@@ -103,6 +101,7 @@ public sealed class FileChangedTriggerSource : ITriggerSource, IDisposable
 /// <summary>
 /// Fires an <c>afterRun</c> schedule when a run of its node is recorded with a matching result (default success; stopped
 /// runs never match). A schedule that already fired in the same cascade is refused, so a loop stops after one round.
+/// A scheduled workflow's step records carry its trigger and continue its cascade, which ends with the workflow's record.
 /// </summary>
 public sealed class AfterRunTriggerSource : ITriggerSource, IDisposable
 {
@@ -111,7 +110,7 @@ public sealed class AfterRunTriggerSource : ITriggerSource, IDisposable
     private readonly Scheduler _scheduler;
     private readonly Lock _lock = new();
     private readonly List<RunWatch> _watches = [];
-    private readonly Dictionary<string, List<string>> _cascades = [];
+    private readonly Dictionary<string, Cascade> _cascades = [];
 
     public AfterRunTriggerSource(Scheduler scheduler)
     {
@@ -121,7 +120,7 @@ public sealed class AfterRunTriggerSource : ITriggerSource, IDisposable
 
     public bool Handles(TriggerKind kind) => kind == TriggerKind.AfterRun;
 
-    public IDisposable Watch(ScheduleEntry entry, Action fire)
+    public IDisposable Watch(ScheduleEntry entry, Func<bool> fire)
     {
         var trigger = entry.Schedule.Trigger;
         if (entry is not { From: { } from, Target.Workspace: { } workspace }
@@ -143,26 +142,41 @@ public sealed class AfterRunTriggerSource : ITriggerSource, IDisposable
     {
         if (record.Outcome == RunOutcome.Stopped)
             return;
-        var fire = new List<RunWatch>();
+        var fire = new List<(RunWatch Watch, Cascade Cascade)>();
         var refuse = new List<(RunWatch Watch, string Reason)>();
         lock (_lock)
         {
-            List<string> cascade = record.Trigger.StartsWith(SchedulePrefix, StringComparison.Ordinal)
-                && _cascades.Remove(record.Trigger[SchedulePrefix.Length..], out var causes) ? causes : [];
+            IReadOnlyList<ScheduleEntry> chain = [];
+            if (record.Trigger.StartsWith(SchedulePrefix, StringComparison.Ordinal)
+                && _cascades.TryGetValue(record.Trigger[SchedulePrefix.Length..], out var cascade))
+            {
+                chain = cascade.Chain;
+                if (record.NodeKey == cascade.RootNodeKey)
+                    _cascades.Remove(record.Trigger[SchedulePrefix.Length..]);
+            }
             foreach (var watch in _watches.Where(w => w.NodeKey == record.NodeKey && Matches(w.Result, record)))
             {
-                var key = watch.Entry.Schedule.Key;
-                if (cascade.Contains(key))
+                var entry = watch.Entry;
+                if (chain.Any(e => e.Key == entry.Key))
                 {
-                    refuse.Add((watch, $"Stopped an afterRun loop: {string.Join(" → ", cascade.Append(key))}."));
+                    refuse.Add((watch, $"Stopped an afterRun loop: {string.Join(" → ", chain.Append(entry).Select(e => e.Schedule.Key))}."));
                     continue;
                 }
-                _cascades[key] = [.. cascade, key];
-                fire.Add(watch);
+                var next = new Cascade(entry.Target!.NodeKey, [.. chain, entry]);
+                _cascades[entry.Key] = next;
+                fire.Add((watch, next));
             }
         }
-        foreach (var watch in fire)
-            watch.Fire();
+        foreach (var (watch, cascade) in fire)
+        {
+            if (watch.Fire())
+                continue;
+            lock (_lock)
+            {
+                if (ReferenceEquals(_cascades.GetValueOrDefault(watch.Entry.Key), cascade))
+                    _cascades.Remove(watch.Entry.Key);
+            }
+        }
         foreach (var (watch, reason) in refuse)
             _scheduler.Refuse(watch.Entry.Key, reason);
     }
@@ -174,7 +188,9 @@ public sealed class AfterRunTriggerSource : ITriggerSource, IDisposable
         _ => true,
     };
 
-    private sealed record RunWatch(ScheduleEntry Entry, string NodeKey, AfterRunResult Result, Action Fire);
+    private sealed record RunWatch(ScheduleEntry Entry, string NodeKey, AfterRunResult Result, Func<bool> Fire);
+
+    private sealed record Cascade(string RootNodeKey, IReadOnlyList<ScheduleEntry> Chain);
 }
 
 internal sealed class Stop(Action stop) : IDisposable

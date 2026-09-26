@@ -14,7 +14,8 @@ public interface IScheduleLauncher
     /// <exception cref="Exception">The run could not start, e.g. an untrusted workspace or a missing unattended value.</exception>
     IRunOutput Start(RunRequest request);
 
-    IRunOutput Start(WorkflowRequest request);
+    /// <param name="trigger">The history trigger for the workflow's step records.</param>
+    IRunOutput Start(WorkflowRequest request, string trigger);
 }
 
 /// <summary>Runs through the trust gate, with no UI.</summary>
@@ -24,7 +25,7 @@ public sealed class GatedScheduleLauncher(LoadedWorkspace workspace, RunGate gat
 
     public IRunOutput Start(RunRequest request) => gate.Start(request, interpreters);
 
-    public IRunOutput Start(WorkflowRequest request) => new WorkflowRunOutput(_workflows.Start(request));
+    public IRunOutput Start(WorkflowRequest request, string trigger) => new WorkflowRunOutput(_workflows.Start(request));
 }
 
 /// <summary>A workflow run seen as one run: exit 0 when it succeeded, with a "step: status" line per step at the end.</summary>

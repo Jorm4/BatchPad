@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using BatchPad.App.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -67,5 +68,33 @@ public sealed partial class OutputLog(Action? onErrorSelected = null) : Observab
             if (ReferenceEquals(lines[i], line))
                 return i;
         return -1;
+    }
+}
+
+/// <summary>Adds lines from a worker thread to a log with one UI-thread post per burst, not one per line.</summary>
+public sealed class OutputPoster(OutputLog log, IUiDispatcher dispatcher)
+{
+    private readonly Lock _lock = new();
+    private List<OutputLineViewModel> _pending = [];
+
+    public void Add(OutputLineViewModel line)
+    {
+        bool first;
+        lock (_lock)
+        {
+            _pending.Add(line);
+            first = _pending.Count == 1;
+        }
+        if (first)
+            dispatcher.Post(Flush);
+    }
+
+    private void Flush()
+    {
+        List<OutputLineViewModel> lines;
+        lock (_lock)
+            (lines, _pending) = (_pending, []);
+        foreach (var line in lines)
+            log.Add(line);
     }
 }

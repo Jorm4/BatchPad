@@ -27,7 +27,7 @@ public sealed class PrerequisiteRunTests
         main.Details.RunCommand.Execute(null);
 
         var tab = (WorkflowRunViewModel)main.Output.Tabs.Single();
-        await tab.Finished.WaitAsync(TimeSpan.FromSeconds(10));
+        await tab.Finished.WaitAsync(Limit);
         Assert.AreEqual("failed", tab.StatusText);
         CollectionAssert.AreEqual(new[] { "Generate", "Build" }, tab.Steps.Select(s => s.Name).ToArray());
         CollectionAssert.AreEqual(new[] { StepStatus.Failed, StepStatus.Skipped }, tab.Steps.Select(s => s.Status).ToArray());

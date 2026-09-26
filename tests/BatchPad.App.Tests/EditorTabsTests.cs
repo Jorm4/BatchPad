@@ -47,6 +47,34 @@ public sealed class EditorTabsTests
     }
 
     [TestMethod]
+    public void ReadyTesterGivesUpOnARunawayPattern()
+    {
+        using var test = new TestWorkspace();
+        var (main, _) = Open(test);
+        var afterRun = Edit(main).AfterRun;
+
+        afterRun.ReadyPattern = "(a+)+$";
+        afterRun.SampleOutput = new string('a', 40) + "!";
+
+        StringAssert.StartsWith(afterRun.TesterResult, "⚠");
+    }
+
+    [TestMethod]
+    public void AStopChoiceFromALibraryNamesTheLibrary()
+    {
+        using var test = new TestWorkspace();
+        var data = Directory.CreateDirectory(test.Paths.DataDirectory).FullName;
+        File.WriteAllText(Path.Combine(data, "stop.bat"), "@echo stop\r\n");
+        File.WriteAllText(test.Paths.GlobalFile, """{ "libraries": [ "team.json" ] }""");
+        File.WriteAllText(Path.Combine(data, "team.json"), """{ "scripts": [ { "id": "stop-all", "name": "Stop all", "path": "stop.bat" } ] }""");
+        var (main, _) = Open(test);
+
+        var choices = Edit(main).AfterRun.StopChoices.Select(c => c.Value).ToList();
+
+        CollectionAssert.Contains(choices, "global:team:stop-all");
+    }
+
+    [TestMethod]
     public void ErrorPatternsAndArgsTemplateRoundTripAndPreview()
     {
         using var test = new TestWorkspace();

@@ -1,3 +1,4 @@
+using BatchPad.Core.Trust;
 using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Tests;
@@ -53,7 +54,6 @@ public sealed class WorkspaceLocatorTests
         File.WriteAllText(Path.Combine(exeDir, AppPaths.PortableMarker), "");
         var portable = AppPaths.Resolve(exeDir, appData, localAppData);
 
-        Assert.IsTrue(portable.IsPortable);
         Assert.AreEqual(Path.Combine(exeDir, "data", "settings.json"), portable.SettingsFile);
         Assert.AreEqual(Path.Combine(exeDir, "data", "local"), portable.LocalDirectory);
     }
@@ -62,18 +62,37 @@ public sealed class WorkspaceLocatorTests
     public void SettingsRoundTripAndRecentsStayUniqueNewestFirst()
     {
         using var dir = new TempDir();
-        var settings = new Settings { Interpreters = { ["python"] = @"C:\py\python.exe" } };
-        settings.AddRecentWorkspace(dir.Path("a.json"));
-        settings.AddRecentWorkspace(dir.Path("b.json"));
-        settings.AddRecentWorkspace(dir.Path("A.json"));
-        settings.TrustedFolders.Add(dir.Root);
+        new Settings().Update(dir.Path("settings.json"), settings =>
+        {
+            settings.Interpreters["python"] = @"C:\py\python.exe";
+            settings.AddRecentWorkspace(dir.Path("a.json"));
+            settings.AddRecentWorkspace(dir.Path("b.json"));
+            settings.AddRecentWorkspace(dir.Path("A.json"));
+            settings.TrustedFolders.Add(dir.Root);
+        });
 
-        settings.Save(dir.Path("settings.json"));
         var reread = Settings.Load(dir.Path("settings.json"));
 
         CollectionAssert.AreEqual(new[] { dir.Path("A.json"), dir.Path("b.json") }, reread.RecentWorkspaces);
         Assert.AreEqual(@"C:\py\python.exe", reread.Interpreters["python"]);
         CollectionAssert.AreEqual(new[] { dir.Root }, reread.TrustedFolders);
         Assert.IsEmpty(Settings.Load(dir.Path("missing.json")).RecentWorkspaces);
+    }
+
+    [TestMethod]
+    public void TwoWindowsSavingSettingsKeepEachOthersChanges()
+    {
+        using var dir = new TempDir();
+        var file = dir.Path("settings.json");
+        var first = new TrustStore(new Settings(), file);
+        var second = new TrustStore(new Settings(), file);
+
+        first.Trust(dir.Path("a"));
+        second.Trust(dir.Path("b"));
+        new Settings().Update(file, s => s.KeepRunningInTray = false);
+
+        var saved = Settings.Load(file);
+        CollectionAssert.AreEqual(new[] { dir.Path("a"), dir.Path("b") }, saved.TrustedFolders);
+        Assert.IsFalse(saved.KeepRunningInTray);
     }
 }

@@ -89,9 +89,7 @@ public sealed class TrayTests
     {
         var tray = new FakeTray();
         var launcher = new FakeLauncher();
-        var main = new MainViewModel(test.Paths, settings, launcher, shell: new FakeShell(), confirm: new FakeConfirm(), tray: tray);
-        main.Trust.Trust(TestWorkspace.DemoSource);
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, settings: settings, launcher: launcher, shell: new FakeShell(), confirm: new FakeConfirm(), tray: tray);
         main.OpenSchedulesCommand.Execute(null);
         return (main, tray, launcher);
     }
@@ -104,22 +102,3 @@ public sealed class TrayTests
         });
 }
 
-internal sealed class FakeTray : ITrayService
-{
-    public bool IsVisible { get; set; }
-    public List<(string Title, string Message, Action OnClick)> Notifications { get; } = [];
-
-    public event Action? OpenRequested;
-    public event Action? SchedulesRequested;
-    public event Action? ExitRequested;
-
-    public void RaiseOpen() => OpenRequested?.Invoke();
-    public void RaiseSchedules() => SchedulesRequested?.Invoke();
-    public void RaiseExit() => ExitRequested?.Invoke();
-
-    public void Notify(string title, string message, Action onClick) => Notifications.Add((title, message, onClick));
-
-    public void Dispose()
-    {
-    }
-}

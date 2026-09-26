@@ -7,7 +7,14 @@
         <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
         <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas</FontFamily>
         <SolidColorBrush x:Key="AccentBrush" Color="#005FB8" />
-        <SolidColorBrush x:Key="PaneBrush" Color="#F3F3F3" />
+        <SolidColorBrush x:Key="OutputBackgroundBrush" Color="#1C1C1C" />
+        <SolidColorBrush x:Key="OutputSidebarBrush" Color="#252525" />
+        <SolidColorBrush x:Key="OutputTextBrush" Color="#E6E6E6" />
+        <SolidColorBrush x:Key="OutputMutedBrush" Color="#9A9A9A" />
+        <SolidColorBrush x:Key="OutputErrorBrush" Color="#F1707A" />
+        <SolidColorBrush x:Key="OutputSuccessBrush" Color="#6CCB5F" />
+        <SolidColorBrush x:Key="OutputWarningBrush" Color="#FFD787" />
+        <SolidColorBrush x:Key="OutputAccentBrush" Color="#60CDFF" />
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
         <views:NullToCollapsedConverter x:Key="NullToCollapsed" />

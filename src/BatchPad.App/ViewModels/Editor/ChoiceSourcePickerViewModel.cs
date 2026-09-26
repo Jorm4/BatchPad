@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
+using BatchPad.App.Services;
 using BatchPad.Core.Choices;
 using BatchPad.Core.Discovery;
 using Glob = BatchPad.Core.Discovery.Glob;
@@ -11,7 +12,7 @@ namespace BatchPad.App.ViewModels.Editor;
 
 public enum ChoiceSourceKind { Folder, Lines, Script, Fixed }
 
-public sealed record SourceCard(ChoiceSourceKind Kind, string Title, string Description, bool IsEnabled);
+public sealed record SourceCard(ChoiceSourceKind Kind, string Title, string Description);
 
 public sealed partial class PathSegmentViewModel(int index, string text) : ObservableObject
 {
@@ -44,14 +45,20 @@ public sealed partial class FixedChoiceRow : ObservableObject
 }
 
 /// <summary>Builds one choice source by pointing at files and lines instead of writing a pattern (§5.1).</summary>
-public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
+public sealed partial class ChoiceSourcePickerViewModel : ChoicePreviewViewModel
 {
+    private static readonly TimeSpan ScanDelay = TimeSpan.FromMilliseconds(300);
+
     private readonly ChoiceEnvironment _environment;
+    private readonly Debouncer _segmentScan;
     private bool _loading;
+    private string? _loadedMatch;
 
     public ChoiceSourcePickerViewModel(ChoiceEnvironment environment, ChoiceSource? existing = null)
+        : base(environment)
     {
         _environment = environment;
+        _segmentScan = new Debouncer(environment.Dispatcher, ScanDelay);
         FixedRows.CollectionChanged += (_, e) =>
         {
             foreach (FixedChoiceRow row in e.NewItems ?? Array.Empty<FixedChoiceRow>())
@@ -67,13 +74,11 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
 
     public static IReadOnlyList<SourceCard> Cards { get; } =
     [
-        new(ChoiceSourceKind.Folder, "Files in a folder", "One choice per matching file, named by the file or a folder in its path.", true),
-        new(ChoiceSourceKind.Lines, "Lines in a file", "Click a line: every word after = becomes a choice.", true),
-        new(ChoiceSourceKind.Script, "Output of a script", "Runs a script; one choice per output line.", true),
-        new(ChoiceSourceKind.Fixed, "Fixed list", "Type or paste a label and a value per row.", true),
+        new(ChoiceSourceKind.Folder, "Files in a folder", "One choice per matching file, named by the file or a folder in its path."),
+        new(ChoiceSourceKind.Lines, "Lines in a file", "Click a line: every word after = becomes a choice."),
+        new(ChoiceSourceKind.Script, "Output of a script", "Runs a script; one choice per output line."),
+        new(ChoiceSourceKind.Fixed, "Fixed list", "Type or paste a label and a value per row."),
     ];
-
-    public IReadOnlyList<SourceCard> SourceCards => Cards;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsFolder), nameof(IsLines), nameof(IsScript), nameof(IsFixed))]
@@ -124,11 +129,6 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     [ObservableProperty]
     private bool lowercaseValues;
 
-    public ObservableCollection<ChoicePreviewRow> Preview { get; } = [];
-
-    [ObservableProperty]
-    private string? problems;
-
     public event Action<bool>? Closed;
 
     partial void OnSelectedKindChanged(ChoiceSourceKind value) => RefreshPreview();
@@ -145,11 +145,7 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     partial void OnRelativeToChanged(string value) => RefreshPreview();
 
     [RelayCommand]
-    private void SelectKind(ChoiceSourceKind kind)
-    {
-        if (Cards.Single(c => c.Kind == kind).IsEnabled)
-            SelectedKind = kind;
-    }
+    private void SelectKind(ChoiceSourceKind kind) => SelectedKind = kind;
 
     [RelayCommand]
     private void BrowseFolder()
@@ -305,10 +301,9 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
             RelativeTo = source.RelativeTo ?? "";
             var firstWildcard = glob.IndexOfAny(['*', '?']);
             var split = firstWildcard >= 0 ? glob.LastIndexOf('/', firstWildcard) : glob.LastIndexOf('/');
+            _loadedMatch = source.Match;
             FolderPath = split > 0 ? glob[..split] : "";
             Pattern = split > 0 ? glob[(split + 1)..] : glob;
-            if (source.Match is { } match && Segments.FirstOrDefault(s => SegmentPattern(BuildSource()!.Glob!, s.Index) == match) is { } segment)
-                SelectSegment(segment);
         }
         else if (source.File is { } file)
         {
@@ -329,13 +324,21 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     {
         Segments.Clear();
         SelectedSegment = null;
-        if (BuildSource() is { Glob: { } glob } && FirstMatch(glob) is { } example)
+        if (BuildSource() is not { Glob: { } glob })
         {
-            var parts = example.Split('/');
+            RefreshPreview();
+            return;
+        }
+        var match = _loading ? _loadedMatch : null;
+        _segmentScan.Run(() => FirstMatch(glob), example =>
+        {
+            var parts = example?.Split('/') ?? [];
             for (var i = 0; i < parts.Length; i++)
                 Segments.Add(new PathSegmentViewModel(i, parts[i]) { IsSelected = i == parts.Length - 1 });
-        }
-        RefreshPreview();
+            if (match is not null && Segments.FirstOrDefault(s => SegmentPattern(glob, s.Index) == match) is { } segment)
+                SelectSegment(segment);
+            RefreshPreview();
+        });
     }
 
     /// <summary>The first file the glob matches, relative to the base directory; only the glob's fixed prefix folder is searched.</summary>
@@ -343,16 +346,23 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
     {
         var parts = glob.Split('/');
         var fixedCount = parts[..^1].TakeWhile(p => p.IndexOfAny(['*', '?']) < 0).Count();
-        var root = Path.GetFullPath(Path.Combine(_environment.BaseDirectory, string.Join('/', parts[..fixedCount])));
-        if (!Directory.Exists(root))
+        try
+        {
+            var root = Path.GetFullPath(Path.Combine(_environment.BaseDirectory, string.Join('/', parts[..fixedCount])));
+            if (!Directory.Exists(root))
+                return null;
+            var remainder = string.Join('/', parts[fixedCount..]);
+            var recursive = remainder.Contains('/') || remainder.Contains("**");
+            return Directory.EnumerateFiles(root, "*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
+                .Where(f => Glob.IsMatch(remainder, Path.GetRelativePath(root, f).Replace('\\', '/')))
+                .Select(Relative)
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
             return null;
-        var remainder = string.Join('/', parts[fixedCount..]);
-        var recursive = remainder.Contains('/') || remainder.Contains("**");
-        return Directory.EnumerateFiles(root, "*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
-            .Where(f => Glob.IsMatch(remainder, Path.GetRelativePath(root, f).Replace('\\', '/')))
-            .Select(Relative)
-            .Order(StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+        }
     }
 
     private void LoadLines()
@@ -374,7 +384,7 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
         Regex? regex = null;
         try
         {
-            regex = RegexText.Length == 0 ? null : new Regex(RegexText, RegexOptions.CultureInvariant);
+            regex = RegexText.Length == 0 ? null : new Regex(RegexText, RegexOptions.CultureInvariant, UserPattern.Timeout);
         }
         catch (ArgumentException)
         {
@@ -382,7 +392,7 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
         var first = true;
         foreach (var line in Lines)
         {
-            line.IsMatch = regex is not null && regex.IsMatch(line.Text) && (AllMatches || first);
+            line.IsMatch = regex is not null && UserPattern.IsMatch(regex, line.Text) && (AllMatches || first);
             first &= !line.IsMatch;
         }
         RefreshPreview();
@@ -397,11 +407,7 @@ public sealed partial class ChoiceSourcePickerViewModel : ObservableObject
             parameter.Choices = FixedChoices();
         else if (BuildSource() is { } source)
             parameter.ChoicesFrom = [source];
-        var resolved = _environment.Resolve(parameter);
-        Preview.Clear();
-        foreach (var choice in resolved.Choices)
-            Preview.Add(new ChoicePreviewRow(choice.DisplayLabel, choice.Value));
-        Problems = resolved.Problems.Count == 0 ? null : string.Join(Environment.NewLine, resolved.Problems);
+        ShowPreview(parameter);
     }
 
     /// <summary>A regex over the file's workspace-relative path whose group 1 is path segment <paramref name="index"/>.</summary>

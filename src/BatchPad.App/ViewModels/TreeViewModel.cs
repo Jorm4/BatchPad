@@ -14,6 +14,8 @@ public sealed partial class TreeViewModel : ObservableObject
 {
     private readonly Action<NodeViewModel, NewItemKind>? _onNewItem;
     private readonly CustomisationResolver _customisations;
+    private readonly Lazy<Dictionary<string, NodeViewModel>> _byKey;
+    private readonly Lazy<Dictionary<TreeNode, NodeViewModel>> _byDefinition;
 
     /// <param name="onNewItem">Called with the node the new item goes into or next to.</param>
     public TreeViewModel(LoadedWorkspace workspace, Action<NodeViewModel, NewItemKind>? onNewItem = null)
@@ -27,6 +29,8 @@ public sealed partial class TreeViewModel : ObservableObject
             BuildRoot(workspace.Workspace, $"Workspace — {workspaceName}"),
             BuildRoot(workspace.Global, "Global"),
         ];
+        _byKey = new(() => Index(n => n.Key, StringComparer.Ordinal));
+        _byDefinition = new(() => Index<TreeNode>(n => n.Node, ReferenceEqualityComparer.Instance));
     }
 
     public ObservableCollection<NodeViewModel> Roots { get; }
@@ -74,6 +78,19 @@ public sealed partial class TreeViewModel : ObservableObject
     }
 
     public NodeViewModel? Find(string automationId) => AllNodes.FirstOrDefault(n => n.AutomationId == automationId);
+
+    public NodeViewModel? ByKey(string? key) => key is null ? null : _byKey.Value.GetValueOrDefault(key);
+
+    public NodeViewModel? ByDefinition(TreeNode? definition) => definition is null ? null : _byDefinition.Value.GetValueOrDefault(definition);
+
+    private Dictionary<TKey, NodeViewModel> Index<TKey>(Func<NodeViewModel, TKey?> keyOf, IEqualityComparer<TKey> comparer) where TKey : notnull
+    {
+        var index = new Dictionary<TKey, NodeViewModel>(comparer);
+        foreach (var node in AllNodes)
+            if (keyOf(node) is { } key)
+                index.TryAdd(key, node);
+        return index;
+    }
 
     private static bool ApplyFilter(NodeViewModel node, string text)
     {

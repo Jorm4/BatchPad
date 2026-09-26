@@ -1,9 +1,7 @@
-using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -155,9 +153,8 @@ public sealed class RunViewModelTests
     public void NothingRunsUntilTheWorkspaceIsTrusted()
     {
         using var test = new TestWorkspace();
-        var main = new MainViewModel(test.Paths, new Settings(), new FakeLauncher(), shell: new FakeShell());
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
-        main.Tree!.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
+        var main = test.OpenMain(TestWorkspace.DemoSource, launcher: new FakeLauncher(), shell: new FakeShell());
+        main.Select("Workspace/Hello/hello.bat");
 
         Assert.IsFalse(main.Details.RunCommand.CanExecute(null));
 
@@ -168,83 +165,9 @@ public sealed class RunViewModelTests
 
     private static MainViewModel Open(TestWorkspace test, FakeLauncher launcher, string node, FakeShell? shell = null)
     {
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: shell ?? new FakeShell());
-        main.Trust.Trust(TestWorkspace.DemoSource);
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
-        main.Tree!.Find(node)!.IsSelected = true;
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, launcher: launcher, shell: shell ?? new FakeShell());
+        main.Select(node);
         return main;
     }
 }
 
-internal sealed class FakeLauncher : IRunLauncher
-{
-    public List<FakeProcess> Started { get; } = [];
-    public List<RunRequest> Requests { get; } = [];
-    public Exception? Failure { get; init; }
-
-    public IRunProcess Start(RunRequest request)
-    {
-        Requests.Add(request);
-        if (Failure is not null)
-            throw Failure;
-        var process = new FakeProcess();
-        Started.Add(process);
-        return process;
-    }
-}
-
-internal sealed class FakeProcess : IRunProcess
-{
-    private readonly TaskCompletionSource<RunResult> _completion = new();
-    private Action<OutputLine>? _onLine;
-
-    public Task<RunResult> Completion => _completion.Task;
-
-    public IDisposable Subscribe(Action<OutputLine> onLine)
-    {
-        _onLine += onLine;
-        return new Subscription(() => _onLine -= onLine);
-    }
-
-    private sealed class Subscription(Action unsubscribe) : IDisposable
-    {
-        public void Dispose() => unsubscribe();
-    }
-
-    public void Emit(string text, OutputStream stream) => _onLine?.Invoke(new OutputLine(text, stream));
-
-    public void Finish(RunOutcome outcome, int exitCode) =>
-        _completion.TrySetResult(new RunResult(outcome, exitCode, TimeSpan.FromSeconds(1)));
-
-    public bool? CompanionStarted { get; private set; }
-
-    public string? WaitingForLock { get; private set; }
-
-    public event Action? WaitingChanged;
-
-    public void Wait(string? lockName)
-    {
-        WaitingForLock = lockName;
-        WaitingChanged?.Invoke();
-    }
-
-    public Task StopAsync(Func<bool>? stopCompanion = null)
-    {
-        CompanionStarted = stopCompanion?.Invoke();
-        Finish(RunOutcome.Stopped, -1);
-        return Task.CompletedTask;
-    }
-
-    public void Dispose() => _onLine = null;
-}
-
-internal sealed class FakeShell : IShellService
-{
-    public string? Copied { get; private set; }
-    public List<string> Opened { get; } = [];
-
-    public void CopyText(string text) => Copied = text;
-    public void Open(string target) => Opened.Add(target);
-    public List<string> Commands { get; } = [];
-    public void RunCommand(string commandLine) => Commands.Add(commandLine);
-}

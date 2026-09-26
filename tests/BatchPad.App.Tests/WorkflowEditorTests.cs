@@ -72,10 +72,8 @@ public sealed class WorkflowEditorTests
     {
         using var test = new TestWorkspace();
         var demo = test.CopyDemo();
-        var main = new MainViewModel(test.Paths, new Settings(), shell: new FakeShell(), confirm: new FakeConfirm());
-        main.Trust.Trust(demo);
-        main.OpenInitial(demo, test.Root);
-        main.Tree!.Find("Workspace/Build & run")!.IsSelected = true;
+        var main = test.OpenMain(demo, trusted: true, shell: new FakeShell(), confirm: new FakeConfirm());
+        main.Select("Workspace/Build & run");
         Assert.IsTrue(main.Details.IsWorkflow);
         Assert.AreEqual("build → run", main.Details.Preview);
 
@@ -160,6 +158,30 @@ public sealed class WorkflowEditorTests
     }
 
     [TestMethod]
+    public void AStepFormLeavesOutSecretsAndSavingDropsAStoredOne()
+    {
+        using var test = new TestWorkspace();
+        var directory = Directory.CreateDirectory(Path.Combine(test.Root, "secret")).FullName;
+        File.WriteAllText(Path.Combine(directory, "login.bat"), "@echo %*\r\n");
+        File.WriteAllText(Path.Combine(directory, "batchpad.json"), """
+            { "id": "secret-steps", "scripts": [
+              { "id": "login", "name": "Login", "path": "login.bat", "params": [
+                { "name": "user", "type": "text" }, { "name": "token", "type": "secret" } ] },
+              { "id": "flow", "name": "Flow", "steps": [ { "id": "login", "run": "login", "values": { "token": "hunter2" } } ] } ] }
+            """);
+        var main = test.OpenMain(directory, trusted: true);
+        main.Select("Workspace/Flow");
+        main.Details.EditCommand.Execute(null);
+        var card = main.Details.WorkflowEditor!.Steps.Single();
+
+        Assert.IsNotNull(card.Form!.Field("user"));
+        Assert.IsNull(card.Form.Field("token"));
+        main.Details.WorkflowEditor.SaveCommand.Execute(null);
+
+        Assert.DoesNotContain("hunter2", File.ReadAllText(Path.Combine(directory, "batchpad.json")));
+    }
+
+    [TestMethod]
     public async Task ARunOfANestedWorkflowListsTheInnerStepsUnderItsRow()
     {
         using var test = new TestWorkspace();
@@ -174,11 +196,11 @@ public sealed class WorkflowEditorTests
                 { "id": "last", "run": "tool" } ] } ] }
             """);
         var main = test.OpenMain(directory, trusted: true);
-        main.Tree!.Find("Workspace/Outer")!.IsSelected = true;
+        main.Select("Workspace/Outer");
 
         main.Details.RunCommand.Execute(null);
         var tab = (WorkflowRunViewModel)main.Output.Tabs.Single();
-        await tab.Finished.WaitAsync(TimeSpan.FromSeconds(15));
+        await tab.Finished.WaitAsync(Limit);
 
         Assert.AreEqual("passed", tab.StatusText);
         CollectionAssert.AreEqual(new[] { "step1", "a", "nest", "one", "two", "last" }, tab.Steps.Select(s => s.Step.Id).ToList());
@@ -200,18 +222,14 @@ public sealed class WorkflowEditorTests
               { "id": "flow", "name": "Flow", "steps": [ { "id": "build", "run": "build" } ] } ] }
             """);
         var shell = new FakeShell();
-        var main = new MainViewModel(test.Paths, new Settings { EditorCommand = "edit \"{file}\" {line}" }, shell: shell, confirm: new FakeConfirm());
-        main.Trust.Trust(directory);
-        main.OpenInitial(directory, test.Root);
-        main.Tree!.Find("Workspace/Flow")!.IsSelected = true;
+        var main = test.OpenMain(directory, trusted: true, settings: new Settings { EditorCommand = "edit \"{file}\" {line}" }, shell: shell, confirm: new FakeConfirm());
+        main.Select("Workspace/Flow");
 
         main.Details.RunCommand.Execute(null);
         var tab = (WorkflowRunViewModel)main.Output.Tabs.Single();
-        await tab.Finished.WaitAsync(TimeSpan.FromSeconds(15));
+        await tab.Finished.WaitAsync(Limit);
         var step = tab.Steps.Single();
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (step.Lines.Count < 3 && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
+        await Eventually(() => step.Lines.Count >= 3);
 
         CollectionAssert.AreEqual(new[] { "compiling", "build.bat(2): error E1: bad", "done" }, step.Lines.Select(l => l.Text).ToList());
         Assert.AreEqual("version=1.2.3", step.OutputsText);
@@ -227,7 +245,7 @@ public sealed class WorkflowEditorTests
 
     private static WorkflowEditorViewModel EditShip(MainViewModel main)
     {
-        main.Tree!.Find("Workspace/Ship")!.IsSelected = true;
+        main.Select("Workspace/Ship");
         main.Details.EditCommand.Execute(null);
         return main.Details.WorkflowEditor!;
     }
@@ -260,9 +278,7 @@ public sealed class WorkflowEditorTests
               ]
             }
             """);
-        var main = new MainViewModel(test.Paths, new Settings(), new FakeLauncher(), shell: new FakeShell(), confirm: new FakeConfirm());
-        main.Trust.Trust(directory);
-        main.OpenInitial(directory, test.Root);
+        var main = test.OpenMain(directory, trusted: true, launcher: new FakeLauncher(), shell: new FakeShell(), confirm: new FakeConfirm());
         return main;
     }
 }

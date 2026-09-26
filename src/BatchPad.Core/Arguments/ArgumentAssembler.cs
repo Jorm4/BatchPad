@@ -16,9 +16,6 @@ public sealed record AssemblyRequest(ScriptNode Script, TemplateContext Template
     /// <summary>Current values by parameter name; a missing name falls back to the parameter's <c>default</c>.</summary>
     public IReadOnlyDictionary<string, JsonNode?>? Values { get; init; }
 
-    /// <summary>Workspace-level <c>env</c>, applied before the script's own.</summary>
-    public IReadOnlyDictionary<string, string>? Environment { get; init; }
-
     /// <summary>Resolved choices (e.g. from <c>ChoiceResolver</c>) for looking up rich choices; defaults to the fixed <c>choices</c>.</summary>
     public Func<ParameterDefinition, IReadOnlyList<ChoiceDefinition>>? Choices { get; init; }
 }
@@ -31,10 +28,11 @@ public sealed record BoundParameter(ParameterDefinition Definition, TemplateValu
 /// <summary>Builds the arguments and environment of a script run (§3.3 argument assembly).</summary>
 public static partial class ArgumentAssembler
 {
-    public static IReadOnlyList<Invocation> Assemble(AssemblyRequest request)
+    public static IReadOnlyList<Invocation> Assemble(AssemblyRequest request) => Assemble(request, Bind(request));
+
+    public static IReadOnlyList<Invocation> Assemble(AssemblyRequest request, IReadOnlyList<BoundParameter> parameters)
     {
-        var parameters = Bind(request);
-        var templates = request.Templates with { Params = parameters.ToDictionary(p => p.Definition.Name!, p => p.Value) };
+        var templates = WithParams(request.Templates, parameters);
 
         var batched = parameters.FirstOrDefault(p =>
             p.Definition is { Type: ParameterType.Multichoice, MaxPerCall: > 0 } && p.Definition.Emit != false
@@ -64,6 +62,9 @@ public static partial class ArgumentAssembler
         }
         return bound;
     }
+
+    public static TemplateContext WithParams(TemplateContext templates, IReadOnlyList<BoundParameter> parameters) =>
+        templates with { Params = parameters.ToDictionary(p => p.Definition.Name!, p => p.Value) };
 
     private static TemplateValue ToValue(ParameterDefinition definition, JsonNode? raw, bool expandText, AssemblyRequest request)
     {
@@ -114,7 +115,7 @@ public static partial class ArgumentAssembler
     {
         var script = request.Script;
         var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, value) in (request.Environment ?? new Dictionary<string, string>()).Concat(script.Env ?? []))
+        foreach (var (name, value) in script.Env ?? [])
             environment[name] = TemplateExpander.ExpandText(value, templates);
 
         var arguments = new List<string>();
@@ -122,7 +123,6 @@ public static partial class ArgumentAssembler
             arguments.AddRange(TemplateExpander.Expand(argument, templates).AsList());
 
         var trailing = new List<string>();
-        var parameterEnvironment = new List<string>();
         foreach (var parameter in parameters)
         {
             var definition = parameter.Definition;
@@ -132,10 +132,7 @@ public static partial class ArgumentAssembler
             {
                 var text = definition.Type == ParameterType.Flag ? (parameter.IsOn ? "1" : "") : parameter.Value.Text;
                 if (text.Length > 0)
-                {
                     environment[variable] = text;
-                    parameterEnvironment.Add(variable);
-                }
                 continue;
             }
             if (script.ArgsTemplate is not null)
@@ -148,8 +145,7 @@ public static partial class ArgumentAssembler
         if (script.ArgsTemplate is { } template)
             arguments.AddRange(ExpandArgsTemplate(template, templates, parameters, batched, batch));
 
-        var display = Display(script, templates, arguments, parameterEnvironment.Select(n => $"{n}={environment[n]}"));
-        return new Invocation(arguments, environment, display);
+        return new Invocation(arguments, environment);
     }
 
     private static IReadOnlyList<string> ItemsOf(BoundParameter parameter, BoundParameter? batched, IReadOnlyList<string>? batch) =>
@@ -256,16 +252,4 @@ public static partial class ArgumentAssembler
             result.Add(current.ToString());
         return result;
     }
-
-    private static string Display(ScriptNode script, TemplateContext templates, IEnumerable<string> arguments, IEnumerable<string> environment)
-    {
-        var program = script.Path is not null ? TemplateExpander.ExpandText(script.Path, templates)
-            : script.Command ?? (script.Module is not null ? $"-m {script.Module}" : "");
-        return string.Join(' ', environment.Append(program).Concat(arguments.Select(DisplayQuote)).Where(s => s.Length > 0));
-    }
-
-    private static string DisplayQuote(string argument) =>
-        argument.Length == 0 ? "\"\"" :
-        argument.Any(c => char.IsWhiteSpace(c) || c == '"') ? $"\"{argument.Replace("\"", "\\\"")}\"" :
-        argument;
 }

@@ -58,7 +58,7 @@ public sealed class FlattenerTests
 
     private static LoadedWorkspace Load(TempDir temp, string? userEntry)
     {
-        var paths = new AppPaths(temp.Path("data"), isPortable: true);
+        var paths = new AppPaths(temp.Path("data"));
         if (userEntry is not null)
         {
             var file = paths.UserFile("batchpad-demo");

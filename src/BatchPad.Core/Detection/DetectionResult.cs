@@ -9,5 +9,4 @@ public sealed class DetectionResult
     public string? Description { get; init; }
     public List<ParameterDefinition> Parameters { get; set; } = [];
     public string? LongRunningReason { get; init; }
-    public bool LongRunning => LongRunningReason is not null;
 }

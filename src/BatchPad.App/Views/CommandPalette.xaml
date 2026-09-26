@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:BatchPad.App.ViewModels"
+             xmlns:views="clr-namespace:BatchPad.App.Views"
              IsVisibleChanged="OnIsVisibleChanged" IsKeyboardFocusWithinChanged="OnFocusWithinChanged"
              AutomationProperties.AutomationId="CommandPalette">
     <Border Width="560" MaxHeight="420" VerticalAlignment="Top" Margin="0,48,0,0" Padding="8" CornerRadius="8" BorderThickness="1"
@@ -22,9 +23,9 @@
                     <KeyBinding Key="PageUp" Command="{Binding MoveCommand}" CommandParameter="-10" />
                 </TextBox.InputBindings>
             </TextBox>
-            <ListBox x:Name="ResultList" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedItem}" BorderThickness="0"
+            <ListBox x:Name="ResultList" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedItem}" views:ScrollSelection.IntoView="True" BorderThickness="0"
                      Background="Transparent" Focusable="False" MouseDoubleClick="OnResultDoubleClick"
-                     AutomationProperties.AutomationId="PaletteResults" SelectionChanged="OnSelectionChanged">
+                     AutomationProperties.AutomationId="PaletteResults">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
                         <Setter Property="Focusable" Value="False" />

@@ -1,5 +1,3 @@
-using System.Text.Json;
-using BatchPad.Core.Config;
 using BatchPad.Core.Model;
 using BatchPad.Core.Workspace;
 
@@ -8,9 +6,6 @@ namespace BatchPad.App.ViewModels.Editor;
 /// <summary>Finds and replaces entries in a freshly re-read config file, for saves through <see cref="ConfigWriter.Update"/>.</summary>
 public static class ConfigEntries
 {
-    public static T Clone<T>(T value) =>
-        JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, ConfigJson.Options), ConfigJson.Options)!;
-
     public static IReadOnlyList<int>? IndexPath(IReadOnlyList<TreeNode> nodes, TreeNode target)
     {
         for (var i = 0; i < nodes.Count; i++)
@@ -35,13 +30,19 @@ public static class ConfigEntries
             list[index] = replacement;
             return true;
         }
-        if (Find(scripts, n => original.Id is not null ? n.Id == original.Id : original.Path is not null && n.Path == original.Path)
-            is ({ } owner, var found))
-        {
-            owner[found] = replacement;
-            return true;
-        }
-        return false;
+        return ReplaceFirst<ScriptNode>(scripts,
+            n => original.Id is not null ? n.Id == original.Id : original.Path is not null && n.Path == original.Path, replacement);
+    }
+
+    public static bool ReplaceWorkflow(List<TreeNode> scripts, string id, WorkflowNode replacement) =>
+        ReplaceFirst<WorkflowNode>(scripts, n => n.Id == id, replacement);
+
+    private static bool ReplaceFirst<T>(List<TreeNode> nodes, Func<T, bool> match, TreeNode replacement) where T : TreeNode
+    {
+        if (Find(nodes, match) is not ({ } owner, var found))
+            return false;
+        owner[found] = replacement;
+        return true;
     }
 
     /// <summary>The folder's item list at <paramref name="folderPath"/>, or the top level when it no longer leads to a folder.</summary>
@@ -51,7 +52,7 @@ public static class ConfigEntries
             : scripts;
 
     public static HashSet<string> Ids(IEnumerable<TreeNode> nodes) =>
-        Walk(nodes).Select(n => n switch { RunnableNode r => r.Id, LinkNode l => l.Id, _ => null })
+        nodes.Descendants().Select(n => n switch { RunnableNode r => r.Id, LinkNode l => l.Id, _ => null })
             .OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Ids taken in <paramref name="tree"/>'s scope: the freshly read file's plus those of the files it includes or is included by.</summary>
@@ -62,9 +63,6 @@ public static class ConfigEntries
             ids.UnionWith(Ids(other.File.Scripts));
         return ids;
     }
-
-    private static IEnumerable<TreeNode> Walk(IEnumerable<TreeNode> nodes) =>
-        nodes.SelectMany(n => n is FolderNode f ? Walk(f.Items).Prepend(n) : [n]);
 
     /// <summary>The list holding the entry at <paramref name="path"/> and its index there; (null, -1) when the path is stale.</summary>
     public static (List<TreeNode>? List, int Index) At(List<TreeNode> nodes, IReadOnlyList<int> path)
@@ -83,11 +81,11 @@ public static class ConfigEntries
         return (null, -1);
     }
 
-    private static (List<TreeNode>?, int) Find(List<TreeNode> nodes, Func<ScriptNode, bool> match)
+    private static (List<TreeNode>?, int) Find<T>(List<TreeNode> nodes, Func<T, bool> match) where T : TreeNode
     {
         for (var i = 0; i < nodes.Count; i++)
         {
-            if (nodes[i] is ScriptNode script && match(script))
+            if (nodes[i] is T node && match(node))
                 return (nodes, i);
             if (nodes[i] is FolderNode folder && Find(folder.Items, match) is ({ } list, var index))
                 return (list, index);

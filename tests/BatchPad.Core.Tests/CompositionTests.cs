@@ -38,7 +38,7 @@ public sealed class CompositionTests
         File.WriteAllText(dir.Path("batchpad.json"), File.ReadAllText(Fixtures.Path("config", "with_include.json")));
         File.WriteAllText(dir.Path("tools", "part.json"), """{ "scripts": [ { "id": "build", "command": "echo other" } ] }""");
 
-        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data"), isPortable: false));
+        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data")));
 
         var error = loaded.Errors.Single();
         StringAssert.Contains(error.Message, "'build'");
@@ -52,7 +52,7 @@ public sealed class CompositionTests
         using var dir = new TempDir();
         Directory.CreateDirectory(dir.Path("libs"));
         File.Copy(Fixtures.Path("config", "lib.json"), dir.Path("libs", "lib.json"));
-        var paths = new AppPaths(dir.Path("data"), isPortable: false);
+        var paths = new AppPaths(dir.Path("data"));
         ConfigWriter.Write(paths.GlobalFile, new WorkspaceFile { Libraries = [dir.Path("libs", "lib.json")] });
         File.WriteAllText(dir.Path("batchpad.json"), "{}");
 
@@ -75,7 +75,7 @@ public sealed class CompositionTests
         using var dir = new TempDir();
         File.WriteAllText(dir.Path("batchpad.json"), File.ReadAllText(Fixtures.Path("config", "with_include.json")));
 
-        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data"), isPortable: false));
+        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data")));
 
         Assert.AreEqual(dir.Path("tools", "part.json"), loaded.Errors.Single().FilePath);
         Assert.IsNotNull(loaded.References.Resolve("build", TreeKind.Workspace));
@@ -87,6 +87,6 @@ public sealed class CompositionTests
         File.Copy(Fixtures.Path("config", "with_include.json"), dir.Path("batchpad.json"));
         File.Copy(Fixtures.Path("config", "part.json"), dir.Path("tools", "part.json"));
         File.WriteAllText(dir.Path("tools", "regen.bat"), "@echo regen");
-        return WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data"), isPortable: false));
+        return WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data")));
     }
 }

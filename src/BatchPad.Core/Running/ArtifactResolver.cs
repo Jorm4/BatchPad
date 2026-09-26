@@ -1,5 +1,6 @@
 using BatchPad.Core.Model;
 using BatchPad.Core.Templating;
+using BatchPad.Core.Trust;
 
 namespace BatchPad.Core.Running;
 
@@ -25,14 +26,14 @@ public static class ArtifactResolver
         (script.Artifacts ?? [])
             .Where(a => !string.IsNullOrWhiteSpace(a.Path))
             .Select(a => new ResolvedArtifact(
-                Path.GetFullPath(Path.Combine(baseDirectory, TemplateExpander.ExpandText(a.Path!, templates))),
+                TemplateExpander.ExpandPath(a.Path!, baseDirectory, templates),
                 a.Open ?? ArtifactOpen.Never))
             .ToList();
 
-    /// <returns>The artifacts opened: those whose policy allows it after <paramref name="result"/> and that exist.</returns>
+    /// <returns>The artifacts opened: those whose policy allows it after <paramref name="result"/>, that exist and are not programs.</returns>
     public static IReadOnlyList<ResolvedArtifact> OpenAfter(RunResult result, IEnumerable<ResolvedArtifact> artifacts, IShellOpener opener)
     {
-        var opened = artifacts.Where(a => a.OpensAfter(result) && a.Exists).ToList();
+        var opened = artifacts.Where(a => a.OpensAfter(result) && LinkPolicy.OpensUnasked(a.Path) && a.Exists).ToList();
         foreach (var artifact in opened)
             opener.Open(artifact.Path);
         return opened;

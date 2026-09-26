@@ -137,15 +137,7 @@ internal static partial class BatchParameterDetector
     private static List<ParameterDefinition> PositionalFromArgumentUse(string[] lines)
     {
         var highest = lines.SelectMany(l => ArgumentReference().Matches(l)).Select(m => m.Groups["n"].Value[0] - '0').DefaultIfEmpty(0).Max();
-        if (highest > 0)
-            return [.. Enumerable.Range(1, highest).Select(n => new ParameterDefinition { Name = $"arg{n}", Type = ParameterType.Text })];
-        if (lines.Any(l => l.Contains("%*")))
-        {
-            var all = new ParameterDefinition { Name = "args", Type = ParameterType.Text };
-            MakeList(all);
-            return [all];
-        }
-        return [];
+        return [.. Enumerable.Range(1, highest).Select(n => new ParameterDefinition { Name = $"arg{n}", Type = ParameterType.Text })];
     }
 
     private static void DescribeOptions(List<ParameterDefinition> proposals, List<string> comments)

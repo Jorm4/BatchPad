@@ -1,6 +1,3 @@
-using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
@@ -12,8 +9,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class LongRunningTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
-
     private const string Server = """
         { "id": "server", "path": "fake_server.py", "longRunning": true, "stop": "stop-server",
           "ready": { "pattern": "Serving on (http://\\S+)", "open": "$1${param:page}" },
@@ -112,30 +107,6 @@ public sealed class LongRunningTests
 
         CollectionAssert.AreEqual(new[] { workspace.Temp.Path("report.html") }, opener.Targets.ToArray());
     }
-
-    private static int FreePort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
-    }
-}
-
-internal sealed class FakeOpener : IShellOpener
-{
-    private readonly TaskCompletionSource _first = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-    public ConcurrentQueue<string> Targets { get; } = new();
-
-    public void Open(string target)
-    {
-        Targets.Enqueue(target);
-        _first.TrySetResult();
-    }
-
-    public Task FirstOpen => _first.Task;
 }
 
 /// <summary>A trusted temporary workspace whose <c>batchpad.json</c> holds the given script entries, with run fixtures copied in.</summary>
@@ -148,7 +119,7 @@ internal sealed class RunWorkspace : IDisposable
         foreach (var fixture in fixtures)
             File.Copy(Fixtures.Path("run", fixture), Temp.Path(fixture));
         File.WriteAllText(Temp.Path("batchpad.json"), $$"""{ "id": "run-test", "scripts": [ {{scripts}} ] }""");
-        var paths = new AppPaths(Temp.Path("data"), isPortable: false);
+        var paths = new AppPaths(Temp.Path("data"));
         Workspace = WorkspaceLoader.Load(Temp.Path("batchpad.json"), paths);
         var trust = TrustStore.Load(paths);
         trust.Trust(Temp.Root);

@@ -15,7 +15,7 @@ public sealed class SourceLocationParserTests
         File.WriteAllText(dir.Path("src", "a.cpp"), "");
 
         var reference = SourceLocationParser.Find(line)!.Single();
-        var location = SourceLocationParser.Resolve(reference, dir.Root);
+        var location = new SourceLocationResolver(() => dir.Root).Resolve(reference);
 
         Assert.AreEqual(0, reference.Start);
         Assert.AreEqual(line.IndexOf(": ", StringComparison.Ordinal), reference.Length);
@@ -29,7 +29,6 @@ public sealed class SourceLocationParserTests
 
         var reference = SourceLocationParser.Find(@"src\a.cpp(12,5): error C2065")!.Single();
 
-        Assert.IsNull(SourceLocationParser.Resolve(reference, dir.Root));
         Assert.IsNull(new SourceLocationResolver(() => dir.Root).Resolve(reference));
     }
 
@@ -41,12 +40,34 @@ public sealed class SourceLocationParserTests
     }
 
     [TestMethod]
-    public void TheEditorTemplateIsTheSettingThenVsCodeThenNone()
+    [DataRow("//localhost/C$/Windows/win.ini(1): x")]
+    [DataRow(@"\\localhost\C$\Windows\win.ini(1): x")]
+    public void NetworkAndDevicePathsAreNeverLookedUp(string line)
+    {
+        var reference = SourceLocationParser.Find(line)!.Single();
+
+        Assert.IsNull(new SourceLocationResolver(() => @"C:\").Resolve(reference));
+    }
+
+    [TestMethod]
+    public void TheEditorTemplateIsTheSettingThenVsCodeThenNotepadForScriptsThenNone()
     {
         var location = new SourceLocation(@"C:\w\a.cpp", 12, 0);
+        string Expanded(string template) => EditorCommand.Environment(location)
+            .Aggregate(EditorCommand.Expand(template, location), (line, v) => line.Replace($"!{v.Key}!", v.Value));
 
-        Assert.AreEqual(@"np -n12 -c1 ""C:\w\a.cpp""", EditorCommand.Expand(EditorCommand.Template("np -n{line} -c{col} \"{file}\"", codeOnPath: true)!, location));
-        Assert.AreEqual(@"code -g ""C:\w\a.cpp:12""", EditorCommand.Expand(EditorCommand.Template(null, codeOnPath: true)!, location));
-        Assert.IsNull(EditorCommand.Template(" ", codeOnPath: false));
+        Assert.AreEqual(@"np -n12 -c1 ""C:\w\a.cpp""", Expanded(EditorCommand.Template("np -n{line} -c{col} \"{file}\"", codeOnPath: true, location.Path)!));
+        Assert.AreEqual(@"code -g ""C:\w\a.cpp:12""", Expanded(EditorCommand.Template(null, codeOnPath: true, location.Path)!));
+        Assert.AreEqual(EditorCommand.Notepad, EditorCommand.Template(" ", codeOnPath: false, @"C:\w\run.bat"));
+        Assert.IsNull(EditorCommand.Template(" ", codeOnPath: false, location.Path));
+    }
+
+    [TestMethod]
+    public void TheExpandedCommandReadsThePathFromTheEnvironment()
+    {
+        var location = new SourceLocation(@"C:\w\a&calc.cpp", 1, 1);
+
+        Assert.AreEqual("edit \"!BP_FILE!\"", EditorCommand.Expand("edit \"{file}\"", location));
+        Assert.AreEqual(location.Path, EditorCommand.Environment(location)["BP_FILE"]);
     }
 }

@@ -37,7 +37,7 @@ public sealed class LockManager
         return lease;
     }
 
-    public bool IsHeld(string name)
+    internal bool IsHeld(string name)
     {
         lock (_lock)
             return _holders.ContainsKey(name);

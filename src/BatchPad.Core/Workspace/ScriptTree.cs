@@ -1,3 +1,4 @@
+using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 
@@ -23,6 +24,8 @@ public sealed class ScriptTree(TreeKind kind, string filePath, WorkspaceFile fil
 
     public List<ScriptTree> Parts { get; } = [];
 
+    public PathPolicy Paths { get; init; } = PathPolicy.Unrestricted;
+
     public string Label => File.Name ?? Path.GetFileNameWithoutExtension(FilePath);
 
     /// <summary>Where ids are unique: the tree kind, plus the library for a library and its includes.</summary>
@@ -36,10 +39,13 @@ public sealed class ScriptTree(TreeKind kind, string filePath, WorkspaceFile fil
 
     public IEnumerable<ScriptTree> SelfAndParts() => Parts.SelectMany(p => p.SelfAndParts()).Prepend(this);
 
-    /// <summary>The tree as shown: entries merged with discovered scripts. Filled by <see cref="Rescan"/>.</summary>
     public IReadOnlyList<TreeItem> Items { get; private set; } = [];
 
+    /// <summary>The folders scanned for scripts; those <see cref="Paths"/> refuses are left out and reported on load.</summary>
     public IReadOnlyList<ScriptFolder> ScriptFolders =>
+        [.. DeclaredScriptFolders.Where(f => Paths.Problem(ScriptFolderScanner.FullPath(BaseDirectory, f)) is null)];
+
+    internal IReadOnlyList<ScriptFolder> DeclaredScriptFolders =>
         File.ScriptFolders ?? (Kind == TreeKind.Workspace && !IsPart ? ScriptFolderScanner.DefaultFolders : []);
 
     public IEnumerable<string> ScriptFolderDirectories =>
@@ -47,7 +53,7 @@ public sealed class ScriptTree(TreeKind kind, string filePath, WorkspaceFile fil
 
     public void Rescan(IReadOnlySet<string>? seenPaths = null)
     {
-        var items = TreeMerger.Merge(File.Scripts, BaseDirectory, ScriptFolderScanner.Scan(BaseDirectory, ScriptFolders), seenPaths);
+        var items = TreeMerger.Merge(File.Scripts, BaseDirectory, ScriptFolderScanner.Scan(BaseDirectory, ScriptFolders), seenPaths, Paths);
         foreach (var part in Parts)
         {
             part.Rescan();

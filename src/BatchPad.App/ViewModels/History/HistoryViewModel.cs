@@ -74,15 +74,32 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
             new RunRecord { NodeKey = node.Key, Tree = node.Tree.Kind, Name = node.Name, Trigger = trigger }, KeyOf, RunTriggers.Manual);
     }
 
-    public void RecordSteps(WorkflowRun run)
+    public void RecordSteps(WorkflowRun run, string trigger = RunTriggers.Manual)
     {
         if (Store is { } store)
-            _ = HistoryRecorder.AttachSteps(run, store, KeyOf);
+            _ = HistoryRecorder.AttachSteps(run, store, KeyOf, trigger);
     }
 
-    /// <summary>The value <paramref name="parameter"/> had in the node's latest run that set it.</summary>
-    public JsonNode? LastValue(string nodeKey, string parameter) =>
-        Store?.Recent().FirstOrDefault(r => r.NodeKey == nodeKey && r.Values.ContainsKey(parameter))?.Values[parameter]?.DeepClone();
+    /// <summary>The values <paramref name="parameters"/> had in the node's latest run that set each; a masked secret has none.</summary>
+    public Dictionary<string, JsonNode?> LastValues(string nodeKey, IEnumerable<string> parameters)
+    {
+        var found = new Dictionary<string, JsonNode?>();
+        var wanted = parameters.ToHashSet();
+        foreach (var record in Store?.Recent() ?? [])
+        {
+            if (wanted.Count == 0)
+                break;
+            if (record.NodeKey != nodeKey)
+                continue;
+            foreach (var (name, value) in record.Values)
+                if (wanted.Remove(name) && !IsMasked(value))
+                    found[name] = value?.DeepClone();
+        }
+        return found;
+    }
+
+    public static bool IsMasked(JsonNode? value) =>
+        value is JsonValue json && json.TryGetValue<string>(out var text) && text == RunRecord.Masked;
 
     public string? LastLog(string nodeKey)
     {
@@ -107,13 +124,13 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
     public void RunAgain(RunRecord record)
     {
         var values = record.Values
-            .Where(v => !(v.Value is JsonValue value && value.TryGetValue<string>(out var text) && text == RunRecord.Masked))
+            .Where(v => !IsMasked(v.Value))
             .ToDictionary(v => v.Key, v => v.Value?.DeepClone());
         main.RunAgain(record.NodeKey, values, record.ExtraArguments ?? "");
     }
 
     internal static string KeyOf(RunRequest request) =>
-        NodeViewModel.KeyFor(request.Tree, request.Script, request.Script.Path) ?? $"{request.Tree.Kind}:{request.Script.Name}";
+        request.Tree.NodeKey(request.Script, request.Script.Path) ?? $"{request.Tree.Kind}:{request.Script.Name}";
 
     private void OnRecorded(RunRecord record) => main.Services.Dispatcher.Post(() =>
     {

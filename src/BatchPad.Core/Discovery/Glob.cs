@@ -10,14 +10,19 @@ namespace BatchPad.Core.Discovery;
 /// </summary>
 public static class Glob
 {
-    private static readonly ConcurrentDictionary<string, Regex> Cache = new();
+    private static readonly ConcurrentDictionary<string, (Regex Regex, bool MatchesPath)> Cache = new();
 
     public static bool IsMatch(string pattern, string relativePath)
     {
-        pattern = pattern.Replace('\\', '/');
+        var (regex, matchesPath) = Cache.GetOrAdd(pattern, Compile);
         relativePath = relativePath.Replace('\\', '/');
-        var subject = pattern.Contains('/') ? relativePath : relativePath[(relativePath.LastIndexOf('/') + 1)..];
-        return Cache.GetOrAdd(pattern, ToRegex).IsMatch(subject);
+        return regex.IsMatch(matchesPath ? relativePath : relativePath[(relativePath.LastIndexOf('/') + 1)..]);
+    }
+
+    private static (Regex, bool) Compile(string pattern)
+    {
+        pattern = pattern.Replace('\\', '/');
+        return (ToRegex(pattern), pattern.Contains('/'));
     }
 
     private static Regex ToRegex(string pattern)
@@ -39,6 +44,6 @@ public static class Glob
             else
                 regex.Append(Regex.Escape(c.ToString()));
         }
-        return new Regex(regex.Append('$').ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return new Regex(regex.Append('$').ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     }
 }

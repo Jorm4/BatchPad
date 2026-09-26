@@ -29,8 +29,24 @@ public sealed class Settings : ExtensibleObject
         }
     }
 
-    public void Save(string path) =>
-        ConfigWriter.WriteAtomic(path, JsonSerializer.Serialize(this, ConfigJson.Options) + "\n");
+    /// <summary>Applies <paramref name="change"/> here and to the file re-read under a lock, so settings another window saved are kept.</summary>
+    public void Update(string path, Action<Settings> change)
+    {
+        change(this);
+        ConfigWriter.Update(path, LoadOrNew, change, ConfigJson.FileText);
+    }
+
+    private static Settings LoadOrNew(string path)
+    {
+        try
+        {
+            return Load(path);
+        }
+        catch (ConfigException)
+        {
+            return new Settings();
+        }
+    }
 
     public void AddRecentWorkspace(string workspaceFile)
     {

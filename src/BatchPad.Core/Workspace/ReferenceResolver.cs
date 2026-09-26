@@ -5,34 +5,28 @@ namespace BatchPad.Core.Workspace;
 /// <summary>Resolves <c>&lt;tree&gt;:&lt;id&gt;</c> references (§3.2); a bare id means the referring node's own tree.</summary>
 public sealed class ReferenceResolver
 {
-    private readonly Dictionary<string, Dictionary<string, TreeNode>> idsByScope = [];
+    private readonly Dictionary<string, Dictionary<string, (TreeNode Node, string Location, ScriptTree Tree)>> idsByScope = [];
     private readonly Dictionary<TreeNode, ScriptTree> treeByNode = new(ReferenceEqualityComparer.Instance);
 
     public static ReferenceResolver Build(IEnumerable<ScriptTree> trees, ICollection<LoadError> errors)
     {
         var resolver = new ReferenceResolver();
-        var locationsByScope = new Dictionary<string, Dictionary<string, (string Location, ScriptTree Tree)>>();
         foreach (var root in trees)
             foreach (var tree in root.SelfAndParts())
             {
                 if (!resolver.idsByScope.TryGetValue(tree.Scope, out var ids))
-                {
-                    resolver.idsByScope[tree.Scope] = ids = new Dictionary<string, TreeNode>(StringComparer.Ordinal);
-                    locationsByScope[tree.Scope] = new(StringComparer.Ordinal);
-                }
-                var locations = locationsByScope[tree.Scope];
+                    resolver.idsByScope[tree.Scope] = ids = new(StringComparer.Ordinal);
                 foreach (var (node, location) in tree.AllNodes())
                 {
                     resolver.treeByNode[node] = tree;
                     if (IdOf(node) is not { Length: > 0 } id)
                         continue;
-                    if (locations.TryGetValue(id, out var first))
+                    if (ids.TryGetValue(id, out var first))
                     {
                         errors.Add(new LoadError(DuplicateMessage(id, tree, location, first.Tree, first.Location, root), tree.FilePath));
                         continue;
                     }
-                    ids[id] = node;
-                    locations[id] = (location, tree);
+                    ids[id] = (node, location, tree);
                 }
             }
         return resolver;
@@ -53,8 +47,8 @@ public sealed class ReferenceResolver
     private TreeNode? Resolve(string reference, string fromScope) =>
         Parse(reference, fromScope) is { } parsed
         && idsByScope.TryGetValue(parsed.Scope, out var ids)
-        && ids.TryGetValue(parsed.Id, out var node)
-            ? node
+        && ids.TryGetValue(parsed.Id, out var found)
+            ? found.Node
             : null;
 
     public ScriptTree? TreeOf(TreeNode node) => treeByNode.GetValueOrDefault(node);

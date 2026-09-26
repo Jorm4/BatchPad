@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Sockets;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -17,8 +15,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class WorkflowRunnerTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
-
     private const string Echo = """
         { "id": "echo", "path": "echo_args.bat",
           "params": [ { "name": "x", "type": "text" }, { "name": "end", "type": "flag", "arg": "--end", "default": true, "position": "end" } ] }
@@ -160,15 +156,13 @@ public sealed class WorkflowRunnerTests
             { "id": "flaky", "path": "flaky.py" },
             { "id": "flow", "steps": [ { "id": "deploy", "run": "flaky", "retry": { "count": {{count}}, "delaySeconds": 30 } } ] }
             """);
-        var time = new FakeTimeProvider();
+        var time = new DelayWatchingTime(TimeSpan.FromSeconds(30));
 
         var run = test.Start("flow", time: time);
         var step = run.Steps[0];
-        var deadline = Stopwatch.StartNew();
-        while (step.Attempts.Count == 0 && deadline.Elapsed < Limit)
-            await Task.Delay(20);
-        await Task.Delay(200);
+        await time.DelayStarted.WaitAsync(Limit);
         Assert.HasCount(1, step.Attempts, "the retry did not wait for its delay");
+        var deadline = Stopwatch.StartNew();
         while (!run.Completion.IsCompleted && deadline.Elapsed < Limit)
         {
             time.Advance(TimeSpan.FromSeconds(30));
@@ -387,13 +381,19 @@ public sealed class WorkflowRunnerTests
         CollectionAssert.AreEqual(new[] { report }, test.Opener.Targets.ToArray());
     }
 
-    private static int FreePort()
+    private sealed class DelayWatchingTime(TimeSpan delay) : FakeTimeProvider
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task DelayStarted => _started.Task;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            if (dueTime == delay)
+                _started.TrySetResult();
+            return timer;
+        }
     }
 
     private sealed class WorkflowTest : IDisposable

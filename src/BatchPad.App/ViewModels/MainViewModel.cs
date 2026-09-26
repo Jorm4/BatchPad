@@ -6,6 +6,7 @@ using BatchPad.App.ViewModels.Schedules;
 using BatchPad.App.ViewModels.Wizard;
 using BatchPad.App.ViewModels.Workflows;
 using BatchPad.App.ViewModels.Workspace;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using BatchPad.Core.Choices;
@@ -35,8 +36,13 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly RunningRegistry _running;
     private bool _opening;
     private bool _watchFiles;
+    private static readonly string[] NoiseFolders = [".git", "bin", "obj", "node_modules"];
+
     private FolderWatcher? _watcher;
-    private string? _fingerprint;
+    private WorkspaceFingerprint? _fingerprint;
+    private readonly ConcurrentDictionary<string, (DateTime Stamp, long Length, string Hash)> _configHashes =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Debouncer _fingerprints;
     private readonly Dictionary<string, DateTime> _scriptStamps = new(StringComparer.OrdinalIgnoreCase);
     private readonly ScheduleStateStore _scheduleState;
     private string? _schedulerWorkspaceId;
@@ -44,8 +50,6 @@ public sealed partial class MainViewModel : ObservableObject
     private FolderWatcher? _scheduleWatcher;
     private FileChangedTriggerSource? _fileTriggers;
 
-    /// <param name="launcher">Null starts runs through the real <see cref="RunGate"/>.</param>
-    /// <param name="dispatcher">Null runs output callbacks inline, which suits tests only.</param>
     public MainViewModel(AppPaths paths, Settings settings,
         IRunLauncher? launcher = null, IUiDispatcher? dispatcher = null, IShellService? shell = null, IFileDialogService? dialogs = null,
         IConfirmService? confirm = null, IWorkflowLauncher? workflows = null, TimeProvider? time = null, IAskService? ask = null,
@@ -66,6 +70,7 @@ public sealed partial class MainViewModel : ObservableObject
             confirm ?? new MessageBoxConfirmService(), workflows ?? new GatedWorkflowLauncher(gate, interpreters, new ShellOpener(shell)),
             ask ?? new AskDialogService());
         Sources = new SourceOpener(shell, settings);
+        _fingerprints = new Debouncer(Services.Dispatcher, TimeSpan.Zero);
         _scheduleState = ScheduleStateStore.For(paths);
         Details = new DetailsViewModel(this);
         History = new HistoryViewModel(this);
@@ -97,9 +102,6 @@ public sealed partial class MainViewModel : ObservableObject
     public RenameTracker Renames { get; } = new();
     public Scheduler? Scheduler { get; private set; }
 
-    /// <summary>Raised on the UI thread when a scheduled run fails or cannot start.</summary>
-    public event Action<ScheduleFailure>? ScheduleFailed;
-
     public ITrayService? Tray { get; }
     public bool IsInTray { get; private set; }
     public event Action? ShowWindowRequested;
@@ -112,15 +114,13 @@ public sealed partial class MainViewModel : ObservableObject
         {
             if (_settings.KeepRunningInTray == value)
                 return;
-            _settings.KeepRunningInTray = value;
-            _settings.Save(_paths.SettingsFile);
+            _settings.Update(_paths.SettingsFile, s => s.KeepRunningInTray = value);
             OnPropertyChanged();
         }
     }
 
     private bool HasEnabledSchedules => Scheduler?.Statuses().Any(s => s.Entry.Schedule.Enabled) == true;
 
-    /// <summary>Form values per node for this session (§9.5), keyed by <see cref="NodeViewModel.Key"/>.</summary>
     public Dictionary<string, ParameterValues> SessionValues { get; } = [];
     public DetailsViewModel Details { get; }
     public MyScriptsViewModel MyScripts { get; }
@@ -193,15 +193,13 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void Open(string workspaceFile)
     {
-        var loaded = WorkspaceLoader.Load(workspaceFile, _paths);
+        var loaded = WorkspaceLoader.Load(workspaceFile, _paths, Trust);
         var previous = Tree is not null && string.Equals(Workspace?.FilePath, loaded.FilePath, StringComparison.OrdinalIgnoreCase) ? Tree : null;
         if (Tree is not null)
             Tree.PropertyChanged -= OnTreePropertyChanged;
 
         Workspace = loaded;
-        WorkspaceSettings = null;
-        NewItem = null;
-        NewWorkspace = null;
+        ClosePages(keepSchedules: true);
         Tree = new TreeViewModel(loaded, OpenNewItem);
         Tree.PropertyChanged += OnTreePropertyChanged;
         IsTrusted = Trust.IsTrusted(loaded.Directory);
@@ -215,49 +213,55 @@ public sealed partial class MainViewModel : ObservableObject
         var schedules = ScheduleEntry.For(loaded);
         StartScheduler(loaded, schedules);
         ShowScheduleBadges(Tree, schedules);
-        Schedules?.Refresh();
+        Schedules?.Refresh(schedules);
         Tree.RefreshLinks(Time);
         if (previous is not null)
             CarryRunState(previous, Tree);
         RecordSeenBaseline(loaded);
         AdoptRuns(loaded);
         IsReloadPromptVisible = false;
-        _fingerprint = Fingerprint();
+        _fingerprint = null;
+        _fingerprints.Run(() => FingerprintOf(loaded), now =>
+        {
+            if (ReferenceEquals(Workspace, loaded))
+                _fingerprint ??= now;
+        });
         Watch();
         ScanProposals();
 
         if (File.Exists(loaded.FilePath))
         {
-            _settings.AddRecentWorkspace(loaded.FilePath);
-            _settings.Save(_paths.SettingsFile);
+            _settings.Update(_paths.SettingsFile, s => s.AddRecentWorkspace(loaded.FilePath));
         }
         RefreshRecents();
     }
 
-    /// <summary>Re-reads the workspace after a save and selects the first node matching <paramref name="select"/>.</summary>
     public void Reload(Func<NodeViewModel, bool>? select = null)
     {
         if (Workspace is null)
             return;
         Open(Workspace.FilePath);
         if (select is not null && Tree!.AllNodes.FirstOrDefault(select) is { } node)
-        {
-            for (var parent = node.Parent; parent is not null; parent = parent.Parent)
-                parent.IsExpanded = true;
-            node.IsSelected = true;
-        }
+            node.Reveal();
     }
 
-    /// <summary>Checks whether the config files or script folders changed since the last load; called by the watcher.</summary>
     public void CheckForExternalChanges()
     {
-        if (Workspace is null)
+        if (Workspace is not { } workspace)
             return;
-        ApplyRenames(Workspace);
-        if (Fingerprint() is not { } now)
-            return;
-        if (now == _fingerprint)
+        IoProblems.TryIo(() => Renames.Apply(workspace));
+        _fingerprints.Run(() => FingerprintOf(workspace), now =>
         {
+            if (ReferenceEquals(Workspace, workspace) && now is not null)
+                OnFingerprint(now);
+        });
+    }
+
+    private void OnFingerprint(WorkspaceFingerprint now)
+    {
+        if (_fingerprint is null || now == _fingerprint)
+        {
+            _fingerprint = now;
             Tree?.RefreshLinks(Time);
             ScanProposals();
             return;
@@ -276,24 +280,9 @@ public sealed partial class MainViewModel : ObservableObject
             ReloadKeepingSelection();
     }
 
-    private void ApplyRenames(LoadedWorkspace workspace)
-    {
-        try
-        {
-            Renames.Apply(workspace);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BatchPad.Core.Config.ConfigException)
-        {
-        }
-    }
-
-    /// <summary>The latest proposal scan, which runs off the UI thread.</summary>
     public Task ProposalScan { get; private set; } = Task.CompletedTask;
 
-    /// <summary>
-    /// Refreshes the tree's proposal badges. Python and PowerShell probes run only for files changed since the last scan,
-    /// so opening a workspace starts no process.
-    /// </summary>
+    /// <summary>Probes run only for files changed since the last scan, so opening a workspace starts no process.</summary>
     public void ScanProposals()
     {
         if (Tree is null || Workspace is null)
@@ -333,7 +322,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             return Workspace is null ? [] : UserStore.For(Workspace).Load().DismissedProposals ?? [];
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BatchPad.Core.Config.ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             return [];
         }
@@ -341,16 +330,13 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void DismissProposal(NodeViewModel node, string proposalKey)
     {
-        if (Workspace is null || node.ProposalKey is not { } scriptKey)
+        if (Workspace is not { } workspace || node.ProposalKey is not { } scriptKey)
             return;
-        try
+        IoProblems.TryIo(() =>
         {
-            UserStore.For(Workspace).DismissProposal(scriptKey, proposalKey);
-            _fingerprint = Fingerprint();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BatchPad.Core.Config.ConfigException)
-        {
-        }
+            UserStore.For(workspace).DismissProposal(scriptKey, proposalKey);
+            RefreshConfigFingerprint(workspace);
+        });
         ScanProposals();
     }
 
@@ -376,7 +362,7 @@ public sealed partial class MainViewModel : ObservableObject
             return CloseAction.Close;
         var (runs, them) = running == 1 ? ("A run is", "it") : ($"{running} runs are", "them");
         var message = $"{runs} still running. Stop {them} before closing?\n\n"
-            +$"Yes stops {them}. No leaves {them} running, and long-running ones come back when BatchPad opens again. "
+            + $"Yes stops {them}. No leaves {them} running, and long-running ones come back when BatchPad opens again. "
             + "Cancel keeps BatchPad open.";
         return Services.Confirm.ConfirmOrCancel("Close BatchPad", message) switch
         {
@@ -423,17 +409,16 @@ public sealed partial class MainViewModel : ObservableObject
 
     public Task StopAllAsync() => Task.WhenAll(Output.Tabs.Where(t => t.IsRunning).ToList().Select(t => t.StopCommand.ExecuteAsync(null)));
 
-    /// <summary>Records a long-running run in <c>running.json</c>, so it is adopted if BatchPad closes while it runs.</summary>
     public void TrackLongRunning(IRunProcess process, RunRequest request, NodeViewModel? node)
     {
-        if (request.Script.LongRunning != true || node is null || Workspace is null || process.ProcessId is not { } processId)
+        if (request.Script.LongRunning != true || node is null || Workspace is not { } workspace || process.ProcessId is not { } processId)
             return;
         var secrets = SecretMasker.SecretNames(request);
-        try
+        IoProblems.TryIo(() =>
         {
             var entry = _running.Add(new RunningEntry
             {
-                WorkspaceFile = Workspace.FilePath,
+                WorkspaceFile = workspace.FilePath,
                 NodeKey = node.Key,
                 Name = node.Name,
                 ProcessId = processId,
@@ -443,22 +428,8 @@ public sealed partial class MainViewModel : ObservableObject
                 ExtraArguments = request.ExtraArguments,
             });
             if (entry is not null)
-                _ = process.Completion.ContinueWith(_ => ForgetRun(entry), TaskScheduler.Default);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
-
-    private void ForgetRun(RunningEntry entry)
-    {
-        try
-        {
-            _running.Remove(entry);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
+                _ = process.Completion.ContinueWith(_ => IoProblems.TryIo(() => _running.Remove(entry)), TaskScheduler.Default);
+        });
     }
 
     private void AdoptRuns(LoadedWorkspace loaded)
@@ -468,13 +439,13 @@ public sealed partial class MainViewModel : ObservableObject
         {
             adopted = _running.Adopt(loaded.FilePath);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             return;
         }
         foreach (var run in adopted)
         {
-            var node = Tree!.AllNodes.FirstOrDefault(n => n.Key == run.Entry.NodeKey);
+            var node = Tree!.ByKey(run.Entry.NodeKey);
             var context = node is not null && RequestFor(node, loaded) is { } request
                 ? Details.ContextFor(request with { Values = run.Entry.Values, ExtraArguments = run.Entry.ExtraArguments })
                 : null;
@@ -488,15 +459,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void SaveWindowLayout(WindowLayout layout)
     {
-        _settings.Window = layout;
-        _settings.Save(_paths.SettingsFile);
+        _settings.Update(_paths.SettingsFile, s => s.Window = layout);
     }
 
     [RelayCommand]
     private void ReloadFromDisk()
     {
-        WorkspaceSettings = null;
-        NewItem = null;
         Details.LeaveEditMode();
         ReloadKeepingSelection();
     }
@@ -512,16 +480,9 @@ public sealed partial class MainViewModel : ObservableObject
         else if (Schedules is { Editor: not null } page)
             page.Editor = null;
         else if (IsPageOpen)
-        {
-            WorkspaceSettings = null;
-            NewItem = null;
-            NewWorkspace = null;
-            Schedules = null;
-        }
+            ClosePages();
         else
-        {
             Details.LeaveEditMode();
-        }
     }
 
     private void ReloadKeepingSelection()
@@ -548,69 +509,53 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void RunAgain(string nodeKey, IReadOnlyDictionary<string, JsonNode?> values, string extraArguments)
     {
-        if (Tree?.AllNodes.FirstOrDefault(n => n.Key == nodeKey) is not { } node)
+        if (Tree?.ByKey(nodeKey) is not { } node)
             return;
         SessionValues[nodeKey] = new ParameterValues(values, extraArguments);
-        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
-            parent.IsExpanded = true;
-        node.IsSelected = true;
+        node.Reveal();
         Details.RunWithSessionValues(node);
     }
 
     private void CarryRunState(TreeViewModel previous, TreeViewModel current)
     {
-        var byKey = new Dictionary<string, NodeViewModel>();
-        foreach (var node in current.AllNodes)
-            byKey.TryAdd(node.Key, node);
         var previousNodes = previous.AllNodes.ToHashSet();
         foreach (var old in previousNodes.Where(n => n.Badge != RunBadge.None))
-            if (byKey.TryGetValue(old.Key, out var match))
-                match.AdoptRunState(old);
+            current.ByKey(old.Key)?.AdoptRunState(old);
         foreach (var tab in Output.Tabs)
-            if (tab.Node is { } old && previousNodes.Contains(old) && byKey.TryGetValue(old.Key, out var match))
+            if (tab.Node is { } old && previousNodes.Contains(old) && current.ByKey(old.Key) is { } match)
                 tab.Node = match;
     }
 
     /// <summary>Without <c>seenPaths</c> nothing shows as New, so the first open records every current script as seen (§3.10).</summary>
-    private void RecordSeenBaseline(LoadedWorkspace loaded)
+    private static void RecordSeenBaseline(LoadedWorkspace loaded) => IoProblems.TryIo(() =>
     {
-        try
-        {
-            var store = UserStore.For(loaded);
-            if (store.Load().SeenPaths is null)
-                store.MarkSeen(ScriptFolderScanner.Scan(loaded.Workspace.BaseDirectory, loaded.Workspace.ScriptFolders).Select(s => s.RelativePath));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BatchPad.Core.Config.ConfigException)
-        {
-        }
-    }
+        var store = UserStore.For(loaded);
+        if (store.Load().SeenPaths is null)
+            store.MarkSeen(ScriptFolderScanner.Scan(loaded.Workspace.BaseDirectory, loaded.Workspace.ScriptFolders).Select(s => s.RelativePath));
+    });
 
     private void MarkSeen(NodeViewModel node)
     {
         node.IsNew = false;
-        if (Workspace is null || node.Item?.ScriptPath is not { } path)
+        if (Workspace is not { } workspace || node.Item?.ScriptPath is not { } path)
             return;
-        try
+        IoProblems.TryIo(() =>
         {
-            UserStore.For(Workspace).MarkSeen([path]);
-            _fingerprint = Fingerprint();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BatchPad.Core.Config.ConfigException)
-        {
-        }
+            UserStore.For(workspace).MarkSeen([path]);
+            RefreshConfigFingerprint(workspace);
+        });
     }
 
-    /// <summary>The config files' contents plus every discovered script; null while a file is being written.</summary>
-    private string? Fingerprint()
+    private sealed record WorkspaceFingerprint(string Configs, string Scripts);
+
+    /// <summary>Null while a file is being written.</summary>
+    private WorkspaceFingerprint? FingerprintOf(LoadedWorkspace workspace)
     {
-        if (Workspace is null)
-            return null;
         try
         {
-            var trees = Workspace.AllTrees.ToList();
-            var hashes = trees.Select(t => File.Exists(t.FilePath) ? Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(t.FilePath))) : "-");
-            var scripts = trees.SelectMany(t => ScriptFolderScanner.Scan(t.BaseDirectory, t.ScriptFolders)).Select(s => s.FullPath).Order(StringComparer.OrdinalIgnoreCase);
-            return string.Join('\n', hashes.Concat(scripts));
+            var scripts = workspace.AllTrees.SelectMany(t => ScriptFolderScanner.Scan(t.BaseDirectory, t.ScriptFolders))
+                .Select(s => s.FullPath).Order(StringComparer.OrdinalIgnoreCase);
+            return new WorkspaceFingerprint(ConfigsHash(workspace), string.Join('\n', scripts));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -618,14 +563,40 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    private void RefreshConfigFingerprint(LoadedWorkspace workspace)
+    {
+        if (_fingerprint is not null)
+            _fingerprint = _fingerprint with { Configs = ConfigsHash(workspace) };
+    }
+
+    private string ConfigsHash(LoadedWorkspace workspace) => string.Join('\n', workspace.AllTrees.Select(t => HashOf(t.FilePath)));
+
+    /// <summary>A file's hash, reused while its size and time match; not just after a write, since file times are coarse.</summary>
+    private string HashOf(string path)
+    {
+        var file = new FileInfo(path);
+        if (!file.Exists)
+            return "-";
+        var stamp = file.LastWriteTimeUtc;
+        if (_configHashes.TryGetValue(path, out var known) && known.Stamp == stamp && known.Length == file.Length
+            && DateTime.UtcNow - stamp > TimeSpan.FromSeconds(2))
+            return known.Hash;
+        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+        _configHashes[path] = (stamp, file.Length, hash);
+        return hash;
+    }
+
+    private bool IsNoise(string root, string path) =>
+        path.StartsWith(Path.TrimEndingDirectorySeparator(_paths.DataDirectory) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+        || Path.GetRelativePath(root, path).Split(Path.DirectorySeparatorChar).Any(part => NoiseFolders.Contains(part, StringComparer.OrdinalIgnoreCase));
+
     private void Watch()
     {
         _watcher?.Dispose();
         _watcher = null;
         if (!_watchFiles || Workspace is null)
             return;
-        var trees = Workspace.AllTrees.ToList();
-        _watcher = new FolderWatcher(trees.Select(t => t.BaseDirectory).Concat(trees.SelectMany(t => t.ScriptFolderDirectories)), TimeSpan.FromMilliseconds(500));
+        _watcher = new FolderWatcher(Workspace.ConfigDirectories.Concat(Workspace.ScriptDirectories), TimeSpan.FromMilliseconds(500), IsNoise);
         _watcher.FileChanged += (_, change) => Renames.Observe(change);
         _watcher.FolderChanged += (_, _) => Services.Dispatcher.Post(CheckForExternalChanges);
     }
@@ -635,9 +606,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasWorkspace))]
     private void OpenWorkspaceSettings()
     {
-        NewItem = null;
-        NewWorkspace = null;
-        Schedules = null;
+        ClosePages();
         var settings = new WorkspaceSettingsViewModel(this);
         settings.Closed += () => WorkspaceSettings = null;
         WorkspaceSettings = settings;
@@ -646,9 +615,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void OpenNewWorkspace()
     {
-        WorkspaceSettings = null;
-        NewItem = null;
-        Schedules = null;
+        ClosePages();
         var wizard = new NewWorkspaceWizardViewModel(this);
         wizard.Closed += () => NewWorkspace = null;
         NewWorkspace = wizard;
@@ -656,12 +623,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void OpenNewItem(NodeViewModel near, NewItemKind kind)
     {
-        WorkspaceSettings = null;
-        NewWorkspace = null;
-        Schedules = null;
+        ClosePages();
         if (kind == NewItemKind.Workflow)
         {
-            NewItem = null;
             Details.OpenWorkflowEditor(new WorkflowEditorViewModel(this, near.Tree, null, NewItemViewModel.NearestFolder(near)));
             return;
         }
@@ -673,14 +637,21 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasWorkspace))]
     private void OpenSchedules()
     {
-        WorkspaceSettings = null;
-        NewItem = null;
-        NewWorkspace = null;
+        ClosePages(keepSchedules: true);
         if (Schedules is not null)
             return;
         var page = new SchedulesViewModel(this);
         page.Closed += () => Schedules = null;
         Schedules = page;
+    }
+
+    private void ClosePages(bool keepSchedules = false)
+    {
+        WorkspaceSettings = null;
+        NewItem = null;
+        NewWorkspace = null;
+        if (!keepSchedules)
+            Schedules = null;
     }
 
     partial void OnSchedulesChanged(SchedulesViewModel? oldValue, SchedulesViewModel? newValue) => oldValue?.Detach();
@@ -701,7 +672,6 @@ public sealed partial class MainViewModel : ObservableObject
         {
             Schedules?.ShowFailure(failure);
             NotifyFailure(failure);
-            ScheduleFailed?.Invoke(failure);
         });
         scheduler.SchedulePaused += _ => Services.Dispatcher.Post(() => Schedules?.RefreshStatus());
         _eventTriggers = EventTriggers.Register(scheduler, loaded, null);
@@ -734,13 +704,13 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void ShowScheduledRun(ScheduleFire fire)
     {
-        var node = Tree?.AllNodes.FirstOrDefault(n => n.Key == fire.Entry.Target?.NodeKey);
+        var node = Tree?.ByKey(fire.Entry.Target?.NodeKey);
         var title = fire.Entry.Target?.Name ?? fire.Entry.Schedule.Target;
         OutputTabViewModel? tab = fire.Run switch
         {
-            IRunProcess process => new RunViewModel(title, node, process, Services.Dispatcher),
-            WorkflowRunOutput workflow => new WorkflowRunViewModel(title, node, workflow.Run, step => step.Id, Services.Dispatcher,
-                new StepActions(Services.Workflows.StopStepAsync, Services.Opener, Sources)),
+            IRunProcess process => new RunViewModel(title, node, process, Services.Dispatcher,
+                fire.Request is { } request ? Details.ContextFor(request) : null),
+            WorkflowRunOutput workflow when fire.Entry.Target is { } target => Details.WorkflowTab(title, node, workflow.Run, target.Tree),
             _ => null,
         };
         if (tab is not null)
@@ -762,6 +732,8 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         Trust.Trust(Workspace.Directory);
         IsTrusted = true;
+        var selected = SelectedNode?.Key;
+        Reload(selected is null ? null : n => n.Key == selected);
     }
 
     partial void OnIsTrustedChanged(bool value) => Details.Refresh();

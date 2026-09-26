@@ -17,13 +17,13 @@ public static class OutputText
     private static readonly Brush?[] Palette =
     [
         null,
-        Frozen("#6E6E6E"), Frozen("#F1707A"), Frozen("#6CCB5F"), Frozen("#E5C07B"),
+        Frozen("#6E6E6E"), Resource("OutputErrorBrush"), Resource("OutputSuccessBrush"), Frozen("#E5C07B"),
         Frozen("#60A5FA"), Frozen("#C678DD"), Frozen("#56B6C2"), Frozen("#D4D4D4"),
-        Frozen("#9A9A9A"), Frozen("#FF8A93"), Frozen("#8FE388"), Frozen("#FFD787"),
+        Resource("OutputMutedBrush"), Frozen("#FF8A93"), Frozen("#8FE388"), Resource("OutputWarningBrush"),
         Frozen("#8CC4FF"), Frozen("#E29BF0"), Frozen("#7FDCE6"), Frozen("#FFFFFF"),
     ];
 
-    private static readonly Brush LinkBrush = Frozen("#60CDFF");
+    private static readonly Brush LinkBrush = Resource("OutputAccentBrush");
 
     public static OutputLineViewModel? GetLine(DependencyObject element) => (OutputLineViewModel?)element.GetValue(LineProperty);
 
@@ -34,7 +34,7 @@ public static class OutputText
         if (element is not TextBlock block)
             return;
         var line = (OutputLineViewModel?)e.NewValue;
-        List<SourceLinkViewModel> links = line?.Links is { } candidates ? [.. candidates.Where(l => l.Location is not null)] : [];
+        IReadOnlyList<SourceLinkViewModel> links = line?.Links is { } candidates ? [.. candidates.Where(l => l.Location is not null)] : [];
         if (line is null || (line.Spans is null && links.Count == 0))
         {
             block.Text = line?.Text ?? "";
@@ -89,6 +89,8 @@ public static class OutputText
             run.FontWeight = FontWeights.Bold;
         return run;
     }
+
+    private static Brush Resource(string key) => (Brush)Application.Current.FindResource(key);
 
     private static Brush Frozen(string color)
     {

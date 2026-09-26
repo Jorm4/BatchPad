@@ -1,4 +1,3 @@
-using System.Text.Json;
 using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
@@ -20,13 +19,12 @@ public sealed class UserStore(string filePath)
     public WorkspaceFile Update(Action<WorkspaceFile> change) => ConfigWriter.Update(FilePath, change);
 
     /// <summary>Adds <paramref name="entry"/> at the top level or into the named folder (created if missing), giving it an id from its name when it has none.</summary>
-    /// <returns>The id the entry was saved with.</returns>
     public string Add(RunnableNode entry, string? folder = null)
     {
         var id = entry.Id;
         Update(file =>
         {
-            id ??= IdAssigner.FromName(entry.Name ?? entry.Id ?? "my-script", Ids(file.Scripts));
+            id ??= IdAssigner.FromName(entry.Name ?? "my-script", Ids(file.Scripts));
             entry.Id = id;
             ItemsOf(file, folder).Add(entry);
         });
@@ -56,7 +54,8 @@ public sealed class UserStore(string filePath)
         Update(file =>
         {
             var seen = file.SeenPaths ??= [];
-            seen.AddRange(added.Where(p => !seen.Contains(p, StringComparer.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase));
+            var known = new HashSet<string>(seen, StringComparer.OrdinalIgnoreCase);
+            seen.AddRange(added.Where(known.Add));
         });
     }
 
@@ -102,11 +101,8 @@ public sealed class UserStore(string filePath)
             ? ReferenceResolver.IdOf(candidate) == ReferenceResolver.IdOf(original)
             : candidate.GetType() == original.GetType() && Json(candidate) == originalJson;
 
-    private static string Json(TreeNode node) => JsonSerializer.Serialize(node, ConfigJson.Options);
+    private static string Json(TreeNode node) => ConfigJson.Serialize(node);
 
     private static HashSet<string> Ids(IEnumerable<TreeNode> nodes) =>
-        Walk(nodes).Select(ReferenceResolver.IdOf).OfType<string>().ToHashSet(StringComparer.Ordinal);
-
-    private static IEnumerable<TreeNode> Walk(IEnumerable<TreeNode> nodes) =>
-        nodes.SelectMany(n => n is FolderNode f ? [n, .. Walk(f.Items)] : new[] { n });
+        nodes.Descendants().Select(ReferenceResolver.IdOf).OfType<string>().ToHashSet(StringComparer.Ordinal);
 }

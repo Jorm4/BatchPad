@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Workspace;
 
@@ -79,9 +78,15 @@ public partial class MainWindow : Window
                 case CloseAction.StopThenClose:
                     e.Cancel = true;
                     IsEnabled = false;
-                    await main.StopAllAsync();
-                    _closeConfirmed = true;
-                    Close();
+                    try
+                    {
+                        await main.StopAllAsync();
+                    }
+                    finally
+                    {
+                        _closeConfirmed = true;
+                        Close();
+                    }
                     return;
             }
         }
@@ -109,20 +114,14 @@ public partial class MainWindow : Window
     /// <summary>Selects the item under the mouse so the context menu acts on it.</summary>
     private void OnTreeRightClick(object sender, MouseButtonEventArgs e)
     {
-        for (var element = e.OriginalSource as DependencyObject; element is not null; element = VisualTreeHelper.GetParent(element))
-        {
-            if (element is TreeViewItem item)
-            {
-                item.IsSelected = true;
-                return;
-            }
-        }
+        if (VisualTree.FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject) is { } item)
+            item.IsSelected = true;
     }
 
     private void OnTreeMouseDown(object sender, MouseButtonEventArgs e)
     {
         _dragStart = e.GetPosition(null);
-        _dragCandidate = e.OriginalSource is DependencyObject source && FindAncestor<TextBox>(source) is null ? NodeAt(source) : null;
+        _dragCandidate = e.OriginalSource is DependencyObject source && VisualTree.FindAncestor<TextBox>(source) is null ? NodeAt(source) : null;
     }
 
     private void OnTreeMouseMove(object sender, MouseEventArgs e)
@@ -139,7 +138,7 @@ public partial class MainWindow : Window
     private void OnTreeDragOver(object sender, DragEventArgs e)
     {
         e.Effects = DropFor(e) is ({ } dragged, _) ? dragged.IsMyScript ? DragDropEffects.Move : DragDropEffects.Copy
-            : ExternalItems(e).Count > 0 && ExternalTarget(e) is not null ? DragDropEffects.Copy
+            : HasExternalItems(e) && ExternalTarget(e) is not null ? DragDropEffects.Copy
             : DragDropEffects.None;
         e.Handled = true;
     }
@@ -158,11 +157,16 @@ public partial class MainWindow : Window
     {
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
             return files;
-        return e.Data.GetData(DataFormats.UnicodeText) is string text && Uri.TryCreate(text.Trim(), UriKind.Absolute, out var uri)
-            && uri.Scheme is "http" or "https"
-            ? [text.Trim()]
-            : [];
+        return WebUrl(e) is { } url ? [url] : [];
     }
+
+    private static bool HasExternalItems(DragEventArgs e) => e.Data.GetDataPresent(DataFormats.FileDrop) || WebUrl(e) is not null;
+
+    private static string? WebUrl(DragEventArgs e) =>
+        e.Data.GetDataPresent(DataFormats.UnicodeText) && e.Data.GetData(DataFormats.UnicodeText) is string text
+        && Uri.TryCreate(text.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+            ? text.Trim()
+            : null;
 
     private static NodeViewModel? ExternalTarget(DragEventArgs e) =>
         e.OriginalSource is DependencyObject source ? NodeAt(source) : null;
@@ -183,13 +187,5 @@ public partial class MainWindow : Window
             });
     }
 
-    private static NodeViewModel? NodeAt(DependencyObject source) => FindAncestor<TreeViewItem>(source)?.DataContext as NodeViewModel;
-
-    private static T? FindAncestor<T>(DependencyObject? element) where T : DependencyObject
-    {
-        for (; element is not null; element = element is Visual ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element))
-            if (element is T match)
-                return match;
-        return null;
-    }
+    private static NodeViewModel? NodeAt(DependencyObject source) => VisualTree.FindAncestor<TreeViewItem>(source)?.DataContext as NodeViewModel;
 }

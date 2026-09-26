@@ -1,3 +1,4 @@
+using BatchPad.App.Services;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using BatchPad.Core.Config;
@@ -26,10 +27,12 @@ public sealed partial class ScheduleItemViewModel : ObservableObject
     public ScheduleEntry Entry { get; }
     public Schedule Schedule => Entry.Schedule;
     public string Key => Entry.Key;
-    public bool IsGlobal => Entry.Key.StartsWith("global:", StringComparison.Ordinal);
+    public bool IsGlobal => Entry.IsGlobal;
     public string TargetName => Entry.Target?.Name ?? Schedule.Target;
     public string Location => IsGlobal ? "global.json" : "user.json";
     public string TriggerText => BatchPad.Core.Scheduling.TriggerText.Describe(Schedule.Trigger);
+
+    public bool IsLastRun(RunRecord record) => record.Trigger == RunTriggers.Schedule(Key) && record.NodeKey == Entry.Target?.NodeKey;
 
     [ObservableProperty]
     private bool isEnabled;
@@ -114,12 +117,12 @@ public sealed partial class SchedulesViewModel : ObservableObject
     public ScheduleItemViewModel? Item(string targetName) => Items.FirstOrDefault(i => i.TargetName == targetName);
 
     /// <summary>Rebuilds the list from the loaded workspace; an open editor is dropped, since it holds the old trees.</summary>
-    public void Refresh()
+    public void Refresh(IReadOnlyList<ScheduleEntry>? entries = null)
     {
         Editor = null;
         Items.Clear();
         if (_main.Workspace is { } workspace)
-            foreach (var entry in ScheduleEntry.For(workspace))
+            foreach (var entry in entries ?? ScheduleEntry.For(workspace))
                 Items.Add(new ScheduleItemViewModel(this, entry));
         RefreshStatus();
         OnPropertyChanged(nameof(IsEmpty));
@@ -127,15 +130,20 @@ public sealed partial class SchedulesViewModel : ObservableObject
 
     public void RefreshStatus()
     {
-        var statuses = _main.Scheduler?.Statuses().ToDictionary(s => s.Entry.Key) ?? [];
+        ShowStatuses();
         var recent = _main.History.Store?.Recent() ?? [];
+        foreach (var item in Items)
+            item.LastRun = recent.FirstOrDefault(item.IsLastRun);
+    }
+
+    private void ShowStatuses()
+    {
+        var statuses = _main.Scheduler?.Statuses().ToDictionary(s => s.Entry.Key) ?? [];
         foreach (var item in Items)
         {
             var status = statuses.GetValueOrDefault(item.Key);
             item.NextRun = status?.NextFire;
             item.NeedsReview = status?.Paused == true;
-            var trigger = RunTriggers.Schedule(item.Schedule.Key);
-            item.LastRun = recent.FirstOrDefault(r => r.Trigger == trigger);
         }
     }
 
@@ -203,7 +211,7 @@ public sealed partial class SchedulesViewModel : ObservableObject
         {
             WriteSchedules(_main, global, change);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             Error = ex.Message;
             return;
@@ -219,5 +227,11 @@ public sealed partial class SchedulesViewModel : ObservableObject
             file.Schedules = schedules.Count == 0 ? null : schedules;
         });
 
-    private void OnHistoryChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshStatus();
+    private void OnHistoryChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        ShowStatuses();
+        foreach (var record in (e.NewItems ?? Array.Empty<object>()).OfType<History.HistoryEntryViewModel>().Select(h => h.Record))
+            foreach (var item in Items.Where(i => i.IsLastRun(record)))
+                item.LastRun = record;
+    }
 }

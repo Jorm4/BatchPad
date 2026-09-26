@@ -1,7 +1,6 @@
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
-using BatchPad.Core.Workspace;
 using Microsoft.Extensions.Time.Testing;
 
 namespace BatchPad.App.Tests;
@@ -47,9 +46,7 @@ public sealed class LinkStateTests
         {
             Id = "report", Name = "Report", Path = "hello.bat", Artifacts = [new ArtifactDefinition { Path = "out/report.html" }],
         }));
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: new FakeShell());
-        main.Trust.Trust(demo);
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, trusted: true, launcher: launcher, shell: new FakeShell());
         main.Tree!.AllNodes.Single(n => n.Name == "Report").IsSelected = true;
         main.Details.RunCommand.Execute(null);
 
@@ -65,8 +62,7 @@ public sealed class LinkStateTests
     private static MainViewModel Open(TestWorkspace test, string demo, params LinkNode[] links)
     {
         ConfigWriter.Update(Path.Combine(demo, "batchpad.json"), file => file.Scripts.AddRange(links));
-        var main = new MainViewModel(test.Paths, new Settings(), time: new FakeTimeProvider(new DateTimeOffset(Written.AddHours(2))));
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, time: new FakeTimeProvider(new DateTimeOffset(Written.AddHours(2))));
         return main;
     }
 

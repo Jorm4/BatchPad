@@ -9,6 +9,8 @@ internal static unsafe partial class NativeMethods
     public const uint CreateNewConsole = 0x10;
     public const uint CreateUnicodeEnvironment = 0x400;
     public const uint CreateNoWindow = 0x0800_0000;
+    public const uint ExtendedStartupInfoPresent = 0x8_0000;
+    public const nuint ProcThreadAttributeHandleList = 0x2_0002;
     public const int StartfUseStdHandles = 0x100;
     public const uint HandleFlagInherit = 0x1;
     public const int JobObjectBasicProcessIdList = 3;
@@ -36,6 +38,13 @@ internal static unsafe partial class NativeMethods
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct StartupInfoEx
+    {
+        public StartupInfo StartupInfo;
+        public nint AttributeList;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct ProcessInformation
     {
         public nint Process;
@@ -44,11 +53,27 @@ internal static unsafe partial class NativeMethods
         public int ThreadId;
     }
 
+    [LibraryImport("shlwapi.dll", StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AssocIsDangerous(string association);
+
     [LibraryImport("kernel32.dll", EntryPoint = "CreateProcessW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool CreateProcess(string applicationName, char* commandLine, nint processAttributes,
         nint threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, char* environment,
-        string currentDirectory, ref StartupInfo startupInfo, out ProcessInformation processInformation);
+        string currentDirectory, StartupInfoEx* startupInfo, out ProcessInformation processInformation);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool InitializeProcThreadAttributeList(nint attributeList, int attributeCount, int flags, ref nuint size);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool UpdateProcThreadAttribute(nint attributeList, uint flags, nuint attribute, void* value, nuint size,
+        nint previousValue, nint returnSize);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial void DeleteProcThreadAttributeList(nint attributeList);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -9,12 +9,12 @@ using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
-/// <summary>§11 U1–U10 against the example game repo's script headers and list lines, with the config built in the editors.</summary>
+/// <summary>The example game repo's use cases against its script headers and list lines, with the config built in the editors.</summary>
 [TestClass]
 public sealed class AdoptionTests
 {
     [TestMethod]
-    public void U1BuildsAnyAppInAnyConfigWithTheConfigSwitchSplit()
+    public void BuildsAnyAppInAnyConfigWithTheConfigSwitchSplit()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Build/Build");
@@ -29,7 +29,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U2TheFavouriteBuildsReleaseThenLaunchesTheExeAndItsDuplicateAnotherApp()
+    public async Task TheFavouriteBuildsReleaseThenLaunchesTheExeAndItsDuplicateAnotherApp()
     {
         using var repo = new AdoptionRepo();
         var source = repo.Select("Workspace/Run/Build & run");
@@ -58,7 +58,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U3ServeOpensTheReadyUrlAndStopRunsTheCompanionOnTheSamePort()
+    public async Task ServeOpensTheReadyUrlAndStopRunsTheCompanionOnTheSamePort()
     {
         using var repo = new AdoptionRepo();
         var node = repo.Select("Workspace/Web/Serve web build");
@@ -68,7 +68,7 @@ public sealed class AdoptionTests
         repo.Main.Details.RunCommand.Execute(null);
         var run = (RunViewModel)repo.Main.Output.Tabs.Single();
         repo.Launcher.Started[0].Emit("Press Ctrl+C to stop.", OutputStream.Stdout);
-        await Until(() => run.IsReady && repo.Shell.Opened.Count > 0);
+        await Eventually(() => run.IsReady && repo.Shell.Opened.Count > 0);
 
         Assert.AreEqual("http://localhost:8199/SpaceTrader.html", run.ReadyUrl);
         AssertLines(new[] { "http://localhost:8199/SpaceTrader.html" }, repo.Shell.Opened);
@@ -84,7 +84,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U3BuildWebAndServeRunsBothStepsWithTheDefaultPort()
+    public async Task BuildWebAndServeRunsBothStepsWithTheDefaultPort()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Web/Build web & serve locally");
@@ -100,7 +100,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U4PackageNamesTheAppAndOpensTheOutputFolderOnSuccess()
+    public async Task PackageNamesTheAppAndOpensTheOutputFolderOnSuccess()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Web/Package for web deploy");
@@ -118,7 +118,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U5NoPickBuildsTestsOnlyAndAPickOfMoreThanNineSplitsTheBuild()
+    public async Task NoPickBuildsTestsOnlyAndAPickOfMoreThanNineSplitsTheBuild()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Test/Build & run unit tests");
@@ -147,7 +147,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U6EachPickedBenchmarkRunsItsReleaseExeAtTheTier()
+    public async Task EachPickedBenchmarkRunsItsReleaseExeAtTheTier()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Test/Build & run benchmarks");
@@ -165,7 +165,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U7ScenariosBuildAsanThenRunPytestFromTheQaFolderWithTheWindowVisible()
+    public async Task ScenariosBuildAsanThenRunPytestFromTheQaFolderWithTheWindowVisible()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Test/Gameplay scenarios");
@@ -183,7 +183,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U8CrawlsOneGamePerCallAndAlwaysWritesTheReport()
+    public async Task CrawlsOneGamePerCallAndAlwaysWritesTheReport()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Test/QA crawl & use cases");
@@ -210,7 +210,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public async Task U8TheQaReportOpensWhenRunOnItsOwn()
+    public async Task TheQaReportOpensWhenRunOnItsOwn()
     {
         using var repo = new AdoptionRepo();
         repo.Select("Workspace/Test/QA report");
@@ -224,7 +224,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public void U9LinksOpenTheLocalReportAndTheWebPage()
+    public void LinksOpenTheLocalReportAndTheWebPage()
     {
         using var repo = new AdoptionRepo();
 
@@ -237,7 +237,7 @@ public sealed class AdoptionTests
     }
 
     [TestMethod]
-    public void U10PlainScriptsAreDiscoveredAndRunWithoutArguments()
+    public void PlainScriptsAreDiscoveredAndRunWithoutArguments()
     {
         using var repo = new AdoptionRepo();
         Assert.IsEmpty(repo.Main.Workspace!.Errors, string.Join('\n', repo.Main.Workspace.Errors));
@@ -255,16 +255,6 @@ public sealed class AdoptionTests
     private static void AssertLines(IEnumerable<string> expected, IEnumerable<string> actual) =>
         Assert.AreEqual(string.Join(Environment.NewLine, expected), string.Join(Environment.NewLine, actual));
 
-    private static async Task Until(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!condition())
-        {
-            if (DateTime.UtcNow > deadline)
-                Assert.Fail("Timed out.");
-            await Task.Delay(10);
-        }
-    }
 }
 
 internal sealed class AdoptionRepo : IDisposable
@@ -281,8 +271,7 @@ internal sealed class AdoptionRepo : IDisposable
     public AdoptionRepo()
     {
         Directory = Path.Combine(_test.Root, "repo");
-        foreach (var file in System.IO.Directory.EnumerateFiles(Fixture, "*", SearchOption.AllDirectories))
-            Write(Path.GetRelativePath(Fixture, file), File.ReadAllBytes(file));
+        CopyTree(Fixture, Directory);
         foreach (var exe in PlaceholderExes)
             Write(exe, []);
         File.WriteAllText(Path.Combine(Directory, "batchpad.json"), AdoptionConfig.Built);
@@ -303,13 +292,7 @@ internal sealed class AdoptionRepo : IDisposable
     public RecordingSteps Steps { get; }
     public MainViewModel Main { get; }
 
-    public NodeViewModel Select(string automationId)
-    {
-        var node = Main.Tree!.Find(automationId)
-            ?? throw new AssertFailedException($"No node {automationId}; have {string.Join(", ", Main.Tree.AllNodes.Select(n => n.AutomationId))}");
-        node.IsSelected = true;
-        return node;
-    }
+    public NodeViewModel Select(string automationId) => Main.Select(automationId);
 
     public ParameterFieldViewModel Field(string name) =>
         Main.Details.Form!.Field(name) ?? throw new AssertFailedException($"No field {name}.");
@@ -338,7 +321,7 @@ internal sealed class AdoptionRepo : IDisposable
     {
         Main.Details.RunCommand.Execute(null);
         var tab = (WorkflowRunViewModel)Main.Output.Tabs.Last();
-        await tab.Finished.WaitAsync(TimeSpan.FromSeconds(30));
+        await tab.Finished.WaitAsync(Limit);
         return tab;
     }
 

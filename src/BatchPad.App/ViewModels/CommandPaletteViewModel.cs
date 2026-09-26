@@ -58,7 +58,7 @@ public sealed partial class CommandPaletteViewModel(MainViewModel main) : Observ
             return;
         IsOpen = false;
         if (chosen.Node is { } node)
-            SelectInTree(node);
+            node.Reveal();
         else
             chosen.Run();
     }
@@ -104,16 +104,10 @@ public sealed partial class CommandPaletteViewModel(MainViewModel main) : Observ
 
     private void RunNode(NodeViewModel node)
     {
-        SelectInTree(node);
+        node.Reveal();
         var command = node.Kind == NodeKind.Link ? main.Details.OpenLinkCommand : main.Details.RunCommand;
         if (command.CanExecute(null))
             command.Execute(null);
     }
 
-    private static void SelectInTree(NodeViewModel node)
-    {
-        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
-            parent.IsExpanded = true;
-        node.IsSelected = true;
-    }
 }

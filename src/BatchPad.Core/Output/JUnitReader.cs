@@ -48,7 +48,7 @@ public static class JUnitReader
             : skipped is not null || (string?)testCase.Attribute("status") == "notrun" ? TestOutcome.Skipped
             : TestOutcome.Passed;
         var detail = failure ?? skipped;
-        var text = string.IsNullOrWhiteSpace(detail?.Value) ? null : detail.Value.Trim();
+        var text = detail?.Value is { } value && !string.IsNullOrWhiteSpace(value) ? value.Trim() : null;
         return new TestCaseResult(suite, (string?)testCase.Attribute("classname") ?? suite, (string?)testCase.Attribute("name") ?? "",
             Seconds(testCase), outcome, (string?)detail?.Attribute("message") ?? text, text);
     }

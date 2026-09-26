@@ -1,3 +1,4 @@
+using BatchPad.App.Services;
 using BatchPad.App.ViewModels.Editor;
 using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
@@ -134,7 +135,7 @@ public sealed partial class NewItemViewModel : ObservableObject
                 ConfigEntries.FolderItems(file.Scripts, folderPath).Add(node);
             });
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             Error = ex.Message;
             return;

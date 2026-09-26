@@ -16,15 +16,34 @@ public sealed record ScheduleState
     public string? AdoptedHash { get; init; }
 }
 
-/// <summary><c>schedules.json</c> in the local-data folder, keyed by <see cref="ScheduleEntry.Key"/>.</summary>
+/// <summary>
+/// <c>schedules.json</c> in the local-data folder, keyed by <see cref="ScheduleEntry.Key"/>. Changes are kept in memory
+/// until <see cref="Save"/>. A file that can't be parsed is kept beside it as <c>.bad</c>.
+/// </summary>
 public sealed class ScheduleStateStore(string filePath)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     private readonly Lock _lock = new();
     private Dictionary<string, ScheduleState>? _states;
+    private bool _changed;
+    private bool _writable = true;
+    private bool _loadFailed;
 
     public string FilePath { get; } = filePath;
+
+    /// <summary>The file existed but could not be read, so states such as adopted hashes may have been lost.</summary>
+    public bool LoadFailed
+    {
+        get
+        {
+            lock (_lock)
+            {
+                States();
+                return _loadFailed;
+            }
+        }
+    }
 
     public static ScheduleStateStore For(AppPaths paths) => new(Path.Combine(paths.LocalDirectory, "schedules.json"));
 
@@ -39,8 +58,27 @@ public sealed class ScheduleStateStore(string filePath)
         lock (_lock)
         {
             States()[key] = state;
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(_states, Json));
+            _changed = true;
+        }
+    }
+
+    public void Save()
+    {
+        lock (_lock)
+        {
+            if (!_changed || !_writable)
+                return;
+            var temp = FilePath + ".tmp";
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                File.WriteAllText(temp, JsonSerializer.Serialize(_states, Json));
+                File.Move(temp, FilePath, overwrite: true);
+                _changed = false;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 
@@ -52,9 +90,27 @@ public sealed class ScheduleStateStore(string filePath)
         {
             _states = File.Exists(FilePath) ? JsonSerializer.Deserialize<Dictionary<string, ScheduleState>>(File.ReadAllText(FilePath), Json) : null;
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (JsonException)
         {
+            _loadFailed = true;
+            KeepBadFile();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            (_loadFailed, _writable) = (true, false);
         }
         return _states ??= [];
+    }
+
+    private void KeepBadFile()
+    {
+        try
+        {
+            File.Move(FilePath, FilePath + ".bad", overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _writable = false;
+        }
     }
 }

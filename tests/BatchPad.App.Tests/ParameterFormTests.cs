@@ -1,6 +1,6 @@
+using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Parameters;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -94,21 +94,59 @@ public sealed class ParameterFormTests
         ((TextFieldViewModel)main.Details.Form.Field("targets")!).Text = "Alpha Beta";
         main.Details.Form.ExtraArguments = "--dry-run";
 
-        main.Tree!.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
+        main.Select("Workspace/Hello/hello.bat");
         Assert.DoesNotContain("--verbose", main.Details.Preview);
-        main.Tree.Find(ParamsDemo)!.IsSelected = true;
+        main.Select(ParamsDemo);
 
         Assert.IsTrue(((FlagFieldViewModel)main.Details.Form!.Field("verbose")!).IsChecked);
         Assert.AreEqual("--dry-run", main.Details.Form.ExtraArguments);
         StringAssert.EndsWith(main.Details.Preview, "--verbose --port 8123 Alpha Beta --dry-run");
     }
 
-    private static MainViewModel Select(TestWorkspace test)
+    [TestMethod]
+    public void ChoiceFieldsShowLoadingUntilTheirChoicesResolve()
     {
-        var main = new MainViewModel(test.Paths, new Settings(), new FakeLauncher(), shell: new FakeShell());
-        main.Trust.Trust(TestWorkspace.DemoSource);
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
-        main.Tree!.Find(ParamsDemo)!.IsSelected = true;
+        using var test = new TestWorkspace();
+        var dispatcher = new QueuedDispatcher();
+        var details = Select(test, dispatcher).Details;
+        var game = (ChoiceFieldViewModel)details.Form!.Field("game")!;
+        var tests = (MultichoiceFieldViewModel)details.Form.Field("tests")!;
+
+        Assert.IsTrue(game.IsLoading);
+        Assert.IsEmpty(game.Options);
+        Assert.AreEqual("Loading…", game.Problems);
+        Assert.IsEmpty(tests.Items);
+
+        dispatcher.RunAll();
+
+        Assert.IsFalse(game.IsLoading);
+        Assert.IsNull(game.Problems);
+        Assert.AreEqual("Alpha", game.Selected!.Value);
+        Assert.HasCount(5, tests.Items);
+        Assert.Contains("--game Alpha", details.Preview);
+    }
+
+    [TestMethod]
+    public void ADebouncerAppliesOnlyTheLatestResult()
+    {
+        var dispatcher = new QueuedDispatcher();
+        var debouncer = new Debouncer(dispatcher, TimeSpan.Zero);
+        var ran = new List<int>();
+        var applied = new List<int>();
+
+        debouncer.Run(() => { ran.Add(1); return 1; }, applied.Add);
+        debouncer.Run(() => { ran.Add(2); return 2; }, applied.Add);
+        dispatcher.RunAll();
+
+        CollectionAssert.AreEqual(new[] { 2 }, ran);
+        CollectionAssert.AreEqual(new[] { 2 }, applied);
+    }
+
+    private static MainViewModel Select(TestWorkspace test, IUiDispatcher? dispatcher = null)
+    {
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, launcher: new FakeLauncher(), dispatcher: dispatcher, shell: new FakeShell());
+        main.Select(ParamsDemo);
         return main;
     }
 }
+

@@ -1,12 +1,11 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
 namespace BatchPad.Core.Model;
 
-public abstract class TreeNode
+public abstract class TreeNode : ExtensibleObject;
+
+public static class TreeNodes
 {
-    [JsonExtensionData]
-    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+    public static IEnumerable<TreeNode> Descendants(this IEnumerable<TreeNode> nodes) =>
+        nodes.SelectMany(n => n is FolderNode folder ? folder.Items.Descendants().Prepend(n) : [n]);
 }
 
 public sealed class FolderNode : TreeNode

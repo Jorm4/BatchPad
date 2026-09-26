@@ -8,7 +8,7 @@ using BatchPad.Core.Workflows;
 
 namespace BatchPad.Core.Scheduling;
 
-public sealed record ScheduleFire(ScheduleEntry Entry, IRunOutput Run, Task<RunRecord> Recorded);
+public sealed record ScheduleFire(ScheduleEntry Entry, IRunOutput Run, Task<RunRecord> Recorded, RunRequest? Request = null);
 
 /// <summary>A scheduled run that could not start (<see cref="Record"/> is its FailedToStart record, if it has a target) or that failed.</summary>
 public sealed record ScheduleFailure(ScheduleEntry Entry, string Message, RunRecord? Record);
@@ -24,7 +24,7 @@ public interface ITriggerSource
 
     /// <summary>Starts watching for <paramref name="entry"/>'s trigger, calling <paramref name="fire"/> each time it happens.</summary>
     /// <returns>Stops the watch.</returns>
-    IDisposable Watch(ScheduleEntry entry, Action fire);
+    IDisposable Watch(ScheduleEntry entry, Func<bool> fire);
 }
 
 /// <summary>
@@ -35,6 +35,9 @@ public sealed class Scheduler : IDisposable
 {
     // Re-read the clock at least this often, so sleep and clock changes don't leave a fire waiting.
     private static readonly TimeSpan MaxWait = TimeSpan.FromMinutes(1);
+
+    // Adopted instead of the current definition when the state file was unreadable, so the schedule waits for a confirm.
+    private const string NothingAdopted = "";
 
     private readonly HistoryStore _history;
     private readonly IScheduleLauncher _launcher;
@@ -107,7 +110,7 @@ public sealed class Scheduler : IDisposable
                 return null;
             _confirmedHashes[key] = hash;
             (item.Paused, item.Confirmed) = (false, true);
-            if (item.Entry.Schedule.Trigger.IsTimed)
+            if (IsActive(item) && item.Entry.Schedule.Trigger.IsTimed)
                 item.Next = TriggerMath.NextFire(item.Entry.Schedule.Trigger, _time.GetUtcNow(), _zone);
         }
         Arm();
@@ -130,6 +133,7 @@ public sealed class Scheduler : IDisposable
 
     private void Load(IEnumerable<ScheduleEntry> entries, bool applyMissed)
     {
+        var hashes = entries.Select(e => (Entry: e, Hash: e.Target is { } target ? DefinitionHash.Of(target) : null)).ToList();
         var paused = new List<SchedulePause>();
         var missed = new List<Item>();
         var unwatch = new List<IDisposable>();
@@ -140,7 +144,7 @@ public sealed class Scheduler : IDisposable
             var now = _time.GetUtcNow();
             var previous = new Dictionary<string, Item>(_items);
             _items.Clear();
-            foreach (var entry in entries)
+            foreach (var (entry, hash) in hashes)
             {
                 var item = previous.Remove(entry.Key, out var existing) ? existing : new Item();
                 var oldEntry = item.Entry;
@@ -151,12 +155,12 @@ public sealed class Scheduler : IDisposable
                 if (state is null)
                     _state.Set(entry.Key, state = new ScheduleState { Seen = now });
                 var wasPaused = item.Paused;
-                CheckDefinition(item, ref state);
+                CheckDefinition(item, hash, ref state);
                 if (item.Paused && !wasPaused)
                     paused.Add(new SchedulePause(entry, item.Hash!));
 
                 var trigger = entry.Schedule.Trigger;
-                var active = entry.Schedule.Enabled && entry.Problem is null && !item.Paused;
+                var active = IsActive(item);
                 item.Next = active && trigger.IsTimed ? TriggerMath.NextFire(trigger, now, _zone) : null;
                 if (applyMissed && active && trigger.IsTimed
                     && TriggerMath.NextFire(trigger, state.LastFire ?? state.Seen, _zone) is { } due && due <= now)
@@ -177,36 +181,71 @@ public sealed class Scheduler : IDisposable
             unwatch.AddRange(previous.Values.Select(i => i.Watch).OfType<IDisposable>());
         }
 
+        _state.Save();
         foreach (var old in unwatch)
             old.Dispose();
         foreach (var pause in paused)
             SchedulePaused?.Invoke(pause);
         foreach (var item in watch)
-        {
-            var key = item.Entry.Key;
-            var source = _sources.First(s => s.Handles(item.Entry.Schedule.Trigger.Kind));
-            item.Watch = source.Watch(item.Entry, () => Fire(key));
-        }
+            StartWatch(item);
         foreach (var item in missed)
             Launch(item, manual: false);
         Arm();
     }
 
-    private void CheckDefinition(Item item, ref ScheduleState state)
+    private static bool IsActive(Item item) => item.Entry.Schedule.Enabled && item.Entry.Problem is null && !item.Paused;
+
+    private void StartWatch(Item item)
     {
         var entry = item.Entry;
-        item.Hash = entry.Target is { } target ? DefinitionHash.Of(target) : null;
-        if (item.Hash is not { } hash)
+        var watch = _sources.First(s => s.Handles(entry.Schedule.Trigger.Kind)).Watch(entry, () => Fire(entry.Key));
+        lock (_lock)
+        {
+            if (!_disposed && item.Watch is null && ReferenceEquals(item.Entry, entry) && IsActive(item) && _items.GetValueOrDefault(entry.Key) == item)
+            {
+                item.Watch = watch;
+                return;
+            }
+        }
+        watch.Dispose();
+    }
+
+    private void CheckDefinition(Item item, string? hash, ref ScheduleState state)
+    {
+        var entry = item.Entry;
+        item.Hash = hash;
+        if (hash is null)
         {
             (item.Paused, item.Confirmed) = (false, false);
             return;
         }
         if (entry.Schedule.DefinitionHash is null && state.AdoptedHash is null)
-            _state.Set(entry.Key, state = state with { AdoptedHash = hash });
+            _state.Set(entry.Key, state = state with { AdoptedHash = _state.LoadFailed ? NothingAdopted : hash });
         var expected = entry.Schedule.DefinitionHash ?? state.AdoptedHash;
         var confirmedHere = _confirmedHashes.GetValueOrDefault(entry.Key) == hash;
         item.Paused = expected != hash && !confirmedHere;
         item.Confirmed = entry.Schedule.DefinitionHash == hash || confirmedHere;
+    }
+
+    private bool PausedByChange(Item item, string hash)
+    {
+        SchedulePause? pause = null;
+        bool paused;
+        lock (_lock)
+        {
+            if (hash == item.Hash || item.Entry.Target is null)
+                return false;
+            var wasPaused = item.Paused;
+            var state = _state.Get(item.Entry.Key) ?? new ScheduleState { Seen = _time.GetUtcNow() };
+            CheckDefinition(item, hash, ref state);
+            paused = item.Paused;
+            if (paused && !wasPaused)
+                pause = new SchedulePause(item.Entry, hash);
+        }
+        _state.Save();
+        if (pause is not null)
+            SchedulePaused?.Invoke(pause);
+        return paused;
     }
 
     private static bool SameWatch(ScheduleEntry a, ScheduleEntry b) =>
@@ -258,6 +297,7 @@ public sealed class Scheduler : IDisposable
                 due.Add(item);
             }
         }
+        _state.Save();
         foreach (var item in due)
             Launch(item, manual: false);
         Arm();
@@ -265,6 +305,8 @@ public sealed class Scheduler : IDisposable
 
     private bool Launch(Item item, bool manual)
     {
+        if (item.Entry.Target is { } current && PausedByChange(item, DefinitionHash.Of(current)))
+            return false;
         ScheduleEntry entry;
         bool confirmed;
         lock (_lock)
@@ -287,37 +329,35 @@ public sealed class Scheduler : IDisposable
             ScheduleFailed?.Invoke(new ScheduleFailure(entry, entry.Problem ?? $"'{entry.Schedule.Target}' was not found.", null));
             return false;
         }
-        var trigger = RunTriggers.Schedule(entry.Schedule.Key);
+        var trigger = RunTriggers.Schedule(entry.Key);
         IRunOutput run;
         Task<RunRecord> recorded;
+        RunRequest? request;
         try
         {
-            (run, recorded) = StartRun(target, entry.Schedule, trigger, confirmed);
+            (run, recorded, request) = StartRun(target, entry.Schedule, trigger, confirmed);
         }
         catch (Exception ex)
         {
             lock (_lock)
                 item.Running--;
-            var record = _history.Add(new RunRecord
+            var message = SecretMasker.Mask(ex.Message,
+                SecretMasker.SecretValues(target.Definition, target.Workspace, [.. target.Values, .. entry.Schedule.Values ?? []]));
+            var record = _history.Add(target.RecordTemplate(trigger) with
             {
-                NodeKey = target.NodeKey,
-                Tree = target.Tree.Kind,
-                NodeId = target.Definition.Id,
-                Name = target.Name,
-                Trigger = trigger,
                 StartedAt = _time.GetLocalNow(),
                 Outcome = RunOutcome.FailedToStart,
                 ExitCode = -1,
-            }, [ex.Message]);
-            ScheduleFailed?.Invoke(new ScheduleFailure(entry, ex.Message, record));
+            }, [message]);
+            ScheduleFailed?.Invoke(new ScheduleFailure(entry, message, record));
             return false;
         }
         _ = FinishAsync(item, entry, recorded);
-        ScheduleFired?.Invoke(new ScheduleFire(entry, run, recorded));
+        ScheduleFired?.Invoke(new ScheduleFire(entry, run, recorded, request));
         return true;
     }
 
-    private (IRunOutput Run, Task<RunRecord> Recorded) StartRun(ScheduleTarget target, Schedule schedule, string trigger, bool confirmed)
+    private (IRunOutput Run, Task<RunRecord> Recorded, RunRequest? Request) StartRun(ScheduleTarget target, Schedule schedule, string trigger, bool confirmed)
     {
         var values = new Dictionary<string, JsonNode?>(target.Values);
         foreach (var (name, value) in schedule.Values ?? [])
@@ -332,20 +372,19 @@ public sealed class Scheduler : IDisposable
                 Unattended = true,
                 Confirmed = confirmed,
             };
-            var run = Prerequisites.WorkflowFor(request) is { } chain ? _launcher.Start(chain) : _launcher.Start(request);
-            return (run, HistoryRecorder.Attach(run, _history, request, target.NodeKey, trigger, target.Name));
+            var chain = Prerequisites.WorkflowFor(request);
+            var run = chain is not null ? _launcher.Start(chain, trigger) : _launcher.Start(request);
+            return (run, HistoryRecorder.Attach(run, _history, request, target.NodeKey, trigger, target.Name), chain is null ? request : null);
         }
 
-        var workflow = (WorkflowNode)target.Definition;
-        var workflowRun = _launcher.Start(new WorkflowRequest(target.Tree, workflow)
+        var workflowRun = _launcher.Start(new WorkflowRequest(target.Tree, (WorkflowNode)target.Definition)
         {
             Values = values,
             StepValues = target.StepValues,
             Unattended = true,
             Confirmed = confirmed,
-        });
-        var template = new RunRecord { NodeKey = target.NodeKey, Tree = target.Tree.Kind, NodeId = workflow.Id, Name = target.Name, Trigger = trigger };
-        return (workflowRun, HistoryRecorder.Attach(workflowRun, _history, template));
+        }, trigger);
+        return (workflowRun, HistoryRecorder.Attach(workflowRun, _history, target.RecordTemplate(trigger)), null);
     }
 
     private async Task FinishAsync(Item item, ScheduleEntry entry, Task<RunRecord> recorded)

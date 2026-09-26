@@ -3,7 +3,6 @@ using BatchPad.Core.Trust;
 
 namespace BatchPad.Core.Workflows;
 
-/// <summary>Starts and stops a workflow's script steps; tests substitute their own.</summary>
 public interface IStepLauncher
 {
     /// <exception cref="RunException">The step could not be started.</exception>

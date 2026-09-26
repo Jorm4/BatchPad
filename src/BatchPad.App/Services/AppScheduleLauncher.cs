@@ -12,11 +12,11 @@ public sealed class AppScheduleLauncher(IRunLauncher runs, IWorkflowLauncher wor
 {
     public IRunOutput Start(RunRequest request) => runs.Start(request);
 
-    public IRunOutput Start(WorkflowRequest request)
+    public IRunOutput Start(WorkflowRequest request, string trigger)
     {
         var run = workflows.Start(workspace(), request);
         if (request.Target is null)
-            history.RecordSteps(run);
+            history.RecordSteps(run, trigger);
         return new WorkflowRunOutput(run);
     }
 }

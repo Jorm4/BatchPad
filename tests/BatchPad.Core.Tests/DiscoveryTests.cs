@@ -44,6 +44,25 @@ public sealed class DiscoveryTests
     }
 
     [TestMethod]
+    public void JunctionsAreNotFollowed()
+    {
+        using var dir = WithFiles("tools/regen.py", "outside/leak.bat");
+        var link = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe",
+            ["/d", "/c", "mklink", "/J", dir.Path("tools", "linked"), dir.Path("outside")]) { CreateNoWindow = true, UseShellExecute = false })!;
+        link.WaitForExit();
+        try
+        {
+            Assert.IsTrue(File.Exists(dir.Path("tools", "linked", "leak.bat")));
+
+            CollectionAssert.AreEqual(new[] { "tools/regen.py" }, Paths(Merge(dir, [], [RootAndTools[1]])));
+        }
+        finally
+        {
+            Directory.Delete(dir.Path("tools", "linked"));
+        }
+    }
+
+    [TestMethod]
     public void NewFileAppearsOnRescan()
     {
         using var dir = WithFiles("build.bat");
@@ -166,5 +185,42 @@ public sealed class DiscoveryTests
         File.WriteAllText(dir.Path("new.bat"), "");
 
         Assert.IsTrue(changed.Wait(TimeSpan.FromSeconds(5)));
+    }
+
+    [TestMethod]
+    public void AnIgnoredChangeRaisesNothing()
+    {
+        using var dir = new TempDir();
+        Directory.CreateDirectory(dir.Path("obj"));
+        var seen = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var kept = new ManualResetEventSlim();
+        using var watcher = new FolderWatcher([dir.Root], TimeSpan.FromMilliseconds(20),
+            (root, path) => Path.GetRelativePath(root, path).StartsWith("obj", StringComparison.Ordinal));
+        watcher.FileChanged += (_, change) =>
+        {
+            seen.Enqueue(Path.GetFileName(change.FullPath));
+            if (change.FullPath.EndsWith("kept.bat", StringComparison.Ordinal))
+                kept.Set();
+        };
+
+        File.WriteAllText(dir.Path("obj", "noise.txt"), "");
+        File.WriteAllText(dir.Path("kept.bat"), "");
+
+        Assert.IsTrue(kept.Wait(TimeSpan.FromSeconds(5)));
+        Assert.DoesNotContain("noise.txt", seen.ToList());
+    }
+
+    [TestMethod]
+    public void AChangeArrivingAfterDisposeIsIgnored()
+    {
+        using var dir = new TempDir();
+        var watcher = new FolderWatcher([dir.Root], TimeSpan.FromMilliseconds(20));
+        var raised = false;
+        watcher.FileChanged += (_, _) => raised = true;
+        watcher.Dispose();
+
+        watcher.Notify(new FileChange(WatcherChangeTypes.Created, dir.Path("late.bat")));
+
+        Assert.IsFalse(raised);
     }
 }

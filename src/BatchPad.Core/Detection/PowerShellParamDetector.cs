@@ -10,7 +10,8 @@ namespace BatchPad.Core.Detection;
 internal static class PowerShellParamDetector
 {
     private const string Probe = """
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile('{path}', [ref]$null, [ref]$null)
+        $path = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{path}'))
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
         $found = @()
         if ($ast.ParamBlock) {
             foreach ($p in $ast.ParamBlock.Parameters) {
@@ -34,7 +35,7 @@ internal static class PowerShellParamDetector
 
     public static List<ParameterDefinition> Detect(string powershell, string path, TimeSpan timeout)
     {
-        var script = Probe.Replace("{path}", path.Replace("'", "''"));
+        var script = Probe.Replace("{path}", Convert.ToBase64String(Encoding.Unicode.GetBytes(path)));
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         var line = new CommandLine(powershell, ArgvQuoter.Join(["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]),
             Path.GetDirectoryName(path)!);

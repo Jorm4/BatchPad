@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using BatchPad.Core.Customisation;
+using BatchPad.Core.Config;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
 using BatchPad.Core.Trust;
@@ -31,7 +31,7 @@ public sealed class ScriptProbes(TrustStore trust, InterpreterLocator interprete
             return [];
         var stamp = File.GetLastWriteTimeUtc(fullPath);
         if (_cache.TryGetValue(fullPath, out var cached) && cached.Stamp == stamp)
-            return CustomisationResolver.Clone(cached.Found);
+            return ConfigJson.Clone(cached.Found);
         if (cachedOnly)
             return null;
 
@@ -48,7 +48,7 @@ public sealed class ScriptProbes(TrustStore trust, InterpreterLocator interprete
             found = [];
         }
         _cache[fullPath] = (stamp, found);
-        return CustomisationResolver.Clone(found);
+        return ConfigJson.Clone(found);
     }
 
     internal static string Text(JsonNode? node) => node?.GetValueKind() switch

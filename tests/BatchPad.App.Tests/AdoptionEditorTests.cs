@@ -5,7 +5,6 @@ using BatchPad.App.ViewModels.Workflows;
 using BatchPad.App.ViewModels.Workspace;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -35,17 +34,11 @@ internal static class AdoptionConfig
     {
         using var test = new TestWorkspace();
         var directory = Path.Combine(test.Root, "repo");
-        foreach (var file in Directory.EnumerateFiles(Fixture, "*", SearchOption.AllDirectories))
-        {
-            var target = Path.Combine(directory, Path.GetRelativePath(Fixture, file));
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(file, target);
-        }
+        CopyTree(Fixture, directory);
         var configFile = Path.Combine(directory, "batchpad.json");
         File.WriteAllText(configFile, """{ "id": "adoption-fixture" }""");
 
-        var main = new MainViewModel(test.Paths, new Settings(), new FakeLauncher(), shell: new FakeShell(), confirm: new FakeConfirm());
-        main.OpenInitial(directory, test.Root);
+        var main = test.OpenMain(directory, launcher: new FakeLauncher(), shell: new FakeShell(), confirm: new FakeConfirm());
         new Builder(main).Run();
         return File.ReadAllText(configFile);
     }

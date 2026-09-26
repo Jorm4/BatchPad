@@ -52,9 +52,7 @@ public sealed class RunnerResolver(InterpreterLocator interpreters)
         TemplateContext? templates = null, bool keepWindowOpen = false)
     {
         var runner = EffectiveRunner(script);
-        string Expand(string text) => templates is null ? text : TemplateExpander.ExpandText(text, templates);
-
-        var scriptPath = script.Path is null ? null : Path.GetFullPath(Path.Combine(baseDirectory, Expand(script.Path)));
+        var scriptPath = script.Path is null ? null : TemplateExpander.ExpandPath(script.Path, baseDirectory, templates);
         if (scriptPath is not null && !File.Exists(scriptPath))
             throw new RunException(runner == Runner.Exe ? $"'{scriptPath}' is not built yet." : $"'{scriptPath}' was not found.");
 
@@ -77,7 +75,7 @@ public sealed class RunnerResolver(InterpreterLocator interpreters)
 
     public static string WorkingDirectoryFor(ScriptNode script, Runner runner, string? scriptPath, string baseDirectory, TemplateContext? templates) =>
         script.WorkingDir is not null
-            ? Path.GetFullPath(Path.Combine(baseDirectory, templates is null ? script.WorkingDir : TemplateExpander.ExpandText(script.WorkingDir, templates)))
+            ? TemplateExpander.ExpandPath(script.WorkingDir, baseDirectory, templates)
             : runner == Runner.Exe ? Path.GetDirectoryName(scriptPath)! : templates?.WorkspaceDir ?? baseDirectory;
 
     private CommandLine Python(ScriptNode script, string? scriptPath, IReadOnlyList<string> arguments, string workingDirectory)

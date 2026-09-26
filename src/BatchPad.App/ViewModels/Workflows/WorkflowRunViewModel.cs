@@ -120,12 +120,11 @@ public sealed partial class StepRowViewModel(StepRun step, string name, IUiDispa
         var links = request is not null && actions?.Sources is { } sources
             ? new SourceLinks(() => RunPlanner.WorkingDirectoryFor(request), sources)
             : null;
+        var poster = new OutputPoster(Log, dispatcher);
         return handle.Subscribe(line =>
         {
-            if (line.Stream == OutputStream.Stdout && StepOutputs.IsSetLine(line.Text))
-                return;
-            var parsed = OutputLineViewModel.From(parser.Parse(SecretMasker.Mask(line.Text, secrets)), line.Stream, links);
-            dispatcher.Post(() => Log.Add(parsed));
+            if (line.Stream != OutputStream.Stdout || !StepOutputs.IsSetLine(line.Text))
+                poster.Add(OutputLineViewModel.From(parser.Parse(SecretMasker.Mask(line.Text, secrets)), line.Stream, links));
         });
     }
 
@@ -140,6 +139,7 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
     private readonly Func<StepRun, string> _nameOf;
     private readonly StepActions? _actions;
     private readonly Action<WorkflowRequest>? _rerun;
+    private readonly Dictionary<StepRun, StepRowViewModel> _rows = [];
 
     public WorkflowRunViewModel(string title, NodeViewModel? node, WorkflowRun run, Func<StepRun, string> nameOf, IUiDispatcher dispatcher,
         StepActions? actions = null, Action<WorkflowRequest>? rerun = null)
@@ -218,10 +218,9 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
 
     private void Update(StepRun step)
     {
-        var row = Steps.FirstOrDefault(r => r.Step == step);
-        if (row is null)
+        if (!_rows.TryGetValue(step, out var row))
         {
-            if (Steps.FirstOrDefault(r => r.Step.Items.Contains(step)) is not { } parent)
+            if (_rows.Values.FirstOrDefault(r => r.Step.Items.Contains(step)) is not { } parent)
                 return;
             row = NewRow(step, parent.Depth + 1);
             Steps.Insert(EndOf(parent), row);
@@ -244,8 +243,12 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
     private static IEnumerable<StepRun> WithNested(IEnumerable<StepRun> steps) =>
         steps.SelectMany(s => s.SelfAndChildren()).SelectMany(s => s.Nested is { } nested ? [s, .. WithNested(nested.Steps)] : new[] { s });
 
-    private StepRowViewModel NewRow(StepRun step, int depth) =>
-        new(step, _nameOf(step), _dispatcher, _actions, depth, () => AutoScroll = false);
+    private StepRowViewModel NewRow(StepRun step, int depth)
+    {
+        var row = new StepRowViewModel(step, _nameOf(step), _dispatcher, _actions, depth, () => AutoScroll = false);
+        _rows[step] = row;
+        return row;
+    }
 
     /// <summary>Adds rows for <paramref name="step"/> and its group members at <paramref name="at"/>; returns the index after them.</summary>
     private int AddRows(StepRun step, int depth, int at)

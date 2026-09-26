@@ -15,7 +15,7 @@ public sealed class MyScriptsTests
     {
         using var test = new TestWorkspace();
         var main = OpenBuildWorkspace(test);
-        var source = Select(main, BuildAndRun);
+        var source = main.Select(BuildAndRun);
         Choose(main, "config", "Release");
         Choose(main, "app", "SpaceTrader");
 
@@ -36,7 +36,7 @@ public sealed class MyScriptsTests
     {
         using var test = new TestWorkspace();
         var main = OpenBuildWorkspace(test);
-        Select(main, BuildAndRun);
+        main.Select(BuildAndRun);
         Choose(main, "config", "Release");
         Choose(main, "app", "SpaceTrader");
         main.Details.SaveAsMyScriptCommand.Execute(null);
@@ -56,7 +56,7 @@ public sealed class MyScriptsTests
     {
         using var test = new TestWorkspace();
         var main = OpenBuildWorkspace(test);
-        Select(main, BuildAndRun);
+        main.Select(BuildAndRun);
         Choose(main, "app", "SpaceTrader");
         main.Details.SaveAsMyScriptCommand.Execute(null);
         var original = main.SelectedNode!.Key;
@@ -100,7 +100,7 @@ public sealed class MyScriptsTests
     {
         using var test = new TestWorkspace();
         var main = OpenBuildWorkspace(test);
-        main.MyScripts.AddToMyScriptsCommand.Execute(Select(main, "Workspace/Other"));
+        main.MyScripts.AddToMyScriptsCommand.Execute(main.Select("Workspace/Other"));
 
         File.WriteAllText(Path.Combine(main.Workspace!.Directory, "batchpad.json"), WorkspaceJson(includeOther: false));
         main.Reload();
@@ -125,7 +125,7 @@ public sealed class MyScriptsTests
         using var test = new TestWorkspace();
         var confirm = new FakeConfirm { Answer = true };
         var main = OpenBuildWorkspace(test, confirm);
-        main.MyScripts.AddToMyScriptsCommand.Execute(Select(main, "Workspace/Other"));
+        main.MyScripts.AddToMyScriptsCommand.Execute(main.Select("Workspace/Other"));
         var node = main.Tree!.Find("MyScripts/Other")!;
 
         main.MyScripts.BeginRenameCommand.Execute(node);
@@ -138,14 +138,25 @@ public sealed class MyScriptsTests
         Assert.IsEmpty(UserEntries(main));
     }
 
+    [TestMethod]
+    public void PinningAWebArtifactKeepsItsUrl()
+    {
+        using var test = new TestWorkspace();
+        var main = OpenBuildWorkspace(test);
+
+        Assert.IsTrue(main.MyScripts.PinLink("https://example.com/report"));
+
+        var link = UserStore.For(main.Workspace!).Load().Scripts.OfType<LinkNode>().Single();
+        Assert.AreEqual("https://example.com/report", link.Url);
+        Assert.AreEqual("example.com", link.Name);
+    }
+
     private static MainViewModel OpenBuildWorkspace(TestWorkspace test, FakeConfirm? confirm = null)
     {
         var directory = Directory.CreateDirectory(Path.Combine(test.Root, "build")).FullName;
         File.WriteAllText(Path.Combine(directory, "batchpad.json"), WorkspaceJson(includeOther: true));
         File.WriteAllText(Path.Combine(directory, "build_run.bat"), "@echo %*\r\n");
-        var main = new MainViewModel(test.Paths, new Settings(), new FakeLauncher(), shell: new FakeShell(), confirm: confirm ?? new FakeConfirm());
-        main.Trust.Trust(directory);
-        main.OpenInitial(directory, test.Root);
+        var main = test.OpenMain(directory, trusted: true, launcher: new FakeLauncher(), shell: new FakeShell(), confirm: confirm ?? new FakeConfirm());
         return main;
     }
 
@@ -166,13 +177,6 @@ public sealed class MyScriptsTests
           ]
         }
         """;
-
-    private static NodeViewModel Select(MainViewModel main, string automationId)
-    {
-        var node = main.Tree!.Find(automationId) ?? throw new AssertFailedException($"No node {automationId}");
-        node.IsSelected = true;
-        return node;
-    }
 
     private static void Choose(MainViewModel main, string parameter, string label)
     {

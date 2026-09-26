@@ -45,7 +45,7 @@ public sealed class MainViewModelTests
         Assert.IsFalse(main.IsReloadPromptVisible);
         Assert.AreEqual("Workspace — Renamed outside", main.Tree!.Roots[1].Name);
 
-        main.Tree.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
+        main.Select("Workspace/Hello/hello.bat");
         main.Details.EditCommand.Execute(null);
         ConfigWriter.Update(file, f =>
         {
@@ -68,7 +68,7 @@ public sealed class MainViewModelTests
     {
         using var test = new TestWorkspace();
         var main = test.OpenMain(test.CopyDemo(), trusted: true);
-        main.Tree!.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
+        main.Select("Workspace/Hello/hello.bat");
         main.Details.EditCommand.Execute(null);
         main.Details.Editor!.General.Description = "Says hello.";
         main.Details.Editor.SaveCommand.Execute(null);
@@ -118,7 +118,7 @@ public sealed class MainViewModelTests
         var demo = test.CopyDemo();
         main.Trust.Trust(demo);
         main.Open(Path.Combine(demo, "batchpad.json"));
-        main.Tree!.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
+        main.Select("Workspace/Hello/hello.bat");
         main.Details.RunCommand.Execute(null);
 
         main.Details.EditCommand.Execute(null);

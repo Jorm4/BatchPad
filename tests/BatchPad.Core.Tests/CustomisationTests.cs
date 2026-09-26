@@ -115,7 +115,7 @@ public sealed class CustomisationTests
         File.WriteAllText(file, $$"""{ "scripts": [ {{entry}} ] }""");
     }
 
-    private static AppPaths Paths(TempDir temp) => new(temp.Path("data"), isPortable: false);
+    private static AppPaths Paths(TempDir temp) => new(temp.Path("data"));
 
     private static LoadedWorkspace Load(TempDir temp) => WorkspaceLoader.Load(temp.Path("batchpad.json"), Paths(temp));
 

@@ -37,18 +37,18 @@ public sealed class OutputLineParser
         return new ParsedLine(text, spans, IsError(text));
     }
 
-    private bool IsError(string text)
+    private bool IsError(string text) => _errorPatterns.Any(pattern => Matches(pattern, text));
+
+    private static bool Matches(Regex pattern, string text)
     {
         try
         {
-            foreach (var pattern in _errorPatterns)
-                if (pattern.IsMatch(text))
-                    return true;
+            return pattern.IsMatch(text);
         }
         catch (RegexMatchTimeoutException)
         {
+            return false;
         }
-        return false;
     }
 
     private static (string, IReadOnlyList<OutputSpan>?) Split(string line)

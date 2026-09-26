@@ -67,8 +67,17 @@ public sealed class AdoptedRun : IDisposable
         catch (InvalidOperationException)
         {
         }
-        _registry.Remove(Entry);
-        _completion.TrySetResult(new RunResult(_stopping ? RunOutcome.Stopped : RunOutcome.Exited, ExitCodeOrUnknown(), _clock.Elapsed));
+        try
+        {
+            _registry.Remove(Entry);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+        finally
+        {
+            _completion.TrySetResult(new RunResult(_stopping ? RunOutcome.Stopped : RunOutcome.Exited, ExitCodeOrUnknown(), _clock.Elapsed));
+        }
     }
 
     private int ExitCodeOrUnknown()

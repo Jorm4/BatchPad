@@ -1,9 +1,7 @@
-using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -61,7 +59,7 @@ public sealed class WorkspaceSettingsTests
 
         foreach (var id in new[] { "Workspace/Hello/hello.bat", "Workspace/Hello/hello.py" })
         {
-            main.Tree!.Find(id)!.IsSelected = true;
+            main.Select(id);
             var field = (ChoiceFieldViewModel)main.Details.Form!.Field("app")!;
             CollectionAssert.AreEqual(new[] { "A", "B", "C" }, field.Options.Select(o => o.Value).ToList(), id);
         }
@@ -74,9 +72,7 @@ public sealed class WorkspaceSettingsTests
         var demo = test.CopyDemo();
         var shell = new FakeShell();
         var confirm = new FakeConfirm { Answer = false };
-        var main = new MainViewModel(test.Paths, new Settings(), new FakeLauncher(), shell: shell, confirm: confirm);
-        main.Trust.Trust(demo);
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, trusted: true, launcher: new FakeLauncher(), shell: shell, confirm: confirm);
 
         AddLink(main, "Docs", "docs/index.html");
         main.Details.OpenLinkCommand.Execute(null);
@@ -119,22 +115,3 @@ public sealed class WorkspaceSettingsTests
     }
 }
 
-internal sealed class FakeConfirm : IConfirmService
-{
-    public bool Answer { get; set; }
-    public List<string> Asked { get; } = [];
-
-    public bool Confirm(string title, string message)
-    {
-        Asked.Add(message);
-        return Answer;
-    }
-
-    public bool? CancellableAnswer { get; set; }
-
-    public bool? ConfirmOrCancel(string title, string message)
-    {
-        Asked.Add(message);
-        return CancellableAnswer;
-    }
-}

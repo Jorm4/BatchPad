@@ -7,7 +7,7 @@
              xmlns:hist="clr-namespace:BatchPad.App.ViewModels.History">
     <UserControl.Resources>
         <Style x:Key="OutputLines" TargetType="ListBox">
-            <Setter Property="Background" Value="#1C1C1C" />
+            <Setter Property="Background" Value="{StaticResource OutputBackgroundBrush}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
             <Setter Property="FontSize" Value="12" />
@@ -35,48 +35,77 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <DataTemplate x:Key="LogToolbar" DataType="{x:Type vm:OutputLog}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="&#xE74B;" FontFamily="{StaticResource IconFont}" Padding="6,2" Margin="4,0,0,0"
+                        Command="{Binding NextErrorCommand}" ToolTip="Next error (F8)"
+                        AutomationProperties.AutomationId="NextErrorButton" AutomationProperties.Name="Next error" />
+                <Button DockPanel.Dock="Right" Content="&#xE74A;" FontFamily="{StaticResource IconFont}" Padding="6,2" Margin="4,0,0,0"
+                        Command="{Binding PreviousErrorCommand}" ToolTip="Previous error (Shift+F8)"
+                        AutomationProperties.AutomationId="PreviousErrorButton" AutomationProperties.Name="Previous error" />
+                <TextBlock DockPanel.Dock="Left" Text="&#xE721;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource OutputMutedBrush}"
+                           VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=150}" MaxWidth="320" HorizontalAlignment="Left"
+                         MinWidth="200" ToolTip="Show only lines containing this text"
+                         AutomationProperties.AutomationId="OutputSearch" AutomationProperties.Name="Search output" />
+            </DockPanel>
+        </DataTemplate>
+        <Style x:Key="ArtifactLinks" TargetType="views:FlatItemsControl">
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemTemplate">
+                <Setter.Value>
+                    <DataTemplate DataType="{x:Type vm:ArtifactLinkViewModel}">
+                        <Button Content="{Binding Name}" Command="{Binding OpenCommand}" ToolTip="{Binding Artifact.Path}" Margin="0,0,6,0" Padding="6,2"
+                                ContextMenuService.IsEnabled="{Binding CanPin}"
+                                AutomationProperties.AutomationId="{Binding Name, StringFormat=Artifact_{0}}">
+                            <Button.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Pin as link" Command="{Binding PinCommand}" AutomationProperties.AutomationId="PinArtifactMenuItem" />
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <DataTemplate DataType="{x:Type vm:OutputLineViewModel}">
             <Border x:Name="Marker" BorderThickness="3,0,0,0" BorderBrush="Transparent" Padding="5,0,8,0">
-                <TextBlock x:Name="Line" views:OutputText.Line="{Binding}" Foreground="#E6E6E6" />
+                <TextBlock x:Name="Line" views:OutputText.Line="{Binding}" Foreground="{StaticResource OutputTextBrush}" />
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsErrorMatch}" Value="True">
-                    <Setter TargetName="Marker" Property="BorderBrush" Value="#F1707A" />
+                    <Setter TargetName="Marker" Property="BorderBrush" Value="{StaticResource OutputErrorBrush}" />
                     <Setter TargetName="Marker" Property="Background" Value="#2EF1707A" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsError}" Value="True">
-                    <Setter TargetName="Line" Property="Foreground" Value="#F1707A" />
+                    <Setter TargetName="Line" Property="Foreground" Value="{StaticResource OutputErrorBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsInfo}" Value="True">
-                    <Setter TargetName="Line" Property="Foreground" Value="#9A9A9A" />
+                    <Setter TargetName="Line" Property="Foreground" Value="{StaticResource OutputMutedBrush}" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:RunViewModel}">
             <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="8,4,8,2">
-                    <Button DockPanel.Dock="Right" Content="&#xE74B;" FontFamily="{StaticResource IconFont}" Padding="6,2" Margin="4,0,0,0"
-                            Command="{Binding Log.NextErrorCommand}" ToolTip="Next error (F8)"
-                            AutomationProperties.AutomationId="NextErrorButton" AutomationProperties.Name="Next error" />
-                    <Button DockPanel.Dock="Right" Content="&#xE74A;" FontFamily="{StaticResource IconFont}" Padding="6,2" Margin="4,0,0,0"
-                            Command="{Binding Log.PreviousErrorCommand}" ToolTip="Previous error (Shift+F8)"
-                            AutomationProperties.AutomationId="PreviousErrorButton" AutomationProperties.Name="Previous error" />
                     <ToggleButton DockPanel.Dock="Right" IsChecked="{Binding ShowTests}" Content="{Binding TestResults.Summary}" Padding="8,2" Margin="4,0,0,0"
                                   Visibility="{Binding TestResults, Converter={StaticResource NullToCollapsed}}" ToolTip="Test results"
                                   AutomationProperties.AutomationId="TestsButton" />
-                    <TextBlock DockPanel.Dock="Left" Text="&#xE721;" FontFamily="{StaticResource IconFont}" Foreground="#9A9A9A"
-                               VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <TextBox Text="{Binding Log.SearchText, UpdateSourceTrigger=PropertyChanged, Delay=150}" MaxWidth="320" HorizontalAlignment="Left"
-                             MinWidth="200" ToolTip="Show only lines containing this text"
-                             AutomationProperties.AutomationId="OutputSearch" AutomationProperties.Name="Search output" />
+                    <ContentControl Content="{Binding Log}" ContentTemplate="{StaticResource LogToolbar}" Focusable="False" />
                 </DockPanel>
                 <WrapPanel DockPanel.Dock="Top" Margin="8,6,8,2" Visibility="{Binding IsReady, Converter={StaticResource BoolToVisibility}}">
                     <Border Padding="8,2" CornerRadius="10" Background="#1F6CCB5F" VerticalAlignment="Center">
-                        <TextBlock Text="Running · ready" Foreground="#6CCB5F" AutomationProperties.AutomationId="ReadyPill" />
+                        <TextBlock Text="Running · ready" Foreground="{StaticResource OutputSuccessBrush}" AutomationProperties.AutomationId="ReadyPill" />
                     </Border>
                     <TextBlock Margin="10,0,0,0" VerticalAlignment="Center"
                                Visibility="{Binding ReadyUrl, Converter={StaticResource NullToCollapsed}}">
-                        <Hyperlink Command="{Binding OpenInBrowserCommand}" Foreground="#60CDFF"
+                        <Hyperlink Command="{Binding OpenInBrowserCommand}" Foreground="{StaticResource OutputAccentBrush}"
                                    AutomationProperties.AutomationId="ReadyUrlLink">
                             <Run Text="{Binding ReadyUrl, Mode=OneWay}" />
                         </Hyperlink>
@@ -86,72 +115,56 @@
                             AutomationProperties.AutomationId="OpenInBrowserButton" />
                 </WrapPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="8,4,8,2" Visibility="{Binding HasArtifacts, Converter={StaticResource BoolToVisibility}}">
-                    <TextBlock Text="Artifacts" Foreground="#9A9A9A" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <views:FlatItemsControl ItemsSource="{Binding Artifacts}" AutomationProperties.AutomationId="ArtifactLinks">
-                        <views:FlatItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel />
-                            </ItemsPanelTemplate>
-                        </views:FlatItemsControl.ItemsPanel>
-                        <views:FlatItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type vm:ArtifactLinkViewModel}">
-                                <Button Content="{Binding Name}" Command="{Binding OpenCommand}" ToolTip="{Binding Artifact.Path}" Margin="0,0,6,0" Padding="8,2"
-                                        AutomationProperties.AutomationId="{Binding Name, StringFormat=Artifact_{0}}">
-                                    <Button.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Header="Pin as link" Command="{Binding PinCommand}" AutomationProperties.AutomationId="PinArtifactMenuItem" />
-                                        </ContextMenu>
-                                    </Button.ContextMenu>
-                                </Button>
-                            </DataTemplate>
-                        </views:FlatItemsControl.ItemTemplate>
-                    </views:FlatItemsControl>
+                    <TextBlock Text="Artifacts" Foreground="{StaticResource OutputMutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <views:FlatItemsControl ItemsSource="{Binding Artifacts}" Style="{StaticResource ArtifactLinks}"
+                                            AutomationProperties.AutomationId="ArtifactLinks" />
                 </DockPanel>
                 <Grid>
                     <ListBox ItemsSource="{Binding Log.DisplayedLines}" SelectedItem="{Binding Log.SelectedLine}" views:ScrollSelection.IntoView="True"
                              views:AutoScroll.Follow="{Binding AutoScroll}" Style="{StaticResource OutputLines}"
                              Visibility="{Binding ShowTests, Converter={StaticResource InverseBoolToVisibility}}"
                              AutomationProperties.AutomationId="OutputLines" />
-                    <DockPanel DataContext="{Binding TestResults}" Background="#1C1C1C"
+                    <DockPanel DataContext="{Binding TestResults}" Background="{StaticResource OutputBackgroundBrush}"
                                Visibility="{Binding DataContext.ShowTests, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource BoolToVisibility}}">
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,4">
-                            <CheckBox Content="Failures only" IsChecked="{Binding FailuresOnly}" Foreground="#E6E6E6" VerticalAlignment="Center"
+                            <CheckBox Content="Failures only" IsChecked="{Binding FailuresOnly}" Foreground="{StaticResource OutputTextBrush}" VerticalAlignment="Center"
                                       AutomationProperties.AutomationId="FailuresOnlyCheck" />
                             <Button Content="Re-run failed" Command="{Binding RerunFailedCommand}" Margin="12,0,0,0" Padding="8,2"
                                     Visibility="{Binding CanRerun, Converter={StaticResource BoolToVisibility}}"
                                     AutomationProperties.AutomationId="RerunFailedButton" />
                         </StackPanel>
-                        <TreeView ItemsSource="{Binding Suites}" Background="#1C1C1C" BorderThickness="0" AutomationProperties.AutomationId="TestTree">
+                        <TreeView ItemsSource="{Binding Suites}" Background="{StaticResource OutputBackgroundBrush}" BorderThickness="0"
+                                  VirtualizingPanel.IsVirtualizing="True" AutomationProperties.AutomationId="TestTree">
                             <TreeView.Resources>
                                 <HierarchicalDataTemplate DataType="{x:Type vm:TestSuiteRowViewModel}" ItemsSource="{Binding Cases}">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock x:Name="Glyph" Text="{Binding Glyph}" Width="16" Foreground="#6CCB5F" />
-                                        <TextBlock Text="{Binding Name}" Foreground="#E6E6E6" />
-                                        <TextBlock Text="{Binding TimeText}" Foreground="#9A9A9A" Margin="8,0,0,0" />
+                                        <TextBlock x:Name="Glyph" Text="{Binding Glyph}" Width="16" Foreground="{StaticResource OutputSuccessBrush}" />
+                                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource OutputTextBrush}" />
+                                        <TextBlock Text="{Binding TimeText}" Foreground="{StaticResource OutputMutedBrush}" Margin="8,0,0,0" />
                                     </StackPanel>
                                     <HierarchicalDataTemplate.Triggers>
                                         <DataTrigger Binding="{Binding Failed}" Value="True">
-                                            <Setter TargetName="Glyph" Property="Foreground" Value="#F1707A" />
+                                            <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource OutputErrorBrush}" />
                                         </DataTrigger>
                                     </HierarchicalDataTemplate.Triggers>
                                 </HierarchicalDataTemplate>
                                 <DataTemplate DataType="{x:Type vm:TestCaseRowViewModel}">
                                     <StackPanel ToolTip="{Binding Details}">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock x:Name="Glyph" Text="{Binding Glyph}" Width="16" Foreground="#6CCB5F" />
-                                            <TextBlock Text="{Binding Name}" Foreground="#E6E6E6" />
-                                            <TextBlock Text="{Binding TimeText}" Foreground="#9A9A9A" Margin="8,0,0,0" />
+                                            <TextBlock x:Name="Glyph" Text="{Binding Glyph}" Width="16" Foreground="{StaticResource OutputSuccessBrush}" />
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource OutputTextBrush}" />
+                                            <TextBlock Text="{Binding TimeText}" Foreground="{StaticResource OutputMutedBrush}" Margin="8,0,0,0" />
                                         </StackPanel>
-                                        <TextBlock Text="{Binding Message}" Foreground="#F1707A" Margin="16,0,0,2" TextWrapping="Wrap" MaxWidth="900"
+                                        <TextBlock Text="{Binding Message}" Foreground="{StaticResource OutputErrorBrush}" Margin="16,0,0,2" TextWrapping="Wrap" MaxWidth="900"
                                                    FontFamily="{StaticResource MonoFont}" FontSize="11"
                                                    Visibility="{Binding Message, Converter={StaticResource NullToCollapsed}}" />
                                     </StackPanel>
                                     <DataTemplate.Triggers>
                                         <DataTrigger Binding="{Binding Outcome}" Value="Failed">
-                                            <Setter TargetName="Glyph" Property="Foreground" Value="#F1707A" />
+                                            <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource OutputErrorBrush}" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding Outcome}" Value="Skipped">
-                                            <Setter TargetName="Glyph" Property="Foreground" Value="#9A9A9A" />
+                                            <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource OutputMutedBrush}" />
                                         </DataTrigger>
                                     </DataTemplate.Triggers>
                                 </DataTemplate>
@@ -167,11 +180,11 @@
                     <ColumnDefinition Width="240" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <DockPanel Background="#252525">
+                <DockPanel Background="{StaticResource OutputSidebarBrush}">
                     <Button DockPanel.Dock="Bottom" Content="{Binding RerunLabel}" Command="{Binding RerunFromFailedCommand}" Margin="6"
                             Padding="8,2" Visibility="{Binding CanRerunFromFailed, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.AutomationId="RerunFromFailedButton" />
-                    <ListBox ItemsSource="{Binding Steps}" SelectedItem="{Binding SelectedStep}" Background="#252525" BorderThickness="0"
+                    <ListBox ItemsSource="{Binding Steps}" SelectedItem="{Binding SelectedStep}" Background="{StaticResource OutputSidebarBrush}" BorderThickness="0"
                              VirtualizingPanel.IsVirtualizing="False" AutomationProperties.AutomationId="WorkflowSteps">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
@@ -183,39 +196,26 @@
                             <DataTemplate DataType="{x:Type wf:StepRowViewModel}">
                                 <DockPanel x:Name="Row">
                                     <Border Width="{Binding IndentWidth}" />
-                                    <TextBlock x:Name="Glyph" Text="{Binding Glyph}" Width="16" Foreground="#9A9A9A" />
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding TimeText}" Foreground="#9A9A9A" Margin="6,0,0,0" />
+                                    <TextBlock x:Name="Glyph" Text="{Binding Glyph}" Width="16" Foreground="{StaticResource OutputMutedBrush}" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding TimeText}" Foreground="{StaticResource OutputMutedBrush}" Margin="6,0,0,0" />
                                     <Button x:Name="StopStep" DockPanel.Dock="Right" Visibility="Collapsed" Command="{Binding StopCommand}" Margin="6,0,0,0"
                                             Padding="4,0" FontFamily="{StaticResource IconFont}" Content="&#xE71A;" ToolTip="Stop"
                                             AutomationProperties.AutomationId="StopStepButton" AutomationProperties.Name="Stop" />
                                     <Button x:Name="OpenStep" DockPanel.Dock="Right" Visibility="Collapsed" Command="{Binding OpenReadyUrlCommand}" Margin="6,0,0,0"
                                             Padding="4,0" FontFamily="{StaticResource IconFont}" Content="&#xE774;" ToolTip="{Binding ReadyUrl}"
                                             AutomationProperties.AutomationId="OpenStepUrlButton" AutomationProperties.Name="Open in browser" />
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding StatusText}" Foreground="#9A9A9A" Margin="6,0,0,0"
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding StatusText}" Foreground="{StaticResource OutputMutedBrush}" Margin="6,0,0,0"
                                                AutomationProperties.AutomationId="StepStatus" />
-                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding OutputsText}" Foreground="#9A9A9A" Margin="16,0,0,0"
+                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding OutputsText}" Foreground="{StaticResource OutputMutedBrush}" Margin="16,0,0,0"
                                                FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis" ToolTip="{Binding OutputsText}"
                                                Visibility="{Binding OutputsText, Converter={StaticResource NullToCollapsed}}"
                                                AutomationProperties.AutomationId="StepOutputs" />
-                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding AttemptsText}" Foreground="#FFD787" Margin="16,0,0,0"
+                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding AttemptsText}" Foreground="{StaticResource OutputWarningBrush}" Margin="16,0,0,0"
                                                Visibility="{Binding AttemptsText, Converter={StaticResource NullToCollapsed}}"
                                                AutomationProperties.AutomationId="StepAttempts" />
                                     <views:FlatItemsControl DockPanel.Dock="Bottom" ItemsSource="{Binding Artifacts}" Margin="16,2,0,0"
-                                                            AutomationProperties.AutomationId="StepArtifactLinks">
-                                        <views:FlatItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel />
-                                            </ItemsPanelTemplate>
-                                        </views:FlatItemsControl.ItemsPanel>
-                                        <views:FlatItemsControl.ItemTemplate>
-                                            <DataTemplate DataType="{x:Type vm:ArtifactLinkViewModel}">
-                                                <Button Content="{Binding Name}" Command="{Binding OpenCommand}" ToolTip="{Binding Artifact.Path}"
-                                                        Margin="0,0,6,0" Padding="6,0"
-                                                        AutomationProperties.AutomationId="{Binding Name, StringFormat=StepArtifact_{0}}" />
-                                            </DataTemplate>
-                                        </views:FlatItemsControl.ItemTemplate>
-                                    </views:FlatItemsControl>
-                                    <TextBlock Text="{Binding Name}" Foreground="#E6E6E6" TextTrimming="CharacterEllipsis" />
+                                                            Style="{StaticResource ArtifactLinks}" AutomationProperties.AutomationId="StepArtifactLinks" />
+                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource OutputTextBrush}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                                 <DataTemplate.Triggers>
                                     <DataTrigger Binding="{Binding Status}" Value="Ready">
@@ -223,13 +223,13 @@
                                         <Setter TargetName="OpenStep" Property="Visibility" Value="Visible" />
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding Glyph}" Value="✓">
-                                        <Setter TargetName="Glyph" Property="Foreground" Value="#6CCB5F" />
+                                        <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource OutputSuccessBrush}" />
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding Glyph}" Value="●">
-                                        <Setter TargetName="Glyph" Property="Foreground" Value="#60CDFF" />
+                                        <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource OutputAccentBrush}" />
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding Glyph}" Value="✗">
-                                        <Setter TargetName="Glyph" Property="Foreground" Value="#F1707A" />
+                                        <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource OutputErrorBrush}" />
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>
@@ -237,19 +237,8 @@
                     </ListBox>
                 </DockPanel>
                 <DockPanel Grid.Column="1">
-                    <DockPanel DockPanel.Dock="Top" Margin="8,4,8,2" DataContext="{Binding SelectedStep.Log}">
-                        <Button DockPanel.Dock="Right" Content="&#xE74B;" FontFamily="{StaticResource IconFont}" Padding="6,2" Margin="4,0,0,0"
-                                Command="{Binding NextErrorCommand}" ToolTip="Next error (F8)"
-                                AutomationProperties.AutomationId="NextErrorButton" AutomationProperties.Name="Next error" />
-                        <Button DockPanel.Dock="Right" Content="&#xE74A;" FontFamily="{StaticResource IconFont}" Padding="6,2" Margin="4,0,0,0"
-                                Command="{Binding PreviousErrorCommand}" ToolTip="Previous error (Shift+F8)"
-                                AutomationProperties.AutomationId="PreviousErrorButton" AutomationProperties.Name="Previous error" />
-                        <TextBlock DockPanel.Dock="Left" Text="&#xE721;" FontFamily="{StaticResource IconFont}" Foreground="#9A9A9A"
-                                   VerticalAlignment="Center" Margin="0,0,6,0" />
-                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=150}" MaxWidth="320" HorizontalAlignment="Left"
-                                 MinWidth="200" ToolTip="Show only lines containing this text"
-                                 AutomationProperties.AutomationId="OutputSearch" AutomationProperties.Name="Search output" />
-                    </DockPanel>
+                    <ContentControl DockPanel.Dock="Top" Margin="8,4,8,2" Content="{Binding SelectedStep.Log}"
+                                    ContentTemplate="{StaticResource LogToolbar}" Focusable="False" />
                     <ListBox ItemsSource="{Binding SelectedStep.Log.DisplayedLines}" SelectedItem="{Binding SelectedStep.Log.SelectedLine}"
                              views:ScrollSelection.IntoView="True" views:AutoScroll.Follow="{Binding AutoScroll}"
                              Style="{StaticResource OutputLines}" AutomationProperties.AutomationId="OutputLines" />
@@ -257,7 +246,7 @@
             </Grid>
         </DataTemplate>
     </UserControl.Resources>
-    <Border Background="#1C1C1C" CornerRadius="0,0,8,8">
+    <Border Background="{StaticResource OutputBackgroundBrush}" CornerRadius="0,0,8,8">
         <Grid>
             <TabControl ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}" Background="Transparent"
                         BorderThickness="0" Padding="0" AutomationProperties.AutomationId="OutputTabs">
@@ -294,7 +283,7 @@
             </TabControl>
             <ToggleButton Content="History" IsChecked="{Binding IsHistoryOpen}" HorizontalAlignment="Right" VerticalAlignment="Top"
                           Margin="0,2,8,0" Padding="10,2" AutomationProperties.AutomationId="HistoryButton" />
-            <ListBox Margin="0,30,0,0" ItemsSource="{Binding History.Runs}" SelectedItem="{Binding History.Selected}" views:ScrollSelection.IntoView="True" Background="#1C1C1C" BorderThickness="0"
+            <ListBox Margin="0,30,0,0" ItemsSource="{Binding History.Runs}" SelectedItem="{Binding History.Selected}" views:ScrollSelection.IntoView="True" Background="{StaticResource OutputBackgroundBrush}" BorderThickness="0"
                      Visibility="{Binding IsHistoryOpen, Converter={StaticResource BoolToVisibility}}"
                      HorizontalContentAlignment="Stretch" AutomationProperties.AutomationId="HistoryList">
                 <ListBox.ItemContainerStyle>
@@ -314,12 +303,12 @@
                                 <ColumnDefinition Width="90" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="Glyph" Text="✗" Foreground="#F1707A" />
-                            <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="#E6E6E6" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Column="2" Text="{Binding WhenText}" Foreground="#9A9A9A" />
-                            <TextBlock Grid.Column="3" Text="{Binding DurationText}" Foreground="#9A9A9A" />
-                            <TextBlock Grid.Column="4" Text="{Binding ResultText}" Foreground="#9A9A9A" />
-                            <TextBlock Grid.Column="5" Text="{Binding Trigger}" Foreground="#9A9A9A" />
+                            <TextBlock x:Name="Glyph" Text="✗" Foreground="{StaticResource OutputErrorBrush}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource OutputTextBrush}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Text="{Binding WhenText}" Foreground="{StaticResource OutputMutedBrush}" />
+                            <TextBlock Grid.Column="3" Text="{Binding DurationText}" Foreground="{StaticResource OutputMutedBrush}" />
+                            <TextBlock Grid.Column="4" Text="{Binding ResultText}" Foreground="{StaticResource OutputMutedBrush}" />
+                            <TextBlock Grid.Column="5" Text="{Binding Trigger}" Foreground="{StaticResource OutputMutedBrush}" />
                             <StackPanel Grid.Column="6" Orientation="Horizontal">
                                 <Button Content="Open log" Command="{Binding OpenLogCommand}" Padding="6,0" Margin="0,0,6,0"
                                         AutomationProperties.AutomationId="OpenLogButton" />
@@ -330,7 +319,7 @@
                         <DataTemplate.Triggers>
                             <DataTrigger Binding="{Binding Succeeded}" Value="True">
                                 <Setter TargetName="Glyph" Property="Text" Value="✓" />
-                                <Setter TargetName="Glyph" Property="Foreground" Value="#6CCB5F" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource OutputSuccessBrush}" />
                             </DataTrigger>
                         </DataTemplate.Triggers>
                     </DataTemplate>

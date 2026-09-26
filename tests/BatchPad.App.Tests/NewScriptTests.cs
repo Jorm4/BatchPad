@@ -13,8 +13,7 @@ public sealed class NewScriptTests
         using var test = new TestWorkspace();
         var demo = test.CopyDemo();
         var shell = new FakeShell();
-        var main = new MainViewModel(test.Paths, new Settings { EditorCommand = "edit {file}" }, shell: shell);
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, settings: new Settings { EditorCommand = "edit {file}" }, shell: shell);
 
         main.Tree!.NewScriptCommand.Execute(null);
         var item = main.NewItem!;

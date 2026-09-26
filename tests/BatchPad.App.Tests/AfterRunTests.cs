@@ -1,11 +1,9 @@
-using System.Text.Json.Nodes;
 using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Editor;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -50,14 +48,14 @@ public sealed class AfterRunTests
         var launcher = new FakeLauncher();
         var shell = new FakeShell();
         var main = OpenDemo(test, launcher, shell);
-        var node = Select(main, Server);
+        var node = main.Select(Server);
         ((IntFieldViewModel)main.Details.Form!.Field("port")!).Text = "9001";
 
         main.Details.RunCommand.Execute(null);
         var run = (RunViewModel)main.Output.Tabs.Single();
         Assert.IsFalse(run.IsReady);
         launcher.Started[0].Emit("Serving on http://127.0.0.1:9001/", OutputStream.Stdout);
-        await Until(() => run.IsReady && shell.Opened.Count > 0);
+        await Eventually(() => run.IsReady && shell.Opened.Count > 0);
 
         Assert.AreEqual("http://127.0.0.1:9001/", run.ReadyUrl);
         Assert.AreEqual("running · ready", run.StatusText);
@@ -86,7 +84,7 @@ public sealed class AfterRunTests
         var main = OpenDemo(test, launcher, shell);
         var editor = Edit(main, "Workspace/Hello/hello.bat");
         editor.AfterRun.AddArtifactCommand.Execute(null);
-        editor.AfterRun.Artifacts[0].Path = "hello.py";
+        editor.AfterRun.Artifacts[0].Path = "batchpad.json";
         editor.AfterRun.Artifacts[0].Open = editor.AfterRun.OpenOptions.Single(o => o.Value == ArtifactOpen.OnSuccess);
         editor.SaveCommand.Execute(null);
 
@@ -95,8 +93,8 @@ public sealed class AfterRunTests
         launcher.Started[0].Finish(RunOutcome.Exited, 0);
         await run.Finished;
 
-        var expected = Path.Combine(main.Workspace!.Directory, "hello.py");
-        Assert.AreEqual("hello.py", run.Artifacts.Single().Name);
+        var expected = Path.Combine(main.Workspace!.Directory, "batchpad.json");
+        Assert.AreEqual("batchpad.json", run.Artifacts.Single().Name);
         Assert.IsTrue(run.Artifacts[0].OpenCommand.CanExecute(null));
         CollectionAssert.AreEqual(new[] { expected }, shell.Opened);
     }
@@ -107,56 +105,36 @@ public sealed class AfterRunTests
         using var test = new TestWorkspace();
         var demo = test.CopyDemo();
         var shell = new FakeShell();
-        var main = new MainViewModel(test.Paths, new Settings(), shell: shell, confirm: new FakeConfirm());
-        main.Trust.Trust(demo);
-        main.OpenInitial(demo, test.Root);
-        Select(main, Server);
+        var main = test.OpenMain(demo, trusted: true, shell: shell, confirm: new FakeConfirm());
+        main.Select(Server);
         var port = FreePort();
         ((IntFieldViewModel)main.Details.Form!.Field("port")!).Text = port.ToString();
 
         main.Details.RunCommand.Execute(null);
         var run = (RunViewModel)main.Output.Tabs.Single();
-        await Until(() => run.IsReady || !run.IsRunning, TimeSpan.FromSeconds(30));
+        await Eventually(() => run.IsReady || !run.IsRunning);
         Assert.AreEqual($"http://127.0.0.1:{port}/", run.ReadyUrl, string.Join(Environment.NewLine, run.Lines));
 
         await main.Details.StopCommand.ExecuteAsync(null);
-        await run.Finished.WaitAsync(TimeSpan.FromSeconds(30));
+        await run.Finished.WaitAsync(Limit);
         var companion = (RunViewModel)main.Output.Tabs.Last();
-        await companion.Finished.WaitAsync(TimeSpan.FromSeconds(30));
+        await companion.Finished.WaitAsync(Limit);
 
         Assert.AreEqual("stopped", run.StatusText);
         Assert.IsTrue(companion.Lines.Any(l => l.Text == $"Asked port {port} to stop."), string.Join(Environment.NewLine, companion.Lines));
         Assert.IsTrue(run.Lines.Any(l => l.Text == "Stopped."), string.Join(Environment.NewLine, run.Lines));
     }
 
-    private static int FreePort()
-    {
-        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
-    }
-
     private static MainViewModel OpenDemo(TestWorkspace test, FakeLauncher launcher, FakeShell shell)
     {
         var demo = test.CopyDemo();
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: shell, confirm: new FakeConfirm());
-        main.Trust.Trust(demo);
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, trusted: true, launcher: launcher, shell: shell, confirm: new FakeConfirm());
         return main;
-    }
-
-    private static NodeViewModel Select(MainViewModel main, string automationId)
-    {
-        var node = main.Tree!.Find(automationId)!;
-        node.IsSelected = true;
-        return node;
     }
 
     private static ScriptEditorViewModel Edit(MainViewModel main, string automationId)
     {
-        Select(main, automationId);
+        main.Select(automationId);
         main.Details.EditCommand.Execute(null);
         return main.Details.Editor!;
     }
@@ -165,14 +143,4 @@ public sealed class AfterRunTests
         ConfigReader.ReadFile(main.Workspace!.FilePath).Scripts
             .SelectMany(n => n is FolderNode f ? f.Items : [n]).OfType<ScriptNode>().Single(s => s.Id == id);
 
-    private static async Task Until(Func<bool> condition, TimeSpan? timeout = null)
-    {
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
-        while (!condition())
-        {
-            if (DateTime.UtcNow > deadline)
-                Assert.Fail("Timed out waiting for the run to become ready.");
-            await Task.Delay(10);
-        }
-    }
 }

@@ -110,6 +110,8 @@ public sealed class RunningRegistry(string filePath)
             return;
         }
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(entries, Json));
+        var temporary = FilePath + ".tmp";
+        File.WriteAllText(temporary, JsonSerializer.Serialize(entries, Json));
+        File.Move(temporary, FilePath, overwrite: true);
     }
 }

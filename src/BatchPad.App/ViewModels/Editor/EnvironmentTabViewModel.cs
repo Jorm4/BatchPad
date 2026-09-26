@@ -71,10 +71,7 @@ public sealed partial class EnvironmentTabViewModel : ObservableObject
 
     private void Write()
     {
-        var env = new Dictionary<string, string>();
-        foreach (var row in Variables.Where(r => r.Key.Trim().Length > 0))
-            env[row.Key.Trim()] = row.Value;
-        _definition.Env = env.Count == 0 ? null : env;
+        _definition.Env = KeyValueRow.ToDictionary(Variables);
         _changed();
     }
 }

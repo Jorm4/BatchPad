@@ -147,11 +147,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
         }, () => ById(ReferenceResolver.IdOf(nodes[0])));
     }
 
-    public bool PinLink(string path)
-    {
-        var full = Path.GetFullPath(path).TrimEnd('\\', '/');
-        return _main.Tree is { } tree && AddNodes([new LinkNode { Name = Path.GetFileName(full), Url = full }], tree.MyScriptsRoot);
-    }
+    public bool PinLink(string path) => _main.Tree is { } tree && AddNodes([DragDropHandler.Link(path, null)], tree.MyScriptsRoot);
 
     public bool Move(NodeViewModel dragged, NodeViewModel target)
     {
@@ -174,7 +170,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
         return Edit(file =>
         {
             var (list, index) = Locate(file, node);
-            var copy = (RunnableNode)ConfigEntries.Clone(list[index]);
+            var copy = (RunnableNode)ConfigJson.Clone(list[index]);
             copy.Name = name;
             copy.Id = id = IdAssigner.FromName(name, ConfigEntries.Ids(file.Scripts));
             list.Insert(index + 1, copy);
@@ -262,7 +258,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
                 ExtraArgs = extraArgs,
             };
         }
-        var standalone = (ScriptNode)ConfigEntries.Clone((TreeNode)runnable);
+        var standalone = (ScriptNode)ConfigJson.Clone((TreeNode)runnable);
         standalone.Path = Path.GetFullPath(Path.Combine(source.Tree.BaseDirectory, standalone.Path!));
         standalone.Name ??= source.Name;
         standalone.Values = values;

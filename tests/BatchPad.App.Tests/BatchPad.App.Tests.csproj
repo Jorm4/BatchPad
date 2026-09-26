@@ -12,7 +12,13 @@
 
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+    <Using Include="BatchPad.Tests" />
+    <Using Include="BatchPad.Tests.TestHelpers" Static="true" />
     <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\**\*.cs" LinkBase="Shared" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,7 +32,7 @@
     <None Include="..\fixtures\junit\**\*" LinkBase="fixtures\junit" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\fixtures\config\**\*" LinkBase="fixtures\config" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\fixtures\cli\**\*" LinkBase="fixtures\cli" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\fixtures\run\**\*" LinkBase="fixtures\run" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\run\exit3.bat" Link="fixtures\run\exit3.bat" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Target Name="CopyComShim" AfterTargets="Build">

@@ -23,19 +23,28 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
                 $"BatchPad runs nothing from '{workspace.Directory}' until you trust this workspace folder, "
                 + "because its batchpad.json may have come from someone else.");
 
+    /// <summary>The workspace's trust, and for a file it includes from elsewhere, that folder's trust too.</summary>
+    public GateDecision Check(RunRequest request)
+    {
+        var decision = Check(request.Workspace);
+        var folder = request.Tree.BaseDirectory;
+        return decision.Allowed && request.Tree.Kind == TreeKind.Workspace && !trust.IsTrusted(folder)
+            ? new GateDecision(false, $"BatchPad runs nothing from '{folder}', which this workspace includes, until you trust that folder too.")
+            : decision;
+    }
+
     /// <exception cref="UntrustedWorkspaceException">The workspace is not trusted.</exception>
     /// <exception cref="RunException">The first process could not be started.</exception>
     public RunHandle Start(LoadedWorkspace workspace, IReadOnlyList<RunSpec> specs)
     {
-        if (Check(workspace) is { Allowed: false, Reason: var reason })
-            throw new UntrustedWorkspaceException(reason!);
+        Demand(Check(workspace));
         return ProcessRunner.Start(specs, Time);
     }
 
+    /// <exception cref="UntrustedWorkspaceException">The workspace, or the folder of an included file, is not trusted.</exception>
     public RunHandle Start(RunRequest request, InterpreterLocator interpreters)
     {
-        if (Check(request.Workspace) is { Allowed: false, Reason: var reason })
-            throw new UntrustedWorkspaceException(reason!);
+        Demand(Check(request));
         var specs = RunPlanner.Plan(request, interpreters);
         var locks = LocksFor(request);
         if (locks.Count == 0)
@@ -63,6 +72,12 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
         if (request.Script.SingleInstance == true)
             locks.Add(($"single instance of {request.Tree.Kind}:{request.Script.Id ?? request.Script.Path} in {request.Workspace.Directory}", run));
         return locks;
+    }
+
+    private static void Demand(GateDecision decision)
+    {
+        if (!decision.Allowed)
+            throw new UntrustedWorkspaceException(decision.Reason!);
     }
 
     private static async Task BeginWhenLockedAsync(RunHandle handle, Task<LockLease> acquiring)

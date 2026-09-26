@@ -8,7 +8,6 @@ using BatchPad.Core.Arguments;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Running;
-using BatchPad.Core.Templating;
 using BatchPad.Core.Trust;
 using BatchPad.Core.Workflows;
 using BatchPad.Core.Workspace;
@@ -68,7 +67,6 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
 
     public string? ValidationMessage => Form?.ErrorSummary;
 
-    /// <summary>What runs: a customisation's resolved definition, else the node's own.</summary>
     private (RunnableNode Definition, ScriptTree Tree)? Target =>
         Node?.Customisation is { } customisation
             ? customisation is { IsBroken: false, Definition: { } definition, DefinitionTree: { } tree } ? (definition, tree) : null
@@ -89,7 +87,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
             if (Node?.Customisation is not { Entry.Base: { } reference } || main.Workspace is not { } workspace)
                 return null;
             var baseNode = workspace.References.Resolve(reference, TreeKind.MyScripts);
-            return main.Tree?.AllNodes.FirstOrDefault(n => n.Node is not null && ReferenceEquals(n.Node, baseNode)) is { } found
+            return main.Tree?.ByDefinition(baseNode) is { } found
                 ? $"Customises: {found.Location} › {found.Name}"
                 : $"Customises: {reference}";
         }
@@ -210,7 +208,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         {
             RenameTracker.Move(main.Workspace!, [new FileRename(missing, target)]);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BatchPad.Core.Config.ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             RunError = ex.Message;
             return;
@@ -235,9 +233,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     [RelayCommand]
     private void ShowProposals(NodeViewModel node)
     {
-        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
-            parent.IsExpanded = true;
-        node.IsSelected = true;
+        node.Reveal();
         if (Node != node)
             return;
         if (CanEdit())
@@ -276,8 +272,10 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         switch (LinkPolicy.Decide(target, main.IsTrusted))
         {
             case LinkAction.Open:
-            case LinkAction.Confirm when main.Services.Confirm.Confirm("Open link", $"{target}\n\nThis link starts a program. Open it?"):
                 main.Services.Shell.Open(target);
+                break;
+            case LinkAction.Confirm when main.Services.Confirm.Confirm("Open link", $"{target}\n\nThis link starts a program. Open it?"):
+                main.Services.Shell.Open(target, confirmed: true);
                 break;
             case LinkAction.Refuse:
                 RunError = "This link starts a program. Trust the workspace to open it.";
@@ -286,15 +284,17 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     }
 
     public static string LinkTarget(string url, string baseDirectory) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var uri) && !uri.IsFile && uri.Scheme.Length > 1
-            ? url
-            : Path.GetFullPath(Path.Combine(baseDirectory, url));
+        LinkPolicy.AsUrl(url) is not null ? url : Path.GetFullPath(Path.Combine(baseDirectory, url));
 
     internal void RunWithSessionValues(NodeViewModel target)
     {
-        Node = target;
-        Form = BuildForm();
-        Refresh();
+        if (Node == target)
+        {
+            Form = BuildForm();
+            Refresh();
+        }
+        else
+            Node = target;
         if (CanRun())
             Start(null);
     }
@@ -317,8 +317,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         Launch(request with { Values = values }, node);
     }
 
-    /// <summary>Asks for <c>ask</c> parameters, pre-filled with the last value used, and for secrets not yet entered.</summary>
-    /// <returns>The values with the answers merged in; null when the user cancels.</returns>
+    /// <returns>Null when the user cancels.</returns>
     private IReadOnlyDictionary<string, JsonNode?>? AskValues(RunnableNode definition, ScriptTree tree,
         IReadOnlyDictionary<string, JsonNode?>? values, NodeViewModel node)
     {
@@ -329,13 +328,13 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         if (prompted.Count == 0)
             return values;
 
-        var stored = new Dictionary<string, JsonNode?>();
+        var stored = main.History.LastValues(node.Key, prompted);
         foreach (var name in prompted)
         {
-            if ((main.History.LastValue(node.Key, name) ?? values?.GetValueOrDefault(name)?.DeepClone()) is { } last)
-                stored[name] = last;
+            if (stored.GetValueOrDefault(name) is null && values?.GetValueOrDefault(name) is { } current)
+                stored[name] = current.DeepClone();
         }
-        var form = ParameterFormViewModel.For(main.Workspace!, definition, tree, new ParameterValues(stored, ""), main.Services.Dialogs,
+        var form = ParameterFormViewModel.For(main.Workspace!, definition, tree, new ParameterValues(stored, ""), main.Services,
             main.CommandChoices, p => prompted.Contains(p.Name!));
         form.HasExtraArguments = false;
         if (!main.Services.Ask.Ask(node.Name, form))
@@ -369,15 +368,18 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
                 main.History.Record(run, node!);
             else
                 main.History.RecordSteps(run);
-            main.Output.Add(new WorkflowRunViewModel(node?.Name ?? request.Workflow.Name!, node, run, step => StepName(step, request.Tree),
-                main.Services.Dispatcher, new StepActions(main.Services.Workflows.StopStepAsync, main.Services.Opener, main.Sources),
-                rerun: resumed => ShowWorkflow(resumed, node)));
+            main.Output.Add(WorkflowTab(node?.Name ?? request.Workflow.Name!, node, run, request.Tree, resumed => ShowWorkflow(resumed, node)));
         }
         catch (WorkflowException ex)
         {
             RunError = ex.Message;
         }
     }
+
+    internal WorkflowRunViewModel WorkflowTab(string title, NodeViewModel? node, WorkflowRun run, ScriptTree tree,
+        Action<WorkflowRequest>? rerun = null) =>
+        new(title, node, run, step => StepName(step, tree), main.Services.Dispatcher,
+            new StepActions(main.Services.Workflows.StopStepAsync, main.Services.Opener, main.Sources), rerun);
 
     private string StepName(StepRun step, ScriptTree tree) =>
         step.Step.Run is { } reference && main.Workspace?.References.Resolve(reference, tree) is { } target
@@ -401,7 +403,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
             main.TrackLongRunning(process, request, node);
             run = new RunViewModel(title, node, process, main.Services.Dispatcher, ContextFor(request));
         }
-        catch (Exception ex) when (IsRunProblem(ex))
+        catch (Exception ex) when (RunProblems.IsRunProblem(ex))
         {
             run = RunViewModel.FailedToStart(title, node, ex.Message);
         }
@@ -420,13 +422,13 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
             process = main.Services.Launcher.Start(request);
             main.History.Record(process, request, null);
         }
-        catch (Exception ex) when (IsRunProblem(ex))
+        catch (Exception ex) when (RunProblems.IsRunProblem(ex))
         {
             return false;
         }
         main.Services.Dispatcher.Post(() =>
         {
-            var node = main.Tree?.AllNodes.FirstOrDefault(n => ReferenceEquals(n.Node, request.Script));
+            var node = main.Tree?.ByDefinition(request.Script);
             main.Output.Add(new RunViewModel(node?.Name ?? ScriptTree.DisplayName(request.Script), node, process, main.Services.Dispatcher,
                 ContextFor(request)));
         });
@@ -453,7 +455,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
                         : s.Id ?? s.Run)) + Environment.NewLine + preview;
             return (preview, SecretMasker.Mask(string.Join(Environment.NewLine, commands.Select(c => c.Display)), secrets));
         }
-        catch (Exception ex) when (IsRunProblem(ex))
+        catch (Exception ex) when (RunProblems.IsRunProblem(ex))
         {
             return ($"⚠ {ex.Message}", "");
         }
@@ -468,7 +470,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         ParameterFormViewModel form;
         try
         {
-            form = ParameterFormViewModel.For(workspace, definition, tree, stored, main.Services.Dialogs, main.CommandChoices, p => p.Ask != true);
+            form = ParameterFormViewModel.For(workspace, definition, tree, stored, main.Services, main.CommandChoices, p => p.Ask != true);
         }
         catch (ArgumentAssemblyException ex)
         {
@@ -482,9 +484,6 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         };
         return form;
     }
-
-    internal static bool IsRunProblem(Exception ex) =>
-        ex is RunException or UntrustedWorkspaceException or TemplateException or ArgumentAssemblyException;
 
     private void OnNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

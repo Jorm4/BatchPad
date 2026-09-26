@@ -75,7 +75,7 @@ public sealed class RenameTrackerTests
             Id = "rename-test",
             Scripts = [new ScriptNode { Path = ".batchpad/scripts/a.bat", Params = [new ParameterDefinition { Name = "mode", Type = ParameterType.Text }] }],
         });
-        var paths = new AppPaths(dir.Path("data"), isPortable: true);
+        var paths = new AppPaths(dir.Path("data"));
         ConfigWriter.Write(paths.UserFile("rename-test"), new WorkspaceFile
         {
             SeenPaths = [".batchpad/scripts/a.bat"],

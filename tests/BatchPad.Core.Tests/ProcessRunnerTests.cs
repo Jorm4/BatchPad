@@ -9,7 +9,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class ProcessRunnerTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
     private static readonly InterpreterLocator Interpreters = new();
     private static readonly RunnerResolver Resolver = new(Interpreters);
 
@@ -39,7 +38,7 @@ public sealed class ProcessRunnerTests
     public async Task RunTimesComeFromTheGivenClock()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 3, 1, 9, 30, 0, TimeSpan.Zero));
-        using var run = ProcessRunner.Start(Spec(Script("exit3.bat")), time);
+        using var run = ProcessRunner.Start([Spec(Script("exit3.bat"))], time);
         var result = await run.Completion.WaitAsync(Limit);
 
         Assert.AreEqual(time.GetLocalNow(), run.StartedAt);
@@ -70,10 +69,29 @@ public sealed class ProcessRunnerTests
     }
 
     [TestMethod]
+    public async Task ARunInheritsOnlyItsOwnPipes()
+    {
+        using var pipe = new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.In, HandleInheritability.Inheritable);
+        using var run = Start(new ScriptNode { Command = "ping -n 30 127.0.0.1 >nul" });
+        try
+        {
+            pipe.DisposeLocalCopyOfClientHandle();
+            var read = Task.Run(() => pipe.Read(new byte[1]));
+
+            Assert.AreSame(read, await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(5))), "the run holds the pipe's write end");
+            Assert.AreEqual(0, await read);
+        }
+        finally
+        {
+            await run.StopAsync(RunOutcome.Stopped, TimeSpan.Zero);
+        }
+    }
+
+    [TestMethod]
     public async Task TimeoutKillsASleeper()
     {
-        var spec = Spec(Script("sleep_forever.py")) with { Timeout = TimeSpan.FromSeconds(1) };
-        using var run = ProcessRunner.Start(spec);
+        var spec = Spec(Script("sleep_forever.py")) with { Timeout = TimeSpan.FromSeconds(0.3) };
+        using var run = ProcessRunner.Start([spec]);
         using var sleeper = Process.GetProcessById(int.Parse(await FirstLineAsync(run)));
 
         var result = await run.Completion.WaitAsync(Limit);
@@ -102,7 +120,7 @@ public sealed class ProcessRunnerTests
             .Build();
         var command = Resolver.Resolve(new ScriptNode { Command = "echo %PATH%" }, [], Fixtures.Path("run"));
 
-        using var run = ProcessRunner.Start(new RunSpec(command, environment));
+        using var run = ProcessRunner.Start([new RunSpec(command, environment)]);
         await run.Completion.WaitAsync(Limit);
 
         StringAssert.StartsWith(Texts(run).Single(), @"C:\BatchPadMarker;");
@@ -128,7 +146,7 @@ public sealed class ProcessRunnerTests
     public async Task APlannedDemoScriptRunsEndToEnd()
     {
         using var dir = new TempDir();
-        var workspace = WorkspaceLoader.Load(Path.Combine(Fixtures.DemoWorkspace, "batchpad.json"), new AppPaths(dir.Root, false));
+        var workspace = WorkspaceLoader.Load(Path.Combine(Fixtures.DemoWorkspace, "batchpad.json"), new AppPaths(dir.Root));
         var script = workspace.Workspace.AllNodes().Select(n => n.Node).OfType<ScriptNode>().Single(s => s.Id == "hello-bat");
 
         var specs = RunPlanner.Plan(new RunRequest(workspace, workspace.Workspace, script), Interpreters);
@@ -143,7 +161,7 @@ public sealed class ProcessRunnerTests
     [TestMethod]
     public async Task WindowModeReportsTheExitCode()
     {
-        using var run = ProcessRunner.Start(Spec(Script("exit3.bat")) with { Console = ConsoleMode.Window });
+        using var run = ProcessRunner.Start([Spec(Script("exit3.bat")) with { Console = ConsoleMode.Window }]);
         var result = await run.Completion.WaitAsync(Limit);
 
         Assert.AreEqual(RunOutcome.Exited, result.Outcome);
@@ -154,7 +172,7 @@ public sealed class ProcessRunnerTests
     public void TheRequestConsoleOverridesTheScripts()
     {
         using var dir = new TempDir();
-        var workspace = WorkspaceLoader.Load(Path.Combine(Fixtures.DemoWorkspace, "batchpad.json"), new AppPaths(dir.Root, false));
+        var workspace = WorkspaceLoader.Load(Path.Combine(Fixtures.DemoWorkspace, "batchpad.json"), new AppPaths(dir.Root));
         var script = workspace.Workspace.AllNodes().Select(n => n.Node).OfType<ScriptNode>().Single(s => s.Id == "hello-bat");
 
         var specs = RunPlanner.Plan(new RunRequest(workspace, workspace.Workspace, script) { Console = ConsoleMode.Window }, Interpreters);
@@ -187,7 +205,7 @@ public sealed class ProcessRunnerTests
                 .Build());
 
     private static RunHandle Start(ScriptNode script, Dictionary<string, string>? environment = null) =>
-        ProcessRunner.Start(Spec(script, environment));
+        ProcessRunner.Start([Spec(script, environment)]);
 
     private static List<string> Texts(RunHandle run) =>
         [.. run.Output.Where(l => l.Stream != OutputStream.Info).Select(l => l.Text)];

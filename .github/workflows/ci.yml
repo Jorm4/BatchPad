@@ -2,20 +2,23 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
     runs-on: windows-latest
-    permissions:
-      contents: write
     env:
-      # A v1.2.3 tag builds version 1.2.3; other builds keep the csproj version.
+      # A v1.2.3 tag builds version 1.2.3; other builds keep the version in Directory.Build.props.
       RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
@@ -56,14 +59,8 @@ jobs:
           $comVersion = & ./dist/batchpad.com --version | Out-String
           Write-Output $comVersion
           if ($LASTEXITCODE -ne 0 -or $comVersion -notmatch "^BatchPad $expected") { throw "batchpad.com --version failed (exit $LASTEXITCODE)" }
-      - name: Publish GitHub release
-        if: github.ref_type == 'tag'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:RELEASE_VERSION dist/BatchPad.exe dist/batchpad.com --title "BatchPad $env:RELEASE_VERSION" --generate-notes --verify-tag
       - name: Upload BatchPad.exe
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
           name: BatchPad-win-x64
@@ -71,3 +68,20 @@ jobs:
             dist/BatchPad.exe
             dist/batchpad.com
           retention-days: 14
+
+  release:
+    needs: build-and-test
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: BatchPad-win-x64
+          path: dist
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" dist/BatchPad.exe dist/batchpad.com --title "BatchPad $GITHUB_REF_NAME" --generate-notes --verify-tag

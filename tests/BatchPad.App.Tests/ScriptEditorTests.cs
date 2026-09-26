@@ -2,7 +2,6 @@ using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Editor;
 using BatchPad.Core.Config;
 using BatchPad.Core.Model;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -113,9 +112,7 @@ public sealed class ScriptEditorTests
         using var test = new TestWorkspace();
         var demo = test.CopyDemo();
         var launcher = new FakeLauncher();
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: new FakeShell());
-        main.Trust.Trust(demo);
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, trusted: true, launcher: launcher, shell: new FakeShell());
         var editor = Edit(main, main.Tree!.Find("Workspace/Parameters demo")!);
 
         editor.Parameters.Field("port")!.DefaultText = "9999";

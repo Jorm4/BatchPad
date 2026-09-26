@@ -9,6 +9,12 @@ public static class ConfigJson
 {
     public static JsonSerializerOptions Options { get; } = CreateOptions();
 
+    public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
+
+    public static string FileText<T>(T value) => Serialize(value) + "\n";
+
+    public static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(Serialize(value), Options)!;
+
     private static JsonSerializerOptions CreateOptions()
     {
         var options = new JsonSerializerOptions

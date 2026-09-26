@@ -16,6 +16,7 @@ public static class HistoryRecorder
     {
         var script = request.Script;
         var secretNames = SecretMasker.SecretNames(request);
+        var secrets = SecretMasker.SecretValues(request);
         var values = (request.Values ?? new Dictionary<string, JsonNode?>()).ToDictionary(
             v => v.Key, v => secretNames.Contains(v.Key) ? RunRecord.Masked : v.Value?.DeepClone());
         var template = new RunRecord
@@ -26,10 +27,10 @@ public static class HistoryRecorder
             Path = script.Path,
             Name = name ?? ScriptTree.DisplayName(script),
             Values = values,
-            ExtraArguments = request.ExtraArguments,
+            ExtraArguments = request.ExtraArguments is { } extra ? SecretMasker.Mask(extra, secrets) : null,
             Trigger = trigger,
         };
-        return Attach(run, store, template, SecretMasker.SecretValues(request));
+        return Attach(run, store, template, secrets);
     }
 
     /// <summary>Records <paramref name="run"/> from <paramref name="template"/>; its start, command and result are filled in.</summary>
@@ -39,19 +40,20 @@ public static class HistoryRecorder
         var handle = run as RunHandle;
         var attachedAt = store.Time.GetLocalNow();
         var command = handle is null ? template.Command : string.Join(Environment.NewLine, handle.Specs.Select(s => s.Command.Display));
-        var lines = new List<string>();
+        var collected = new List<OutputLine>();
         RunResult result;
-        using (run.Subscribe(line =>
+        using (handle is null ? run.Subscribe(line =>
                {
-                   lock (lines)
-                       lines.Add(line.Text);
-               }))
+                   lock (collected)
+                       collected.Add(line);
+               }) : null)
             result = await run.Completion.ConfigureAwait(false);
         var startedAt = handle is { StartedAt: var started } && started != default ? started : attachedAt;
 
-        string[] log;
-        lock (lines)
-            log = [.. lines.Select(l => Mask(l, secrets))];
+        IReadOnlyList<OutputLine> output;
+        lock (collected)
+            output = handle?.Output ?? [.. collected];
+        var log = output.Select(l => Mask(l.Text, secrets)).ToList();
         return store.Add(template with
         {
             Command = Mask(command, secrets),

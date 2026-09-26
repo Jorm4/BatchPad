@@ -1,4 +1,4 @@
-namespace BatchPad.Core.Tests;
+namespace BatchPad.Tests;
 
 internal sealed class TempDir : IDisposable
 {

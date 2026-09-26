@@ -3,11 +3,9 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace BatchPad.App.ViewModels;
 
-/// <summary>One tab of the output panel: a script run or a workflow run.</summary>
 public abstract partial class OutputTabViewModel(string title, NodeViewModel? node) : ObservableObject, IDisposable
 {
     public string Title { get; } = title;
-    /// <summary>Re-pointed at the rebuilt node when the tree reloads.</summary>
     public NodeViewModel? Node { get; set; } = node;
 
     /// <summary>Completes once the result is shown.</summary>
@@ -21,7 +19,6 @@ public abstract partial class OutputTabViewModel(string title, NodeViewModel? no
     [ObservableProperty]
     private bool autoScroll = true;
 
-    /// <summary>The log that search and F8 act on: the run's, or the selected workflow step's.</summary>
     public virtual OutputLog? Log => null;
 
     [RelayCommand(CanExecute = nameof(IsRunning))]

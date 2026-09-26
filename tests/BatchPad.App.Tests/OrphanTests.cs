@@ -1,9 +1,7 @@
-using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -55,8 +53,7 @@ public sealed class OrphanTests
         {
             Id = "tool-a", Path = ".batchpad/scripts/a.bat", Params = [new ParameterDefinition { Name = "mode", Type = ParameterType.Text }],
         }));
-        var main = new MainViewModel(test.Paths, new Settings(), dialogs: dialogs);
-        main.OpenInitial(demo, test.Root);
+        var main = test.OpenMain(demo, dialogs: dialogs);
         return (main, scripts);
     }
 
@@ -67,21 +64,3 @@ public sealed class OrphanTests
         ConfigReader.ReadFile(main.Workspace!.FilePath).Scripts.OfType<ScriptNode>().Single(s => s.Id == "tool-a");
 }
 
-internal sealed class FakeDialogs : IFileDialogService
-{
-    public string? File { get; set; }
-    public string? Folder { get; set; }
-    public List<string> Asked { get; } = [];
-
-    public string? PickFile(string initialDirectory)
-    {
-        Asked.Add(initialDirectory);
-        return File;
-    }
-
-    public string? PickFolder(string initialDirectory)
-    {
-        Asked.Add(initialDirectory);
-        return Folder;
-    }
-}

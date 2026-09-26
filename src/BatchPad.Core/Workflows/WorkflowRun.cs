@@ -41,7 +41,6 @@ public sealed class StepRun
     public WorkflowRun? Nested { get; internal set; }
     public IReadOnlyList<StepRun> Items { get; private set; } = [];
 
-    /// <summary>The steps of a parallel group; empty for any other step.</summary>
     public IReadOnlyList<StepRun> Members { get; }
 
     public bool IsGroup => Step.IsGroup;
@@ -50,12 +49,10 @@ public sealed class StepRun
     public ReadySignal? ReadySignal { get; internal set; }
     public IReadOnlyList<ResolvedArtifact> Artifacts { get; internal set; } = [];
 
-    /// <summary>The values the step printed as <c>::set name=value</c>.</summary>
     public IReadOnlyDictionary<string, string> Outputs { get; internal set; } = new Dictionary<string, string>();
 
     public IReadOnlyList<StepAttempt> Attempts { get; internal set; } = [];
 
-    /// <summary>How many times the step may start: once, plus its <c>retry.count</c>.</summary>
     public int MaxAttempts => 1 + Math.Max(0, Step.Retry?.Count ?? 0);
 
     /// <summary>Why the step failed without a result: a missing target, a template or start error.</summary>
@@ -63,14 +60,12 @@ public sealed class StepRun
 
     public TimeSpan? Duration => Result?.Duration;
 
-    internal StepRun AddItem(string item)
+    internal IReadOnlyList<StepRun> SetItems(IEnumerable<string> items)
     {
-        var row = new StepRun(Step, Id, item);
-        Items = [.. Items, row];
-        return row;
+        Items = [.. items.Select(item => new StepRun(Step, Id, item))];
+        return Items;
     }
 
-    /// <summary>This row, its <c>forEach</c> items and its group members with theirs.</summary>
     public IEnumerable<StepRun> SelfAndChildren() => [this, .. Items, .. Members.SelectMany(m => m.SelfAndChildren())];
 }
 

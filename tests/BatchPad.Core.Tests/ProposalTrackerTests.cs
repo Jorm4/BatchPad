@@ -1,5 +1,8 @@
 using BatchPad.Core.Detection;
 using BatchPad.Core.Model;
+using BatchPad.Core.Running;
+using BatchPad.Core.Trust;
+using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Tests;
 
@@ -59,5 +62,33 @@ public sealed class ProposalTrackerTests
         File.WriteAllText(temp.Path("stop_web.bat"), "@echo off\r\necho stopping\r\n");
 
         Assert.IsNull(ProposalTracker.StopCompanionFor(serve));
+    }
+
+    [TestMethod]
+    public void PythonServeAndStopPairIsFoundThroughTheProbes()
+    {
+        using var temp = new TempDir();
+        const string script = """
+            import argparse
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--port', type=int)
+            """;
+        var serve = temp.Path("serve_web.py");
+        File.WriteAllText(serve, script);
+        File.WriteAllText(temp.Path("stop_web.py"), script);
+        var probes = new ScriptProbes(new TrustStore(new Settings { TrustedFolders = [temp.Root] }, temp.Path("settings.json")), new InterpreterLocator());
+
+        Assert.AreEqual("stop_web.py", ProposalTracker.For(new ScriptNode { Path = "serve_web.py" }, serve, [], probes).StopCompanion);
+    }
+
+    [TestMethod]
+    public void DemoStopScriptAndPassThroughArgumentsProposeNothing()
+    {
+        var demo = Fixtures.DemoWorkspace;
+
+        Assert.IsTrue(ProposalTracker.For(new ScriptNode { Path = "stop_serve.py" }, Path.Combine(demo, "stop_serve.py"), []).IsEmpty);
+        Assert.IsTrue(ProposalTracker.For(new ScriptNode { Path = "hello.bat" }, Path.Combine(demo, "hello.bat"), []).IsEmpty);
+        Assert.IsNotNull(Detector.Detect("serve.py", "").LongRunningReason);
+        Assert.IsNull(Detector.Detect("stop-server.bat", "echo Press Ctrl+C").LongRunningReason);
     }
 }

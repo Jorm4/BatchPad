@@ -7,7 +7,6 @@ using BatchPad.Core.Config;
 using BatchPad.Core.Customisation;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
-using BatchPad.Core.Templating;
 using BatchPad.Core.Workspace;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -43,20 +42,14 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
         _original = existing?.Node as WorkflowNode;
         _folder = folder;
         Workspace = main.Workspace!;
-        Definition = _original is null ? new WorkflowNode() : ConfigEntries.Clone(_original);
+        Definition = _original is null ? new WorkflowNode() : ConfigJson.Clone(_original);
         name = Definition.Name ?? existing?.Name ?? "New workflow";
         description = Definition.Description ?? "";
         id = Definition.Id ?? "";
         nameTemplate = Definition.NameTemplate ?? "";
         Parameters = new ParametersTabViewModel(Definition, Workspace.Workspace.File.SharedParams?.Keys ?? Enumerable.Empty<string>(), [], Refresh);
-        var resolver = new ChoiceResolver();
-        var context = new ChoiceContext(Workspace.Directory)
-        {
-            Lists = Workspace.Workspace.File.Lists,
-            Templates = new TemplateContext { WorkspaceDir = Workspace.Directory, Variables = Workspace.Workspace.File.Variables },
-            Commands = main.CommandChoices,
-        };
-        ChoiceEnvironment = new ChoiceEnvironment(Workspace.Directory, p => resolver.Resolve(p, context), main.Services.Dialogs, main.CommandChoices);
+        ChoiceEnvironment = new ChoiceEnvironment(ChoiceEnvironment.ContextFor(Workspace, tree, Definition, main.CommandChoices),
+            main.Services.Dialogs, main.Services.Dispatcher);
         Parameters.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ParametersTabViewModel.Selected))
@@ -71,7 +64,7 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
     }
 
     public LoadedWorkspace Workspace { get; }
-    public IFileDialogService Dialogs => _main.Services.Dialogs;
+    public AppServices Services => _main.Services;
     public CommandChoiceSource CommandChoices => _main.CommandChoices;
     public WorkflowNode Definition { get; }
     public ParametersTabViewModel Parameters { get; }
@@ -136,11 +129,11 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
         if (_loading)
             return;
         ParameterChips.Clear();
-        foreach (var parameter in ParameterNames)
-        {
-            var receivers = AllCards.Where(s => s.Receives().Contains(parameter, StringComparer.OrdinalIgnoreCase)).Select(s => s.Target.Name);
-            ParameterChips.Add(new ParameterChip(parameter, string.Join(", ", receivers)));
-        }
+        var names = ParameterNames;
+        var nameSet = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var received = AllCards.Select(card => (card.Target.Name, Names: card.Receives(nameSet).ToHashSet(StringComparer.OrdinalIgnoreCase))).ToList();
+        foreach (var parameter in names)
+            ParameterChips.Add(new ParameterChip(parameter, string.Join(", ", received.Where(r => r.Names.Contains(parameter)).Select(r => r.Name))));
     }
 
     /// <summary>Adds a step running <paramref name="node"/> at <paramref name="index"/> (the end when null). False when it cannot be a step.</summary>
@@ -272,7 +265,7 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
     [RelayCommand]
     private void Save()
     {
-        var saved = ConfigEntries.Clone(Definition);
+        var saved = ConfigJson.Clone(Definition);
         saved.Name = Name.Trim().Length == 0 ? null : Name.Trim();
         saved.Description = GeneralTabViewModel.NullIfEmpty(Description);
         saved.Id = GeneralTabViewModel.NullIfEmpty(Id);
@@ -283,34 +276,19 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
         {
             ConfigWriter.Update(_tree.FilePath, file =>
             {
-                if (_original?.Id is { } id && Replace(file.Scripts, id, saved))
+                if (_original?.Id is { } id && ConfigEntries.ReplaceWorkflow(file.Scripts, id, saved))
                     return;
                 saved.Id ??= IdAssigner.FromName(saved.Name ?? "workflow", ConfigEntries.Ids(file.Scripts, Workspace, _tree));
                 ConfigEntries.FolderItems(file.Scripts, folderPath).Add(saved);
             });
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             Error = ex.Message;
             return;
         }
         Closed?.Invoke();
         _main.Reload(n => n.Tree.Kind == _tree.Kind && n.Node is WorkflowNode w && w.Id == saved.Id);
-    }
-
-    private static bool Replace(List<TreeNode> items, string id, WorkflowNode replacement)
-    {
-        for (var i = 0; i < items.Count; i++)
-        {
-            if (items[i] is WorkflowNode existing && existing.Id == id)
-            {
-                items[i] = replacement;
-                return true;
-            }
-            if (items[i] is FolderNode folder && Replace(folder.Items, id, replacement))
-                return true;
-        }
-        return false;
     }
 
     private void Renumber()
@@ -353,7 +331,7 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
             && new CustomisationResolver(Workspace).Resolve(entry) is { Definition: { } resolved, DefinitionTree: { } resolvedTree }
             ? (resolved, resolvedTree)
             : (target, tree);
-        var node = _main.Tree?.AllNodes.FirstOrDefault(n => ReferenceEquals(n.Node, target));
+        var node = _main.Tree?.ByDefinition(target);
         return new StepTarget(reference, definition, definitionTree, node?.Name ?? ScriptTree.DisplayName(target),
             node is null ? reference : $"{node.Location} › {node.Name}");
     }

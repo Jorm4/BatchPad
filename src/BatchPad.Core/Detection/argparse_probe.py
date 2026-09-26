@@ -34,9 +34,8 @@ def main():
             if keyword.arg == "type":
                 entry["type"] = type_name(keyword.value)
             elif keyword.arg == "default":
-                entry["hasDefault"] = True
                 entry["default"] = literal(keyword.value)
-            elif keyword.arg in ("action", "choices", "help", "nargs", "dest", "required", "metavar"):
+            elif keyword.arg in ("action", "choices", "help", "nargs", "dest", "required"):
                 entry[keyword.arg] = literal(keyword.value)
         found.append(entry)
     json.dump(found, sys.stdout, default=str)

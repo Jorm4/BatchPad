@@ -32,7 +32,8 @@ public sealed class EnvironmentBuilder
 
     public EnvironmentBuilder ApplyFile(string? envFile) => envFile is null ? this : Apply(ReadEnvFile(envFile));
 
-    public IReadOnlyDictionary<string, string> Build() => new Dictionary<string, string>(_variables, StringComparer.OrdinalIgnoreCase);
+    /// <summary>The variables themselves, not a copy: apply nothing more once built.</summary>
+    public IReadOnlyDictionary<string, string> Build() => _variables;
 
     /// <summary>Reads a dotenv file: <c>NAME=value</c> lines, <c>#</c> comments, optional <c>export</c> and quotes.</summary>
     public static Dictionary<string, string> ReadEnvFile(string path)

@@ -2,7 +2,6 @@ using BatchPad.App.ViewModels;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -66,9 +65,7 @@ public sealed class TestResultsTests
     private static (MainViewModel, FakeLauncher) Open(TestWorkspace test, TestReportDefinition testReport)
     {
         var launcher = new FakeLauncher();
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: new FakeShell());
-        main.Trust.Trust(TestWorkspace.DemoSource);
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, launcher: launcher, shell: new FakeShell());
         var node = main.Tree!.Find("Workspace/Hello/hello.bat")!;
         node.Script!.TestReport = testReport;
         node.Script.Params = [new ParameterDefinition { Name = "match", Type = ParameterType.Text }];

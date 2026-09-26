@@ -10,7 +10,7 @@
         <DockPanel>
             <TextBlock DockPanel.Dock="Top" Text="Choice source" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
 
-            <ListBox DockPanel.Dock="Top" ItemsSource="{Binding SourceCards}" SelectedValue="{Binding SelectedKind}" SelectedValuePath="Kind"
+            <ListBox DockPanel.Dock="Top" ItemsSource="{x:Static vm:ChoiceSourcePickerViewModel.Cards}" SelectedValue="{Binding SelectedKind}" SelectedValuePath="Kind"
                      BorderThickness="0" Background="Transparent" AutomationProperties.AutomationId="SourceCards">
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -19,7 +19,6 @@
                 </ListBox.ItemsPanel>
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                        <Setter Property="IsEnabled" Value="{Binding IsEnabled}" />
                         <Setter Property="AutomationProperties.AutomationId" Value="{Binding Kind, StringFormat=SourceCard_{0}}" />
                         <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
                         <Setter Property="Margin" Value="0,0,6,0" />

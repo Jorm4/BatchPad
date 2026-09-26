@@ -9,8 +9,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class HistoryTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
-
     [TestMethod]
     public async Task AFailedRunIsRecordedWithItsLogAndSecretsMasked()
     {
@@ -18,7 +16,7 @@ public sealed class HistoryTests
             { "id": "fails", "path": "exit3.bat", "params": [ { "name": "token", "type": "secret" }, { "name": "mode", "type": "text" } ] }
             """, "exit3.bat");
         var store = new HistoryStore(workspace.Temp.Path("history"));
-        var request = workspace.Request("fails", new() { ["token"] = "hunter2", ["mode"] = "fast" });
+        var request = workspace.Request("fails", new() { ["token"] = "hunter2", ["mode"] = "fast" }) with { ExtraArguments = "--key hunter2" };
         using var run = workspace.Gate.Start(request, RunWorkspace.Interpreters);
 
         var record = await HistoryRecorder.Attach(run, store, request, "Workspace:id:fails").WaitAsync(Limit);
@@ -29,10 +27,24 @@ public sealed class HistoryTests
         Assert.AreEqual(RunRecord.Masked, record.Values["token"]!.GetValue<string>());
         Assert.AreEqual("fast", record.Values["mode"]!.GetValue<string>());
         Assert.DoesNotContain("hunter2", record.Command);
+        Assert.AreEqual($"--key {RunRecord.Masked}", record.ExtraArguments);
         var log = File.ReadAllText(store.LogPath(record));
         StringAssert.Contains(log, $"{RunRecord.Masked} fast");
         Assert.DoesNotContain("hunter2", log);
         Assert.DoesNotContain("hunter2", File.ReadAllText(Path.Combine(store.Directory, record.Id + ".json")));
+    }
+
+    [TestMethod]
+    public void ASecretDefaultFromTheEnvironmentIsMasked()
+    {
+        Environment.SetEnvironmentVariable("BP_MASK_TEST_TOKEN", "from-env-4711");
+        using var workspace = new RunWorkspace("""
+            { "id": "deploy", "path": "exit3.bat", "params": [ { "name": "token", "type": "secret", "default": "${env:BP_MASK_TEST_TOKEN}" } ] }
+            """, "exit3.bat");
+
+        var secrets = SecretMasker.SecretValues(workspace.Request("deploy"));
+
+        CollectionAssert.AreEqual(new[] { "from-env-4711" }, secrets.ToArray());
     }
 
     [TestMethod]
@@ -47,6 +59,40 @@ public sealed class HistoryTests
 
         CollectionAssert.AreEqual(new[] { "run4", "run3", "run2" }, store.Recent().Select(r => r.Name).ToArray());
         Assert.HasCount(6, Directory.GetFiles(dir.Root));
+    }
+
+    [TestMethod]
+    public void RecordsAddedOutOfOrderAreListedNewestFirst()
+    {
+        using var dir = new TempDir();
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+        var store = new HistoryStore(dir.Root, time);
+
+        foreach (var minute in new[] { 2, 0, 3, 1 })
+            store.Add(Record($"run{minute}", time.GetUtcNow().AddMinutes(minute)), []);
+
+        CollectionAssert.AreEqual(new[] { "run3", "run2", "run1", "run0" }, store.Recent().Select(r => r.Name).ToArray());
+    }
+
+    [TestMethod]
+    public void AReadOnlyRecordThatCannotBePrunedDoesNotFailTheNextAdd()
+    {
+        using var dir = new TempDir();
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+        var store = new HistoryStore(dir.Root, time, maxRecords: 1);
+        var first = store.Add(Record("first", time.GetUtcNow()), []);
+        var path = Path.Combine(dir.Root, first.Id + ".json");
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        try
+        {
+            store.Add(Record("second", time.GetUtcNow().AddMinutes(1)), []);
+
+            CollectionAssert.AreEqual(new[] { "second" }, store.Recent().Select(r => r.Name).ToArray());
+        }
+        finally
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+        }
     }
 
     [TestMethod]

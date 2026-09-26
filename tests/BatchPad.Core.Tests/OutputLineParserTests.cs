@@ -59,4 +59,12 @@ public sealed class OutputLineParserTests
         Assert.IsTrue(parser.Parse("\u001b[31mLNK1120\u001b[0m: 1 unresolved externals").IsErrorMatch);
         Assert.IsFalse(parser.Parse("Linking...").IsErrorMatch);
     }
+
+    [TestMethod]
+    public void APatternThatTimesOutDoesNotHideTheNextOne()
+    {
+        var parser = new OutputLineParser(["^(a+)+$", "error"]);
+
+        Assert.IsTrue(parser.Parse(new string('a', 5000) + "! error").IsErrorMatch);
+    }
 }

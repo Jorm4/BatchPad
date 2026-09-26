@@ -1,8 +1,12 @@
+using BatchPad.Core.Config;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using BatchPad.App.Services;
 using BatchPad.Core.Choices;
 using BatchPad.Core.Model;
+using BatchPad.Core.Running;
+using BatchPad.Core.Templating;
+using BatchPad.Core.Workspace;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -11,8 +15,53 @@ namespace BatchPad.App.ViewModels.Editor;
 public sealed record ChoicePreviewRow(string Label, string Value);
 
 /// <summary>What the choice editors need from their surroundings: where paths are relative to, and how to resolve.</summary>
-public sealed record ChoiceEnvironment(string BaseDirectory, Func<ParameterDefinition, ResolvedChoices> Resolve, IFileDialogService Dialogs,
-    CommandChoiceSource? Commands = null);
+public sealed class ChoiceEnvironment(ChoiceContext context, IFileDialogService dialogs, IUiDispatcher dispatcher)
+{
+    private readonly ChoiceResolver _resolver = new();
+
+    public string BaseDirectory => context.BaseDirectory;
+    public CommandChoiceSource? Commands => context.Commands;
+    public IFileDialogService Dialogs => dialogs;
+    public IUiDispatcher Dispatcher => dispatcher;
+
+    public ResolvedChoices Resolve(ParameterDefinition parameter) => _resolver.Resolve(parameter, context);
+
+    /// <summary>Where a definition's choices resolve, as a run resolves them.</summary>
+    public static ChoiceContext ContextFor(LoadedWorkspace workspace, ScriptTree tree, RunnableNode? definition, CommandChoiceSource? commands) =>
+        (definition is ScriptNode script
+            ? RunPlanner.ChoicesFor(new RunRequest(workspace, tree, script))
+            : new ChoiceContext(workspace.Directory)
+            {
+                Lists = workspace.Workspace.File.Lists,
+                Templates = new TemplateContext { WorkspaceDir = workspace.Directory, Variables = workspace.Workspace.File.Variables },
+                Paths = tree.Paths,
+            }) with { Commands = commands };
+}
+
+/// <summary>A resolved preview of choices, refreshed off the UI thread once edits pause.</summary>
+public abstract partial class ChoicePreviewViewModel(ChoiceEnvironment environment) : ObservableObject
+{
+    private static readonly TimeSpan PreviewDelay = TimeSpan.FromMilliseconds(300);
+
+    private readonly Debouncer _preview = new(environment.Dispatcher, PreviewDelay);
+
+    public ObservableCollection<ChoicePreviewRow> Preview { get; } = [];
+
+    [ObservableProperty]
+    private string? problems;
+
+    protected void ShowPreview(ParameterDefinition parameter)
+    {
+        var copy = ConfigJson.Clone(parameter);
+        _preview.Run(() => environment.Resolve(copy), resolved =>
+        {
+            Preview.Clear();
+            foreach (var choice in resolved.Choices)
+                Preview.Add(new ChoicePreviewRow(choice.DisplayLabel, choice.Value));
+            Problems = resolved.Problems.Count == 0 ? null : string.Join(Environment.NewLine, resolved.Problems);
+        });
+    }
+}
 
 public sealed partial class ChoiceFieldCell(string name, string value, Action changed) : ObservableObject
 {
@@ -79,7 +128,7 @@ public sealed partial class ChoiceSourceRowViewModel(ChoiceSource source, Choice
 }
 
 /// <summary>Edits a choice parameter's fixed rows and its <c>choicesFrom</c> sources (§5.1), writing into the definition.</summary>
-public sealed partial class ChoicesTabViewModel : ObservableObject
+public sealed partial class ChoicesTabViewModel : ChoicePreviewViewModel
 {
     private readonly ParameterDefinition _parameter;
     private readonly ChoiceEnvironment _environment;
@@ -87,6 +136,7 @@ public sealed partial class ChoicesTabViewModel : ObservableObject
     private ChoiceSourceRowViewModel? _editing;
 
     public ChoicesTabViewModel(ParameterDefinition parameter, ChoiceEnvironment environment, Action changed)
+        : base(environment)
     {
         _parameter = parameter;
         _environment = environment;
@@ -104,11 +154,6 @@ public sealed partial class ChoicesTabViewModel : ObservableObject
     public ObservableCollection<string> FieldNames { get; } = [];
     public ObservableCollection<ChoiceRowViewModel> Rows { get; } = [];
     public ObservableCollection<ChoiceSourceRowViewModel> Sources { get; } = [];
-    public ObservableCollection<ChoicePreviewRow> Preview { get; } = [];
-
-    [ObservableProperty]
-    private string? problems;
-
     [ObservableProperty]
     private string newFieldName = "";
 
@@ -218,12 +263,5 @@ public sealed partial class ChoicesTabViewModel : ObservableObject
         _changed();
     }
 
-    private void RefreshPreview()
-    {
-        var resolved = _environment.Resolve(_parameter);
-        Preview.Clear();
-        foreach (var choice in resolved.Choices)
-            Preview.Add(new ChoicePreviewRow(choice.DisplayLabel, choice.Value));
-        Problems = resolved.Problems.Count == 0 ? null : string.Join(Environment.NewLine, resolved.Problems);
-    }
+    private void RefreshPreview() => ShowPreview(_parameter);
 }

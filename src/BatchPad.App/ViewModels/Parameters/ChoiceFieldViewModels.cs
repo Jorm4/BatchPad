@@ -13,31 +13,55 @@ public sealed record ChoiceOption(ChoiceDefinition Choice)
     public override string ToString() => Label;
 }
 
-public sealed partial class ChoiceFieldViewModel : ParameterFieldViewModel
+/// <summary>A field whose choices resolve off the UI thread: it shows "Loading…" until <see cref="Fill"/>.</summary>
+public abstract partial class ResolvedFieldViewModel(ParameterDefinition definition, JsonNode? stored, bool isSet)
+    : ParameterFieldViewModel(definition, isSet)
 {
-    public const int MaxSegments = 4;
+    protected JsonNode? Stored { get; } = stored;
+    protected JsonNode? Initial => Stored ?? Definition.Default;
 
-    public ChoiceFieldViewModel(ParameterDefinition definition, ResolvedChoices choices, JsonNode? stored, bool isSet)
-        : base(definition, isSet)
+    public bool IsLoading { get; private set; } = true;
+
+    [ObservableProperty]
+    private string? problems = "Loading…";
+
+    public void Fill(ResolvedChoices choices)
     {
-        Options = choices.Choices.Select(c => new ChoiceOption(c)).ToList();
+        Show(choices);
         Problems = choices.Problems.Count == 0 ? null : string.Join(Environment.NewLine, choices.Problems);
-        if (TextOf(stored ?? definition.Default) is { } initial)
-        {
-            var value = ValueNormalizer.Normalize(initial, choices.Choices).Value;
-            Selected = Options.FirstOrDefault(o => o.Value == value);
-        }
+        IsLoading = false;
+        OnPropertyChanged(nameof(IsLoading));
         EndLoad();
     }
 
-    public IReadOnlyList<ChoiceOption> Options { get; }
+    protected abstract void Show(ResolvedChoices choices);
+}
+
+public sealed partial class ChoiceFieldViewModel(ParameterDefinition definition, JsonNode? stored, bool isSet)
+    : ResolvedFieldViewModel(definition, stored, isSet)
+{
+    public const int MaxSegments = 4;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSegmented))]
+    private IReadOnlyList<ChoiceOption> options = [];
+
     public bool IsSegmented => Options.Count <= MaxSegments;
-    public string? Problems { get; }
 
     [ObservableProperty]
     private ChoiceOption? selected;
 
-    public override JsonNode? Value => Selected is null ? null : JsonValue.Create(Selected.Value);
+    public override JsonNode? Value => IsLoading ? Stored?.DeepClone() : Selected is null ? null : JsonValue.Create(Selected.Value);
+
+    protected override void Show(ResolvedChoices choices)
+    {
+        Options = choices.Choices.Select(c => new ChoiceOption(c)).ToList();
+        if (TextOf(Initial) is { } initial)
+        {
+            var value = ValueNormalizer.Normalize(initial, choices.Choices).Value;
+            Selected = Options.FirstOrDefault(o => o.Value == value);
+        }
+    }
 
     partial void OnSelectedChanged(ChoiceOption? value) => OnEdited();
 }
@@ -56,26 +80,25 @@ public sealed partial class MultichoiceItem(ChoiceOption option, bool isChecked,
     partial void OnIsCheckedChanged(bool value) => onChecked();
 }
 
-public sealed partial class MultichoiceFieldViewModel : ParameterFieldViewModel
+public sealed partial class MultichoiceFieldViewModel(ParameterDefinition definition, JsonNode? stored, bool isSet)
+    : ResolvedFieldViewModel(definition, stored, isSet)
 {
-    public MultichoiceFieldViewModel(ParameterDefinition definition, ResolvedChoices choices, JsonNode? stored, bool isSet)
-        : base(definition, isSet)
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Summary))]
+    private IReadOnlyList<MultichoiceItem> items = [];
+
+    protected override void Show(ResolvedChoices choices)
     {
-        var initial = stored ?? definition.Default;
-        var selected = initial switch
+        var selected = Initial switch
         {
             JsonArray array => array.Select(TextOf).OfType<string>(),
             null => [],
-            _ => (TextOf(initial) ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            var single => (TextOf(single) ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries),
         };
         var values = ValueNormalizer.Normalize(selected, choices.Choices).Select(v => v.Value).ToHashSet();
         Items = choices.Choices.Select(c => new MultichoiceItem(new ChoiceOption(c), values.Contains(c.Value), OnItemChecked)).ToList();
-        Problems = choices.Problems.Count == 0 ? null : string.Join(Environment.NewLine, choices.Problems);
-        EndLoad();
     }
 
-    public IReadOnlyList<MultichoiceItem> Items { get; }
-    public string? Problems { get; }
     public bool EmptyMeansAll => Definition.EmptyMeans == "all";
     public string ClearLabel => EmptyMeansAll ? "Clear = all" : "Clear";
 
@@ -96,7 +119,9 @@ public sealed partial class MultichoiceFieldViewModel : ParameterFieldViewModel
     [ObservableProperty]
     private string filter = "";
 
-    public override JsonNode? Value => new JsonArray([.. Items.Where(i => i.IsChecked).Select(i => (JsonNode)JsonValue.Create(i.Option.Value))]);
+    public override JsonNode? Value => IsLoading
+        ? Stored?.DeepClone()
+        : new JsonArray([.. Items.Where(i => i.IsChecked).Select(i => (JsonNode)JsonValue.Create(i.Option.Value))]);
 
     partial void OnFilterChanged(string value)
     {

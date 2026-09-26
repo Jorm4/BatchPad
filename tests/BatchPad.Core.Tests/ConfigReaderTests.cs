@@ -1,6 +1,9 @@
 using System.Text.Json;
+using BatchPad.Core.Choices;
 using BatchPad.Core.Config;
+using BatchPad.Core.Detection;
 using BatchPad.Core.Model;
+using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Tests;
 
@@ -34,6 +37,25 @@ public sealed class ConfigReaderTests
 
         Assert.AreEqual("tools", file.ScriptFolders![1].Path);
         Assert.IsFalse(file.ScriptFolders[1].Recurse);
+    }
+
+    [TestMethod]
+    public void OversizedFilesAreProblemsNotReads()
+    {
+        using var dir = new TempDir();
+        foreach (var name in new[] { "batchpad.json", "huge.txt", "huge.bat" })
+        {
+            using var stream = File.Create(dir.Path(name));
+            stream.SetLength(ConfigReader.MaxFileBytes + 1);
+        }
+
+        var loaded = WorkspaceLoader.Load(dir.Path("batchpad.json"), new AppPaths(dir.Path("data")));
+        var choices = new ChoiceResolver().Resolve(
+            new ParameterDefinition { ChoicesFrom = [new ChoiceSource { File = "huge.txt", Regex = "." }] }, new ChoiceContext(dir.Root));
+
+        StringAssert.Contains(loaded.Errors.Single().Message, "larger than 8 MB");
+        StringAssert.Contains(choices.Problems.Single(), "larger than 8 MB");
+        Assert.IsEmpty(Detector.Detect(dir.Path("huge.bat")).Parameters);
     }
 
     [TestMethod]
@@ -125,5 +147,16 @@ public sealed class ConfigReaderTests
     {
         var ex = Assert.ThrowsExactly<ConfigException>(() => ConfigReader.Parse("{ \"scripts\": [ { ] }", "broken.json"));
         StringAssert.StartsWith(ex.Message, "broken.json:");
+    }
+
+    [TestMethod]
+    [DataRow("""{ "scripts": [ { "command": "x", "params": [ { "name": "a", "type": "choice", "choices": [ { "value": "v", "label": 5 } ] } ] } ] }""")]
+    [DataRow("""{ "scripts": [ { "command": "x", "params": [ { "name": "a", "type": "choice", "choices": [ { "value": "v", "split": "yes" } ] } ] } ] }""")]
+    [DataRow("""{ "scripts": [ { "steps": [ { "parallel": 1.5 } ] } ] }""")]
+    [DataRow("""{ "scripts": [ { "steps": [ { "parallel": 99999999999 } ] } ] }""")]
+    public void WrongValueTypesAreConfigErrors(string json)
+    {
+        var ex = Assert.ThrowsExactly<ConfigException>(() => ConfigReader.Parse(json, "typed.json"));
+        StringAssert.StartsWith(ex.Message, "typed.json:");
     }
 }

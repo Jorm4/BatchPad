@@ -6,7 +6,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class RunningRegistryTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
     private const string WorkspaceFile = @"C:\repo\batchpad.json";
 
     [TestMethod]
@@ -37,6 +36,24 @@ public sealed class RunningRegistryTests
         {
             if (!sleeper.HasExited)
                 sleeper.Kill(entireProcessTree: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AnAdoptedRunCompletesWhenTheRegistryCannotBeWritten()
+    {
+        using var dir = new TempDir();
+        using var sleeper = StartSleeper(out _);
+        var file = dir.Path("running.json");
+        Assert.IsNotNull(new RunningRegistry(file).Add(Entry(sleeper.Id)));
+        using var adopted = new RunningRegistry(file).Adopt(WorkspaceFile).Single();
+
+        using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            sleeper.Kill(entireProcessTree: true);
+            var result = await adopted.Completion.WaitAsync(Limit);
+
+            Assert.AreEqual(RunOutcome.Exited, result.Outcome);
         }
     }
 

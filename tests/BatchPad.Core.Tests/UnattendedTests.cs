@@ -9,8 +9,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class UnattendedTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
-
     private const string Scripts = """
         { "id": "deploy", "path": "mark.bat", "confirm": "Deploy to production?" },
         { "id": "pick", "path": "mark.bat", "params": [ { "name": "app", "label": "App", "type": "text", "ask": true } ] },

@@ -63,6 +63,16 @@ public sealed class TriggerMathTests
     }
 
     [TestMethod]
+    public void DurationsAreCappedAtAYearWithoutOverflowing()
+    {
+        Assert.AreEqual(TimeSpan.FromDays(366), TriggerMath.ParseDuration("366d"));
+        Assert.IsNull(TriggerMath.ParseDuration("366d1s"));
+        var huge = string.Concat(Enumerable.Repeat("999999d", 20));
+        Assert.IsNull(TriggerMath.ParseDuration(huge));
+        Assert.IsNotNull(TriggerMath.Problem(new Trigger { Every = huge }));
+    }
+
+    [TestMethod]
     public void ProblemsNameTheBadField()
     {
         Assert.IsNull(TriggerMath.Problem(new Trigger { Cron = "0 2 * * 1-5" }));

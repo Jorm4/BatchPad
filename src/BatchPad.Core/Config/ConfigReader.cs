@@ -9,9 +9,23 @@ public sealed class ConfigException(string path, string message, Exception? inne
     public string FilePath { get; } = path;
 }
 
+public sealed class FileTooLargeException(string path)
+    : IOException($"{path} is larger than {ConfigReader.MaxFileBytes / (1024 * 1024)} MB, so BatchPad does not read it.");
+
 public static class ConfigReader
 {
-    public static WorkspaceFile ReadFile(string path) => Parse(File.ReadAllText(path), path);
+    public const long MaxFileBytes = 8 * 1024 * 1024;
+
+    public static WorkspaceFile ReadFile(string path) => Parse(ReadText(path), path);
+
+    public static string ReadText(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (stream.Length > MaxFileBytes)
+            throw new FileTooLargeException(path);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
 
     public static WorkspaceFile Parse(string json, string sourceName = "<string>")
     {

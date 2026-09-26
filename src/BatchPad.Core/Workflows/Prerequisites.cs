@@ -59,34 +59,6 @@ public static class Prerequisites
     }
 
     public static IReadOnlyList<LoadError> FindCycles(IEnumerable<ScriptTree> trees, ReferenceResolver references) =>
-        trees.SelectMany(tree => tree.AllNodes()
-                .Select(n => n.Node)
-                .OfType<ScriptNode>()
-                .Select(script => CycleFrom(script, tree, references) is { } cycle
-                    ? new LoadError($"'{ScriptTree.DisplayName(script)}' depends on itself: {cycle}.", tree.FilePath)
-                    : null))
-            .OfType<LoadError>()
-            .ToList();
-
-    /// <summary>The cycle as <c>a → b → a</c> when <paramref name="script"/>'s prerequisites reach it again; null otherwise.</summary>
-    public static string? CycleFrom(ScriptNode script, ScriptTree tree, ReferenceResolver references)
-    {
-        var visited = new HashSet<ScriptNode>();
-        return Search(script, tree, [ScriptTree.DisplayName(script)]);
-
-        string? Search(ScriptNode current, ScriptTree currentTree, List<string> path)
-        {
-            foreach (var reference in current.DependsOn ?? [])
-            {
-                if (references.Resolve(reference, currentTree) is not ScriptNode next)
-                    continue;
-                List<string> nextPath = [.. path, ScriptTree.DisplayName(next)];
-                if (ReferenceEquals(next, script))
-                    return string.Join(" → ", nextPath);
-                if (visited.Add(next) && Search(next, references.TreeOf(next)!, nextPath) is { } cycle)
-                    return cycle;
-            }
-            return null;
-        }
-    }
+        CycleFinder.FindAll<ScriptNode>(trees, references, script => script.DependsOn ?? [],
+            (script, cycle) => $"'{ScriptTree.DisplayName(script)}' depends on itself: {cycle}.");
 }

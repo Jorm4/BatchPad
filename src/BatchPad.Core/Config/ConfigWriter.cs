@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using BatchPad.Core.Model;
 
 namespace BatchPad.Core.Config;
@@ -8,7 +7,7 @@ public static class ConfigWriter
 {
     private static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(5);
 
-    public static string Serialize(WorkspaceFile file) => JsonSerializer.Serialize(file, ConfigJson.Options) + "\n";
+    public static string Serialize(WorkspaceFile file) => ConfigJson.FileText(file);
 
     public static void Write(string path, WorkspaceFile file) => WriteAtomic(path, Serialize(file));
 
@@ -16,12 +15,15 @@ public static class ConfigWriter
     /// Re-reads the file under an exclusive lock, applies <paramref name="change"/> to that fresh copy and writes it,
     /// so another window's saves since our last read are kept. A missing file starts empty.
     /// </summary>
-    public static WorkspaceFile Update(string path, Action<WorkspaceFile> change)
+    public static WorkspaceFile Update(string path, Action<WorkspaceFile> change) =>
+        Update(path, p => File.Exists(p) ? ConfigReader.ReadFile(p) : new WorkspaceFile(), change, Serialize);
+
+    internal static T Update<T>(string path, Func<string, T> read, Action<T> change, Func<T, string> serialize)
     {
         using var fileLock = AcquireLock(path);
-        var current = File.Exists(path) ? ConfigReader.ReadFile(path) : new WorkspaceFile();
+        var current = read(path);
         change(current);
-        Write(path, current);
+        WriteAtomic(path, serialize(current));
         return current;
     }
 

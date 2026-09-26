@@ -1,4 +1,5 @@
 using BatchPad.App.ViewModels.Workflows;
+using BatchPad.Core.History;
 using BatchPad.Core.Workflows;
 
 namespace BatchPad.App.Tests;
@@ -6,8 +7,6 @@ namespace BatchPad.App.Tests;
 [TestClass]
 public sealed class WorkflowRerunTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
-
     [TestMethod]
     public async Task AFailedRunOffersARerunFromTheFailedStepThatReusesTheStepsBeforeIt()
     {
@@ -28,7 +27,7 @@ public sealed class WorkflowRerunTests
                 { "id": "show", "run": "show", "values": { "x": "${steps.ver.version}" } } ] } ] }
             """);
         var main = test.OpenMain(directory, trusted: true);
-        main.Tree!.Find("Workspace/Flow")!.IsSelected = true;
+        main.Select("Workspace/Flow");
 
         main.Details.RunCommand.Execute(null);
         var failed = (WorkflowRunViewModel)main.Output.Tabs.Single();
@@ -47,16 +46,9 @@ public sealed class WorkflowRerunTests
         CollectionAssert.AreEqual(new[] { StepStatus.Reused, StepStatus.Succeeded, StepStatus.Succeeded },
             resumed.Steps.Select(s => s.Status).ToArray());
         Assert.HasCount(1, File.ReadAllLines(Path.Combine(directory, "version.log")));
-        await WaitForLineAsync(resumed.Steps[2], "1.2.3");
+        await Eventually(() => resumed.Steps[2].Lines.Any(l => l.Text == "1.2.3"), () => string.Join('\n', resumed.Steps[2].Lines.Select(l => l.Text)));
         Assert.IsFalse(resumed.CanRerunFromFailed);
         Assert.IsFalse(resumed.RerunFromFailedCommand.CanExecute(null));
-    }
-
-    private static async Task WaitForLineAsync(StepRowViewModel step, string text)
-    {
-        var deadline = DateTime.UtcNow + Limit;
-        while (!step.Lines.Any(l => l.Text == text) && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-        Assert.IsTrue(step.Lines.Any(l => l.Text == text), string.Join("\n", step.Lines.Select(l => l.Text)));
+        await Eventually(() => main.History.Store!.Recent().Any(r => r.Trigger == RunTriggers.ResumedFrom("flaky")));
     }
 }

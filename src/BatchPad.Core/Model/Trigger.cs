@@ -22,26 +22,35 @@ public sealed class Trigger : ExtensibleObject
     public string? AfterRun { get; set; }
     public AfterRunResult? Result { get; set; }
 
-    /// <summary>Every kind field that is set; a valid trigger has exactly one.</summary>
-    public IEnumerable<TriggerKind> KindsSet()
-    {
-        if (Cron is not null)
-            yield return TriggerKind.Cron;
-        if (Every is not null)
-            yield return TriggerKind.Every;
-        if (At is not null)
-            yield return TriggerKind.At;
-        if (FileChanged is not null)
-            yield return TriggerKind.FileChanged;
-        if (OnStart == true)
-            yield return TriggerKind.OnStart;
-        if (AfterRun is not null)
-            yield return TriggerKind.AfterRun;
-    }
+    private static readonly (TriggerKind Kind, Func<Trigger, bool> IsSet)[] Kinds =
+    [
+        (TriggerKind.Cron, t => t.Cron is not null),
+        (TriggerKind.Every, t => t.Every is not null),
+        (TriggerKind.At, t => t.At is not null),
+        (TriggerKind.FileChanged, t => t.FileChanged is not null),
+        (TriggerKind.OnStart, t => t.OnStart == true),
+        (TriggerKind.AfterRun, t => t.AfterRun is not null),
+    ];
 
-    /// <summary>The single kind set, or <see cref="TriggerKind.None"/> when none or several are.</summary>
+    public IEnumerable<TriggerKind> KindsSet() => Kinds.Where(k => k.IsSet(this)).Select(k => k.Kind);
+
     [JsonIgnore]
-    public TriggerKind Kind => KindsSet().ToList() is [var only] ? only : TriggerKind.None;
+    public TriggerKind Kind
+    {
+        get
+        {
+            var found = TriggerKind.None;
+            foreach (var (kind, isSet) in Kinds)
+            {
+                if (!isSet(this))
+                    continue;
+                if (found != TriggerKind.None)
+                    return TriggerKind.None;
+                found = kind;
+            }
+            return found;
+        }
+    }
 
     [JsonIgnore]
     public bool IsTimed => Kind is TriggerKind.Cron or TriggerKind.Every or TriggerKind.At;

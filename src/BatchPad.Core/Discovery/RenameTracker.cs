@@ -88,12 +88,9 @@ public sealed class RenameTracker
     private static bool Retarget(List<TreeNode> nodes, string baseDirectory, Func<string, string?> movedTo, bool dryRun)
     {
         var any = false;
-        foreach (var node in nodes)
+        foreach (var script in nodes.Descendants().OfType<ScriptNode>())
         {
-            if (node is FolderNode folder)
-                any |= Retarget(folder.Items, baseDirectory, movedTo, dryRun);
-            else if (node is ScriptNode { Path: { } path } script && !path.Contains("${")
-                && movedTo(Path.GetFullPath(path, baseDirectory)) is { } target)
+            if (script.Path is { } path && !path.Contains("${") && movedTo(Path.GetFullPath(path, baseDirectory)) is { } target)
             {
                 any = true;
                 if (!dryRun)

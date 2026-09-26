@@ -1,5 +1,4 @@
 using BatchPad.App.ViewModels;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -59,9 +58,7 @@ public sealed class CommandPaletteTests
 
     private static MainViewModel Open(TestWorkspace test, FakeLauncher launcher)
     {
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: new FakeShell());
-        main.Trust.Trust(TestWorkspace.DemoSource);
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, launcher: launcher, shell: new FakeShell());
         return main;
     }
 }

@@ -154,7 +154,7 @@ public sealed class ChoiceSourcePickerTests
 
     private static ScriptEditorViewModel Edit(MainViewModel main, string automationId)
     {
-        main.Tree!.Find(automationId)!.IsSelected = true;
+        main.Select(automationId);
         main.Details.EditCommand.Execute(null);
         return main.Details.Editor!;
     }

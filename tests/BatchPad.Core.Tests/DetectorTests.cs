@@ -66,9 +66,9 @@ public sealed class DetectorTests
     [TestMethod]
     public void LongRunningHints()
     {
-        Assert.IsTrue(Detect("serve_site.py").LongRunning);
-        Assert.IsTrue(Detector.Detect("run.bat", "echo Press Ctrl+C to stop.").LongRunning);
-        Assert.IsFalse(Detect("build.bat").LongRunning);
+        Assert.IsNotNull(Detect("serve_site.py").LongRunningReason);
+        Assert.IsNotNull(Detector.Detect("run.bat", "echo Press Ctrl+C to stop.").LongRunningReason);
+        Assert.IsNull(Detect("build.bat").LongRunningReason);
     }
 
     private static ScriptProbes Probes(bool trusted) =>
@@ -121,5 +121,34 @@ public sealed class DetectorTests
         Assert.IsEmpty(Detector.Detect(Fixtures.Path("detect", "tool.py"), probes).Parameters);
         Assert.IsEmpty(Detector.Detect(Fixtures.Path("detect", "tool.ps1"), probes).Parameters);
         Assert.AreEqual(0, probes.ProcessesStarted);
+    }
+
+    [TestMethod]
+    public void CachedDetectionFollowsFileChangesAndHandsOutCopies()
+    {
+        using var dir = new TempDir();
+        var script = dir.Path("tool.bat");
+        File.WriteAllText(script, "@echo off\r\nrem   tool.bat [--gated]\r\n");
+        var first = Detector.Detect(script);
+        first.Parameters.Clear();
+
+        Assert.AreEqual("--gated", Detector.Detect(script).Parameters.Single().Arg);
+
+        File.WriteAllText(script, "@echo off\r\nrem   tool.bat [--fast]\r\n");
+        Assert.AreEqual("--fast", Detector.Detect(script).Parameters.Single().Arg);
+    }
+
+    [TestMethod]
+    public void ProbesIgnoreModulesBesideTheScriptAndQuotesInItsPath()
+    {
+        using var dir = new TempDir();
+        var folder = Directory.CreateDirectory(dir.Path("it’s here")).FullName;
+        File.Copy(Fixtures.Path("detect", "tool.py"), Path.Combine(folder, "tool.py"));
+        File.Copy(Fixtures.Path("detect", "tool.ps1"), Path.Combine(folder, "it’s tool.ps1"));
+        File.WriteAllText(Path.Combine(folder, "json.py"), "raise SystemExit(3)");
+        var probes = new ScriptProbes(new TrustStore(new Settings { TrustedFolders = [folder] }, dir.Path("settings.json")), new InterpreterLocator());
+
+        Assert.HasCount(4, Detector.Detect(Path.Combine(folder, "tool.py"), probes).Parameters);
+        Assert.IsTrue(Detector.Detect(Path.Combine(folder, "it’s tool.ps1"), probes).Parameters.Any(p => p.Name == "Force"));
     }
 }

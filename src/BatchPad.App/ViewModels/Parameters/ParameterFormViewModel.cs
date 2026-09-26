@@ -1,10 +1,9 @@
 using System.Text.Json.Nodes;
 using BatchPad.App.Services;
+using BatchPad.App.ViewModels.Editor;
 using BatchPad.Core.Arguments;
 using BatchPad.Core.Choices;
 using BatchPad.Core.Model;
-using BatchPad.Core.Running;
-using BatchPad.Core.Templating;
 using BatchPad.Core.Workspace;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -15,7 +14,7 @@ public sealed record ParameterValues(IReadOnlyDictionary<string, JsonNode?> Valu
 public sealed partial class ParameterFormViewModel : ObservableObject
 {
     public ParameterFormViewModel(IReadOnlyList<ParameterDefinition> parameters, Func<ParameterDefinition, ResolvedChoices> resolveChoices,
-        ParameterValues? stored, IFileDialogService dialogs, string baseDirectory)
+        ParameterValues? stored, IFileDialogService dialogs, string baseDirectory, IUiDispatcher dispatcher)
     {
         Fields = parameters.Where(p => p.Name is not null).Select(p =>
         {
@@ -24,8 +23,8 @@ public sealed partial class ParameterFormViewModel : ObservableObject
             ParameterFieldViewModel field = p.Type switch
             {
                 ParameterType.Flag => new FlagFieldViewModel(p, value, isSet),
-                ParameterType.Choice => new ChoiceFieldViewModel(p, resolveChoices(p), value, isSet),
-                ParameterType.Multichoice => new MultichoiceFieldViewModel(p, resolveChoices(p), value, isSet),
+                ParameterType.Choice => new ChoiceFieldViewModel(p, value, isSet),
+                ParameterType.Multichoice => new MultichoiceFieldViewModel(p, value, isSet),
                 ParameterType.Int => new IntFieldViewModel(p, value, isSet),
                 ParameterType.Path => new PathFieldViewModel(p, value, isSet, dialogs, baseDirectory),
                 ParameterType.Secret => new SecretFieldViewModel(p, value, isSet),
@@ -40,25 +39,26 @@ public sealed partial class ParameterFormViewModel : ObservableObject
             return field;
         }).ToList();
         extraArguments = stored?.ExtraArguments ?? "";
+        var resolving = Fields.OfType<ResolvedFieldViewModel>().ToList();
+        if (resolving.Count > 0)
+            dispatcher.Background(() => resolving.Select(f => resolveChoices(f.Definition)).ToList(), resolved =>
+            {
+                for (var i = 0; i < resolving.Count; i++)
+                    resolving[i].Fill(resolved[i]);
+                Changed?.Invoke();
+            });
     }
 
     /// <summary>The form for a script's or workflow's parameters, with shared <c>use</c> entries merged in.</summary>
     /// <exception cref="ArgumentAssemblyException">A <c>use</c> names no shared parameter.</exception>
     public static ParameterFormViewModel For(LoadedWorkspace workspace, RunnableNode definition, ScriptTree tree, ParameterValues? stored,
-        IFileDialogService dialogs, CommandChoiceSource? commands, Func<ParameterDefinition, bool>? include = null)
+        AppServices services, CommandChoiceSource? commands, Func<ParameterDefinition, bool>? include = null)
     {
         var parameters = SharedParameters.MergeAll(definition.Params, workspace.Workspace.File.SharedParams);
-        var context = definition is ScriptNode script
-            ? RunPlanner.ChoicesFor(new RunRequest(workspace, tree, script))
-            : new ChoiceContext(workspace.Directory)
-            {
-                Lists = workspace.Workspace.File.Lists,
-                Templates = new TemplateContext { WorkspaceDir = workspace.Directory, Variables = workspace.Workspace.File.Variables },
-            };
-        context = context with { Commands = commands };
+        var context = ChoiceEnvironment.ContextFor(workspace, tree, definition, commands);
         var choices = new ChoiceResolver();
         return new ParameterFormViewModel(parameters.Where(p => include?.Invoke(p) != false).ToList(), p => choices.Resolve(p, context),
-            stored, dialogs, workspace.Directory);
+            stored, services.Dialogs, workspace.Directory, services.Dispatcher);
     }
 
     public IReadOnlyList<ParameterFieldViewModel> Fields { get; }

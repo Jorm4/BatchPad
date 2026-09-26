@@ -1,6 +1,6 @@
+using BatchPad.App.Services;
 using System.Collections.ObjectModel;
 using BatchPad.App.ViewModels.Editor;
-using BatchPad.Core.Choices;
 using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
@@ -18,16 +18,28 @@ public sealed partial class KeyValueRow : ObservableObject
 
     [ObservableProperty]
     private string value = "";
+
+    public static Dictionary<string, string>? ToDictionary(IEnumerable<KeyValueRow> rows)
+    {
+        var result = new Dictionary<string, string>();
+        foreach (var row in rows.Where(r => r.Key.Trim().Length > 0))
+            result[row.Key.Trim()] = row.Value;
+        return result.Count == 0 ? null : result;
+    }
 }
 
 public sealed partial class ScriptFolderViewModel : ObservableObject
 {
+    private static readonly TimeSpan ScanDelay = TimeSpan.FromMilliseconds(300);
+
     private readonly string _baseDirectory;
     private readonly Action _changed;
+    private readonly Debouncer _scan;
 
-    public ScriptFolderViewModel(ScriptFolder folder, string baseDirectory, Action changed)
+    public ScriptFolderViewModel(ScriptFolder folder, string baseDirectory, IUiDispatcher dispatcher, Action changed)
     {
         _baseDirectory = baseDirectory;
+        _scan = new Debouncer(dispatcher, ScanDelay);
         path = folder.Path;
         include = string.Join(' ', folder.Include ?? []);
         exclude = string.Join(' ', folder.Exclude ?? []);
@@ -80,9 +92,25 @@ public sealed partial class ScriptFolderViewModel : ObservableObject
 
     private void RefreshMatches()
     {
-        Matches.Clear();
-        foreach (var script in ScriptFolderScanner.Scan(_baseDirectory, [ToDefinition()]))
-            Matches.Add(script.RelativePath);
+        var folder = ToDefinition();
+        _scan.Run(() => Scan(folder), found =>
+        {
+            Matches.Clear();
+            foreach (var path in found)
+                Matches.Add(path);
+        });
+    }
+
+    private List<string> Scan(ScriptFolder folder)
+    {
+        try
+        {
+            return ScriptFolderScanner.Scan(_baseDirectory, [folder]).Select(s => s.RelativePath).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return [];
+        }
     }
 }
 
@@ -109,10 +137,9 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
     {
         _main = main;
         _tree = main.Workspace!.Workspace;
-        var file = ConfigEntries.Clone(_tree.File);
-        var resolver = new ChoiceResolver();
-        var context = new ChoiceContext(_tree.BaseDirectory) { Lists = file.Lists, Commands = main.CommandChoices };
-        _choiceEnvironment = new ChoiceEnvironment(_tree.BaseDirectory, p => resolver.Resolve(p, context), main.Services.Dialogs, main.CommandChoices);
+        var file = ConfigJson.Clone(_tree.File);
+        _choiceEnvironment = new ChoiceEnvironment(ChoiceEnvironment.ContextFor(main.Workspace, _tree, null, main.CommandChoices),
+            main.Services.Dialogs, main.Services.Dispatcher);
 
         name = file.Name ?? "";
         foreach (var folder in file.ScriptFolders ?? ScriptFolderScanner.DefaultFolders)
@@ -200,7 +227,7 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
     private void Save()
     {
         var folders = _foldersChanged ? ScriptFolders.Where(f => f.Path.Trim().Length > 0).Select(f => f.ToDefinition()).ToList() : null;
-        var shared = SharedParameters.ToDictionary(s => s.Key, s => ConfigEntries.Clone(s.Definition));
+        var shared = SharedParameters.ToDictionary(s => s.Key, s => ConfigJson.Clone(s.Definition));
         try
         {
             ConfigWriter.Update(_tree.FilePath, file =>
@@ -209,11 +236,11 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
                 if (folders is not null)
                     file.ScriptFolders = folders;
                 file.SharedParams = shared.Count == 0 ? null : shared;
-                file.Variables = ToDictionary(Variables);
-                file.Env = ToDictionary(Environment);
+                file.Variables = KeyValueRow.ToDictionary(Variables);
+                file.Env = KeyValueRow.ToDictionary(Environment);
             });
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             Error = ex.Message;
             return;
@@ -226,7 +253,7 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
     private void Cancel() => Closed?.Invoke();
 
     private ScriptFolderViewModel NewFolder(ScriptFolder folder) =>
-        new(folder, _tree.BaseDirectory, () => _foldersChanged = true);
+        new(folder, _tree.BaseDirectory, _main.Services.Dispatcher, () => _foldersChanged = true);
 
     private SharedParameterViewModel NewShared(string key, ParameterDefinition definition) =>
         new(key, definition, _choiceEnvironment, UsersOf(key), () => { });
@@ -242,13 +269,5 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
     {
         foreach (var (key, value) in values ?? [])
             rows.Add(new KeyValueRow() { Key = key, Value = value });
-    }
-
-    private static Dictionary<string, string>? ToDictionary(IEnumerable<KeyValueRow> rows)
-    {
-        var result = new Dictionary<string, string>();
-        foreach (var row in rows.Where(r => r.Key.Trim().Length > 0))
-            result[row.Key.Trim()] = row.Value;
-        return result.Count == 0 ? null : result;
     }
 }

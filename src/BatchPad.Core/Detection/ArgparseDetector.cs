@@ -16,7 +16,7 @@ internal static class ArgparseDetector
 
     public static List<ParameterDefinition> Detect(Interpreter python, string path, TimeSpan timeout)
     {
-        var line = new CommandLine(python.Path, ArgvQuoter.Join([.. python.LeadingArguments, "-", path]), Path.GetDirectoryName(path)!);
+        var line = new CommandLine(python.Path, ArgvQuoter.Join([.. python.LeadingArguments, "-I", "-", path]), Path.GetDirectoryName(path)!);
         var output = CapturedProcess.Run(line, timeout, Probe.Value);
         if (output.ExitCode != 0 || JsonNode.Parse(string.Join('\n', output.Lines)) is not JsonArray calls)
             return [];

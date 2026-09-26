@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using BatchPad.Core.Trust;
 
 namespace BatchPad.Core.Output;
 
@@ -10,7 +11,7 @@ public sealed record SourceLocation(string Path, int Line, int Column);
 public static partial class SourceLocationParser
 {
     [GeneratedRegex("""(?<file>(?:[A-Za-z]:)?[^\s:"'<>|*?()\[\],;=]+\.[A-Za-z0-9]+)(?:\((?<line>\d+)(?:,(?<col>\d+))?\)|:(?<line>\d+)(?::(?<col>\d+))?)""",
-        RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking, matchTimeoutMilliseconds: 100)]
     private static partial Regex Reference();
 
     /// <summary>The references in <paramref name="text"/>, or null when there are none. Doesn't touch the file system.</summary>
@@ -35,12 +36,10 @@ public static partial class SourceLocationParser
         return found;
     }
 
-    /// <summary>The file <paramref name="reference"/> names, relative to <paramref name="workingDirectory"/>, when it exists.</summary>
-    public static SourceLocation? Resolve(SourceReference reference, string workingDirectory) =>
-        ExistingPath(reference.File, workingDirectory) is { } path ? new SourceLocation(path, reference.Line, reference.Column) : null;
-
     internal static string? ExistingPath(string file, string workingDirectory)
     {
+        if (LinkPolicy.IsNetworkOrDevicePath(file))
+            return null;
         try
         {
             var path = Path.GetFullPath(Path.Combine(workingDirectory, file));
@@ -75,17 +74,26 @@ public sealed class SourceLocationResolver(Func<string> workingDirectory)
 public static class EditorCommand
 {
     public const string VsCode = "code -g \"{file}:{line}\"";
+    public const string Notepad = "notepad.exe \"{file}\"";
+    private const string FileVariable = "BP_FILE";
 
-    /// <summary>The template to run, or null to let the shell open the file.</summary>
-    public static string? Template(string? configured, bool codeOnPath) =>
-        !string.IsNullOrWhiteSpace(configured) ? configured : codeOnPath ? VsCode : null;
+    /// <summary>The template to run, or null to let the shell open the file; Notepad for scripts and programs, which the shell would run.</summary>
+    public static string? Template(string? configured, bool codeOnPath, string file) =>
+        !string.IsNullOrWhiteSpace(configured) ? configured
+        : codeOnPath ? VsCode
+        : LinkPolicy.IsExecutable(file) ? Notepad
+        : null;
 
+    /// <summary>A command line for <c>cmd /v:on</c> with <see cref="Environment"/>: the path is read from a variable, so <c>&amp; | ^ %</c> in it stay inert.</summary>
     public static string Expand(string template, SourceLocation location) => template
-        .Replace("{file}", location.Path)
+        .Replace("{file}", $"!{FileVariable}!")
         .Replace("{line}", Math.Max(location.Line, 1).ToString(System.Globalization.CultureInfo.InvariantCulture))
         .Replace("{col}", Math.Max(location.Column, 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
+    public static IReadOnlyDictionary<string, string> Environment(SourceLocation location) =>
+        new Dictionary<string, string> { [FileVariable] = location.Path };
+
     public static bool IsOnPath(string program) =>
-        (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+        (System.Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
             .Any(folder => new[] { ".exe", ".cmd", ".bat" }.Any(extension => SourceLocationParser.ExistingPath(program + extension, folder) is not null));
 }

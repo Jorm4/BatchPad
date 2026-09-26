@@ -117,4 +117,17 @@ public sealed class ChoiceResolverTests
         Assert.IsFalse(ambiguous.IsValid);
         Assert.AreEqual("Retail", ambiguous.Value);
     }
+
+    [TestMethod]
+    public void CatastrophicRegexTimesOutAsAProblem()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.Path("names.txt"), new string('a', 5000) + "!");
+        var parameter = new ParameterDefinition { ChoicesFrom = [new ChoiceSource { File = "names.txt", Regex = "^(a|aa)+$" }] };
+
+        var result = new ChoiceResolver().Resolve(parameter, new ChoiceContext(dir.Root));
+
+        Assert.IsEmpty(result.Choices);
+        StringAssert.Contains(result.Problems.Single(), "took too long");
+    }
 }

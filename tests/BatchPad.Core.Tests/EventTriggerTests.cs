@@ -11,8 +11,6 @@ namespace BatchPad.Core.Tests;
 [TestClass]
 public sealed class EventTriggerTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
-
     [TestMethod]
     public void ThreeMatchingFilesWithinTheDebounceFireOnceAndANonMatchingFileNever()
     {
@@ -87,10 +85,53 @@ public sealed class EventTriggerTests
         Assert.HasCount(2, h.Launcher.Runs);
     }
 
-    private static void RecordBuild(Harness h, int exitCode) => h.History.Add(new RunRecord
+    [TestMethod]
+    public void AScheduledWorkflowsStepRecordContinuesItsCascadeUntilTheWorkflowIsRecorded()
+    {
+        using var h = new Harness("""{ "id": "then-flow", "target": "workspace:flow", "trigger": { "afterRun": "workspace:build" } }""");
+        using var triggers = EventTriggers.Register(h.Scheduler, h.Workspace, null);
+        h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
+
+        RecordBuild(h, exitCode: 0);
+        RecordBuild(h, exitCode: 0, RunTriggers.Schedule("sched:then-flow"));
+
+        Assert.HasCount(1, h.Launcher.Runs);
+        Assert.AreEqual("Stopped an afterRun loop: then-flow → then-flow.", h.Failures.Single().Message);
+
+        h.Launcher.Runs.Single().Run.Complete(0);
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.History.Recent().Any(r => r.NodeKey == "Workspace:id:flow"), Limit));
+        RecordBuild(h, exitCode: 0);
+        Assert.HasCount(2, h.Launcher.Runs);
+    }
+
+    [TestMethod]
+    public void AFireThatDoesNotStartLeavesNoCascadeBehind()
+    {
+        using var h = new Harness("""
+            { "id": "then-flow", "target": "workspace:flow", "trigger": { "afterRun": "workspace:build" } },
+            { "id": "then-build", "target": "workspace:build", "trigger": { "afterRun": "workspace:flow" } }
+            """);
+        using var triggers = EventTriggers.Register(h.Scheduler, h.Workspace, null);
+        h.Scheduler.Start(ScheduleEntry.For(h.Workspace));
+
+        Assert.IsTrue(h.Scheduler.RunNow("sched:then-flow"));
+        RecordBuild(h, exitCode: 0);
+        Assert.HasCount(1, h.Launcher.Runs);
+        h.Launcher.Runs[0].Run.Complete(0);
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.Launcher.Runs.Count == 2, Limit));
+        h.Launcher.Runs[1].Run.Complete(0);
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.Launcher.Runs.Count == 3, Limit));
+        h.Launcher.Runs[2].Run.Complete(0);
+
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.Failures.Count == 1, Limit));
+        Assert.AreEqual("Stopped an afterRun loop: then-build → then-flow → then-build.", h.Failures[0].Message);
+    }
+
+    private static void RecordBuild(Harness h, int exitCode, string trigger = RunTriggers.Manual) => h.History.Add(new RunRecord
     {
         NodeKey = "Workspace:id:build",
         Name = "build",
+        Trigger = trigger,
         StartedAt = h.Time.GetLocalNow(),
         Outcome = RunOutcome.Exited,
         ExitCode = exitCode,

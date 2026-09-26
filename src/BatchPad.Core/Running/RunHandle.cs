@@ -12,17 +12,22 @@ public sealed record RunResult(RunOutcome Outcome, int ExitCode, TimeSpan Durati
 }
 
 /// <summary>
-/// A run in progress. Subscribers get every line from the start, then live lines on a reader thread,
+/// A run in progress. Subscribers get the kept lines from the start, then live lines in order on a reader thread,
 /// so they must not block; output can outlive <see cref="Completion"/> while a detached child holds it open.
 /// </summary>
 public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
 {
     public static readonly TimeSpan DefaultStopGrace = TimeSpan.FromSeconds(3);
+    public const int KeptLines = 20_000;
     private static readonly TimeSpan OutputDrainLimit = TimeSpan.FromSeconds(1);
 
     private readonly Lock _lock = new();
-    private readonly List<OutputLine> _lines = [];
-    private readonly List<IObserver<OutputLine>> _observers = [];
+
+    // Held while delivering, so observers see lines in order without holding _lock; always taken before _lock.
+    private readonly Lock _delivery = new();
+    private readonly Queue<OutputLine> _lines = new();
+    private IObserver<OutputLine>[] _observers = [];
+    private int _droppedLines;
     private readonly List<StartedProcess> _processes = [];
     private readonly TaskCompletionSource<RunResult> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TimeProvider _time;
@@ -60,32 +65,41 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
         }
     }
 
+    /// <summary>The last <see cref="KeptLines"/> lines, after a note of how many earlier ones were dropped.</summary>
     public IReadOnlyList<OutputLine> Output
     {
         get
         {
             lock (_lock)
-                return [.. _lines];
+                return KeptOutput();
         }
     }
 
     public IDisposable Subscribe(IObserver<OutputLine> observer)
     {
-        lock (_lock)
+        lock (_delivery)
         {
-            foreach (var line in _lines)
-                observer.OnNext(line);
-            if (_outputEnded)
+            List<OutputLine> replay;
+            bool ended;
+            lock (_lock)
             {
-                observer.OnCompleted();
-                return Unsubscriber.None;
+                replay = KeptOutput();
+                ended = _outputEnded;
+                if (!ended)
+                    _observers = [.. _observers, observer];
             }
-            _observers.Add(observer);
+            foreach (var line in replay)
+                Deliver(observer, line);
+            if (ended)
+            {
+                Complete(observer);
+                return Disposable.None;
+            }
         }
-        return new Unsubscriber(() =>
+        return Disposable.From(() =>
         {
             lock (_lock)
-                _observers.Remove(observer);
+                _observers = [.. _observers.Where(o => o != observer)];
         });
     }
 
@@ -114,7 +128,7 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
             return;
         }
         if (!Completion.IsCompleted && grace > TimeSpan.Zero && AskToStop(current, stopCompanion))
-            await Task.WhenAny(current.Exited, Task.Delay(grace));
+            await Task.WhenAny(current.Exited, Task.Delay(grace, _time));
 
         StartedProcess[] all;
         lock (_lock)
@@ -204,6 +218,7 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
     private async Task RunAsync()
     {
         RunResult result;
+        string? launchError = null;
         for (var index = 0; ; index++)
         {
             StartedProcess current;
@@ -238,12 +253,14 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
                 }
                 catch (RunException ex)
                 {
-                    PublishLocked(ex.Message, OutputStream.Info);
+                    launchError = ex.Message;
                     result = new RunResult(RunOutcome.FailedToStart, -1, Elapsed);
                     break;
                 }
             }
         }
+        if (launchError is not null)
+            Publish(launchError, OutputStream.Info);
         ReleaseLocks();
         _completion.SetResult(result);
 
@@ -258,28 +275,67 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
 
     private void Publish(string text, OutputStream stream)
     {
-        lock (_lock)
-            PublishLocked(text, stream);
+        var line = new OutputLine(text, stream);
+        lock (_delivery)
+        {
+            IObserver<OutputLine>[] observers;
+            lock (_lock)
+            {
+                _lines.Enqueue(line);
+                if (_lines.Count > KeptLines)
+                {
+                    _lines.Dequeue();
+                    _droppedLines++;
+                }
+                observers = _observers;
+            }
+            foreach (var observer in observers)
+                Deliver(observer, line);
+        }
     }
 
-    private void PublishLocked(string text, OutputStream stream)
-    {
-        var line = new OutputLine(text, stream);
-        _lines.Add(line);
-        foreach (var observer in _observers)
-            observer.OnNext(line);
-    }
+    private List<OutputLine> KeptOutput() => _droppedLines == 0
+        ? [.. _lines]
+        : [new OutputLine($"… {_droppedLines} earlier lines not kept", OutputStream.Info), .. _lines];
 
     private void EndOutput()
     {
-        lock (_lock)
+        lock (_delivery)
         {
-            if (_outputEnded)
-                return;
-            _outputEnded = true;
-            foreach (var observer in _observers)
-                observer.OnCompleted();
-            _observers.Clear();
+            IObserver<OutputLine>[] observers;
+            lock (_lock)
+            {
+                if (_outputEnded)
+                    return;
+                _outputEnded = true;
+                observers = _observers;
+                _observers = [];
+            }
+            foreach (var observer in observers)
+                Complete(observer);
+        }
+    }
+
+    // A failing subscriber must not stop the pipe reader or keep the others from their lines.
+    private static void Deliver(IObserver<OutputLine> observer, OutputLine line)
+    {
+        try
+        {
+            observer.OnNext(line);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private static void Complete(IObserver<OutputLine> observer)
+    {
+        try
+        {
+            observer.OnCompleted();
+        }
+        catch (Exception)
+        {
         }
     }
 
@@ -288,11 +344,5 @@ public sealed class RunHandle : IObservable<OutputLine>, IRunOutput, IDisposable
         public void OnNext(OutputLine value) => onLine(value);
         public void OnError(Exception error) { }
         public void OnCompleted() { }
-    }
-
-    private sealed class Unsubscriber(Action? unsubscribe) : IDisposable
-    {
-        public static readonly Unsubscriber None = new(null);
-        public void Dispose() => unsubscribe?.Invoke();
     }
 }

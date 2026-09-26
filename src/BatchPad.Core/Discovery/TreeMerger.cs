@@ -1,3 +1,4 @@
+using BatchPad.Core.Config;
 using BatchPad.Core.Detection;
 using BatchPad.Core.Model;
 using BatchPad.Core.Workspace;
@@ -27,10 +28,10 @@ public static class TreeMerger
     /// <param name="seenPaths">Paths already opened once; null marks nothing as New.</param>
     public static List<TreeItem> Merge(
         IEnumerable<TreeNode> entries, string baseDirectory, IEnumerable<DiscoveredScript> discovered,
-        IReadOnlySet<string>? seenPaths = null)
+        IReadOnlySet<string>? seenPaths = null, PathPolicy? paths = null)
     {
         var unclaimed = discovered.ToDictionary(d => d.RelativePath, StringComparer.OrdinalIgnoreCase);
-        var items = MergeEntries(entries, baseDirectory, unclaimed);
+        var items = MergeEntries(entries, baseDirectory, unclaimed, paths ?? PathPolicy.Unrestricted);
 
         var discoveredRoot = new List<TreeItem>();
         foreach (var script in unclaimed.Values.OrderBy(s => s.RelativePath, StringComparer.OrdinalIgnoreCase))
@@ -49,7 +50,7 @@ public static class TreeMerger
     }
 
     private static List<TreeItem> MergeEntries(
-        IEnumerable<TreeNode> entries, string baseDirectory, Dictionary<string, DiscoveredScript> unclaimed)
+        IEnumerable<TreeNode> entries, string baseDirectory, Dictionary<string, DiscoveredScript> unclaimed, PathPolicy paths)
     {
         var items = new List<TreeItem>();
         foreach (var node in entries)
@@ -57,7 +58,7 @@ public static class TreeMerger
             if (node is FolderNode folder)
             {
                 var folderItem = new TreeItem { Node = folder, Name = folder.Folder ?? "", HasEntry = true };
-                folderItem.Children.AddRange(MergeEntries(folder.Items, baseDirectory, unclaimed));
+                folderItem.Children.AddRange(MergeEntries(folder.Items, baseDirectory, unclaimed, paths));
                 items.Add(folderItem);
                 continue;
             }
@@ -70,6 +71,7 @@ public static class TreeMerger
                 continue;
 
             var script = node as ScriptNode;
+            var fullPath = key is null ? null : Path.Combine(baseDirectory, key);
             items.Add(new TreeItem
             {
                 Node = node,
@@ -77,8 +79,8 @@ public static class TreeMerger
                 ScriptPath = key,
                 HasEntry = true,
                 IsDiscovered = isDiscovered,
-                IsOrphan = key is not null && !isDiscovered && script!.Runner != Runner.Exe
-                    && !File.Exists(Path.Combine(baseDirectory, key)),
+                IsOrphan = fullPath is not null && !isDiscovered && script!.Runner != Runner.Exe
+                    && paths.Problem(Path.GetFullPath(fullPath)) is null && !File.Exists(fullPath),
             });
         }
         return items;

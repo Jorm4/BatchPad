@@ -1,6 +1,7 @@
 using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.App.ViewModels.Schedules;
+using BatchPad.App.ViewModels.Workflows;
 using BatchPad.Core.Config;
 using BatchPad.Core.History;
 using BatchPad.Core.Model;
@@ -59,8 +60,73 @@ public sealed class SchedulesViewModelTests
         Assert.AreEqual("exit 0", item.LastResultText);
         Assert.IsTrue(item.LastSucceeded);
         var record = main.History.Runs.Single();
-        Assert.AreEqual(RunTriggers.Schedule(item.Schedule.Key), record.Trigger);
+        Assert.AreEqual(RunTriggers.Schedule(item.Key), record.Trigger);
         Assert.AreEqual("hello.bat", main.Output.Tabs.Single().Title);
+    }
+
+    [TestMethod]
+    public async Task AScheduledWorkflowsStepsAreRecordedWithTheSchedulesTrigger()
+    {
+        using var test = new TestWorkspace();
+        var directory = Directory.CreateDirectory(Path.Combine(test.Root, "ws")).FullName;
+        File.WriteAllText(Path.Combine(directory, "one.bat"), "@echo one\r\n");
+        File.WriteAllText(Path.Combine(directory, "batchpad.json"), """
+            { "id": "steps", "scripts": [
+              { "id": "one", "name": "One", "path": "one.bat" },
+              { "id": "flow", "name": "Flow", "steps": [ { "run": "one" } ] } ] }
+            """);
+        var main = test.OpenMain(directory, trusted: true);
+        main.OpenSchedulesCommand.Execute(null);
+        AddSchedule(main, "Flow", _ => { });
+        var fired = new TaskCompletionSource<ScheduleFire>(TaskCreationOptions.RunContinuationsAsynchronously);
+        main.Scheduler!.ScheduleFired += fire => fired.TrySetResult(fire);
+        var item = main.Schedules!.Items.Single();
+
+        item.RunNowCommand.Execute(null);
+        await (await fired.Task.WaitAsync(Limit)).Recorded.WaitAsync(Limit);
+
+        await Eventually(() => main.History.Store!.Recent().Count == 2);
+        var records = main.History.Store!.Recent();
+        Assert.IsTrue(records.All(r => r.Trigger == RunTriggers.Schedule(item.Key)));
+        Assert.AreEqual("Flow", item.LastRun?.Name);
+        Assert.AreEqual("One", ((WorkflowRunViewModel)main.Output.Tabs.Single()).Steps.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task AScheduledRunTabWatchesForReady()
+    {
+        using var test = new TestWorkspace();
+        var directory = Directory.CreateDirectory(Path.Combine(test.Root, "ws")).FullName;
+        File.WriteAllText(Path.Combine(directory, "serve.bat"), "@echo listening\r\n");
+        File.WriteAllText(Path.Combine(directory, "batchpad.json"), """
+            { "id": "serve", "scripts": [ { "id": "serve", "name": "Serve", "path": "serve.bat", "ready": { "pattern": "listening" } } ] }
+            """);
+        var launcher = new FakeLauncher();
+        var main = Open(test, directory, launcher);
+        AddSchedule(main, "Serve", _ => { });
+
+        main.Schedules!.Items.Single().RunNowCommand.Execute(null);
+        launcher.Started.Single().Emit("listening", OutputStream.Stdout);
+
+        var tab = (RunViewModel)main.Output.Tabs.Single();
+        await Eventually(() => tab.IsReady);
+    }
+
+    [TestMethod]
+    public void MovingAScheduleToGlobalKeepsItWhenGlobalCannotBeWritten()
+    {
+        using var test = new TestWorkspace();
+        var main = Open(test, TestWorkspace.DemoSource, new FakeLauncher());
+        AddSchedule(main, "hello.bat", _ => { });
+        Directory.CreateDirectory(main.Paths.GlobalFile);
+
+        main.Schedules!.Items.Single().EditCommand.Execute(null);
+        var editor = main.Schedules.Editor!;
+        editor.IsGlobal = true;
+        editor.SaveCommand.Execute(null);
+
+        Assert.IsNotNull(editor.Error);
+        Assert.HasCount(1, UserStore.For(main.Workspace!).Load().Schedules!);
     }
 
     [TestMethod]
@@ -155,9 +221,7 @@ public sealed class SchedulesViewModelTests
 
     private static MainViewModel Open(TestWorkspace test, string workspace, FakeLauncher launcher)
     {
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: new FakeShell(), confirm: new FakeConfirm());
-        main.Trust.Trust(workspace);
-        main.Open(Path.Combine(workspace, "batchpad.json"));
+        var main = test.OpenMain(workspace, trusted: true, launcher: launcher, shell: new FakeShell(), confirm: new FakeConfirm());
         main.OpenSchedulesCommand.Execute(null);
         return main;
     }

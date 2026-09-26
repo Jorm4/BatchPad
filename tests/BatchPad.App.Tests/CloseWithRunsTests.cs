@@ -1,5 +1,4 @@
 using BatchPad.App.ViewModels;
-using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
 
@@ -40,10 +39,8 @@ public sealed class CloseWithRunsTests
     {
         var confirm = new FakeConfirm();
         var launcher = new FakeLauncher();
-        var main = new MainViewModel(test.Paths, new Settings(), launcher, shell: new FakeShell(), confirm: confirm);
-        main.Trust.Trust(TestWorkspace.DemoSource);
-        main.Open(Path.Combine(TestWorkspace.DemoSource, "batchpad.json"));
-        main.Tree!.Find("Workspace/Hello/hello.bat")!.IsSelected = true;
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true, launcher: launcher, shell: new FakeShell(), confirm: confirm);
+        main.Select("Workspace/Hello/hello.bat");
         return (main, confirm, launcher);
     }
 }
