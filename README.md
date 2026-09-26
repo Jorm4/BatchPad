@@ -74,8 +74,8 @@ and plain executables are all first-class.
   projects it serves.
 
 Not there yet: exporting schedules to Windows Task Scheduler, benchmark
-result comparison, and Windows shell integration (jump lists, taskbar
-progress). Also open: reading unattended secrets from Windows Credential
+result comparison, global hotkeys, and Windows shell integration (jump
+lists, taskbar progress, toasts). Also open: reading unattended secrets from Windows Credential
 Manager, and a command-line way to trust a workspace. See
 [docs/DESIGN.md](docs/DESIGN.md) §10.
 
@@ -118,7 +118,8 @@ otherwise Windows PowerShell.
     `--json` names its checkout on stderr.
   - `--errors-only` prints only stderr and error-pattern lines, then a short
     summary with the log path.
-  - `--no-wait` fails at once instead of queueing when a lock is held.
+  - `--no-wait` fails at once instead of queueing when a lock is held (a
+    single script only, not a workflow or one with prerequisites).
   - `--agent <name>` records the run as `agent:<name>`. Runs started from
     Claude Code are recognised by its `CLAUDECODE=1` variable.
   - `batchpad log <run-id> [--tail N] [--errors]` prints a recorded run's log.
@@ -130,7 +131,7 @@ otherwise Windows PowerShell.
   workflow, a trigger and its values; it is stored in your own `user.json`,
   never in the shared `batchpad.json`. Schedules run while BatchPad is open.
 - **Insights** and **Settings** (toolbar, or the palette) show the run
-  figures and the telemetry settings.
+  figures, and the coding-agent and telemetry settings.
 - To adopt a project, use **New workspace** (the button next to the workspace
   list): pick the project folder, tick the scripts to show, name it and trust
   it. BatchPad writes `batchpad.json` at the project root; commit it to share
@@ -152,18 +153,23 @@ To try it without a project of your own, open the demo workspace:
 ### Coding agents
 
 `batchpad mcp` runs an MCP server over stdio with four tools: `list_scripts`,
-`run_script` (id, values, `errorsOnly`, `noWait`; returns the same result
-object as `run --json`), `get_log` (run id, then tail, errors only or a line
+`run_script` (id, values, `errorsOnly`, `confirm`, `noWait`; returns the
+same result object as `run --json`, and with `errorsOnly: false` the log's
+last 2000 lines too), `get_log` (run id, then tail, errors only or a line
 range) and `get_stats`. Every tool takes a required `directory`, the agent's
-working folder on a local drive, and finds the workspace from it as the
-command line does; `get_log` reads only that workspace's history. The server has no workspace of its own, because one server serves a
-whole session, including subagents working in other git worktrees; every
-result names the checkout it ran in. Runs are recorded as
-`agent:<client name>`, for example `agent:claude-code`.
+working folder on a local drive (network and device paths are refused), and
+finds the workspace from it as the command line does; `get_log` reads only
+that workspace's history. The server has no workspace of its own, because
+one server serves a whole session, including subagents working in other git
+worktrees; every result names the checkout it ran in. Runs are recorded as
+`agent:<client name>`, for example `agent:claude-code`. A cancelled call, or
+the server shutting down, stops its run and records it as stopped.
 
 The server is off by default. Turn on **Let coding agents run scripts** in
-the app's Settings (stored in your `settings.json`, never in a workspace, so a
-cloned repository can't turn it on); until then it refuses to start. Then
+the **Coding agents** section of the app's Settings (stored as
+`mcp.enabled` in your `settings.json`, never in a workspace, so a cloned
+repository can't turn it on); until then it refuses to start, and turning it
+off again makes a running server refuse every call. Then
 register it with Claude Code:
 
 ```
@@ -196,8 +202,11 @@ Build and test through BatchPad, not by calling the tools directly:
 ```
 
 **Git worktrees.** Each checkout runs its own scripts: the command line finds
-the workspace from its current folder, and the MCP tools from `directory`. A
-worktree of a trusted repository is trusted. Named locks and `singleInstance`
+the workspace from its current folder, and the MCP tools from `directory`,
+never looking above a worktree's root, so a worktree without its own
+`batchpad.json` doesn't fall back to the main checkout's. A worktree of a
+trusted repository is trusted, once git's own files confirm the link in
+both directions. Named locks and `singleInstance`
 hold per checkout, so agents in separate worktrees build in parallel; set
 `"lockScope": "machine"` on a script or workflow for things every checkout
 shares, such as a network port.
@@ -241,13 +250,15 @@ file, so a cloned repository can't send data anywhere). Credentials are
 By default events carry the machine name but not the user name or parameter
 values, and names are sent as is; the switches above change that.
 `hashNames` replaces workspace, script, folder, checkout, branch, step and
-tag names with salted hashes, as well as the schedule or step a trigger
+tag names and script ids with salted hashes, as well as the schedule or step a trigger
 names (`schedule:<hash>`); agent names and plain triggers such as `cli` stay
 readable. Secret values are never sent. Events wait in an outbox under
 `%LOCALAPPDATA%\BatchPad\telemetry\outbox` (capped at 20 MB) and a
 background sender delivers them, so a slow or unreachable backend never
-delays a run. A credential variable that is not set, or a 401/403 answer,
-keeps the events queued until it is fixed. The Settings page shows each
+delays a run; any running BatchPad process also delivers what another left
+queued. A credential variable that is not set, or a 401/403 answer, keeps
+the events queued until it is fixed; other 4xx answers drop the batch, and
+redirects are not followed. The Settings page shows each
 sink's last success, last error and pending count, and can send a test
 event.
 
@@ -314,18 +325,21 @@ dotnet test
 dotnet run --project src/BatchPad.App -- samples/demo
 ```
 
-To produce the single-file `dist\BatchPad.exe`, run `tools\publish.bat`
-(a self-contained win-x64 `dotnet publish`).
+To produce the single-file `dist\BatchPad.exe` and its console companion
+`dist\batchpad.com`, run `tools\publish.bat` (a self-contained win-x64
+`dotnet publish`).
 
-The UI tests are skipped unless `BATCHPAD_UI_TESTS=1` is set: they start the
-real app, take the foreground and type into it, so run them only when you
-aren't using the desktop. CI (GitHub Actions) builds, runs all the tests
-including the UI ones, packages the exe and checks that it starts. Package versions live in `Directory.Packages.props`, and
-`NuGet.config` restores from nuget.org only.
+`dotnet test` runs every test, but the UI tests skip themselves unless
+`BATCHPAD_UI_TESTS=1` is set: they start the real app, take the foreground
+and type into it, so run them only when you aren't using the desktop. CI
+(GitHub Actions) builds, runs all the tests including the UI ones, packages
+the exe and checks that `BatchPad.exe` and `batchpad.com` start. Package
+versions live in `Directory.Packages.props`, and `NuGet.config` restores
+from nuget.org only.
 
 To release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`.
 CI builds that version and publishes a GitHub release with `BatchPad.exe`
-attached. To refresh the README screenshot after UI changes, run
+and `batchpad.com` attached. To refresh the README screenshot after UI changes, run
 `tools\publish.bat` and then `dotnet run tools/screenshot.cs`. It drives the
 demo workspace and rewrites `docs/images/main-window.png`.
 

@@ -1,6 +1,8 @@
 # BatchPad — Design
 
-Status: the MVP (phases 1–7, §10) is implemented; later phases are design only.
+Status: phases 1–10 (§10) are implemented: the MVP, v1, workflows and
+schedules, telemetry, coding agents and git worktrees. Items marked L in §7
+are design only.
 
 ## 1. Purpose
 
@@ -186,8 +188,9 @@ taken) and stores it in the script's entry.
 }
 ```
 
-`runner: auto` picks by extension: `.bat`/`.cmd` → batch, `.py` → python,
-`.cs` → csharp, `.ps1` → powershell, `.exe` → exe.
+`runner: auto` picks by extension: `.bat`/`.cmd` → batch, `.py`/`.pyw` →
+python, `.cs` → csharp, `.ps1` → powershell, `.exe`/`.com` → exe. An entry
+with `command` is shell, and one with `module` is python.
 
 ### 3.3 Parameters
 
@@ -341,8 +344,10 @@ empty string.
 ```
 
 BatchPad finds a workspace by, in order: the path given on the command line,
-`batchpad.json` in the current directory or a parent, or the last-used
-workspace. The recent list lives in settings.
+`batchpad.json` in the current directory or a parent (never above a linked
+git worktree's root, §4.5), or the last-used workspace. The recent list lives
+in settings. The command-line verbs never fall back to the recent list
+(§9.3).
 
 **Schema.** [`docs/batchpad.schema.json`](batchpad.schema.json) describes this file, so
 editors offer completion. BatchPad writes `$schema` into the workspace files it
@@ -415,9 +420,12 @@ the app offers to add one.
 
 ### 3.8 App settings — `%APPDATA%\BatchPad\settings.json`
 
-Recent workspaces, window layout, theme (System/Light/Dark), interpreter
-overrides (`python`, `pwsh`, `dotnet`), default editor, history retention,
-`telemetry` (§4.4) and `mcp.enabled` / `mcp.allowIds` (§4.5), edited on the Settings page.
+Recent workspaces, trusted folders (§4.3), window layout, interpreter
+overrides (`interpreters`: `python`, `pwsh`, `dotnet`), `editorCommand`,
+`keepRunningInTray` (§4.2), `telemetry` (§4.4) and `mcp.enabled` /
+`mcp.allowIds` (§4.5). The Settings page edits `telemetry` and
+`mcp.enabled`; the other keys are set by the app as you use it, or by hand.
+The theme follows Windows (§5).
 The editor is `editorCommand`, a command line with `{file}`, `{line}` and
 `{col}` (default `code -g "{file}:{line}"` when `code` is on PATH, otherwise
 the file's default app, or Notepad for script and program files). The path
@@ -434,7 +442,9 @@ One JSON record per run (script, resolved command, values, trigger, exit code,
 times, time queued for a lock, folder and tags, git branch and commit, test
 counts, error lines, and for a workflow step the workflow run it belongs to)
 plus a log file. Secret values are masked in the record, command and log.
-Pruned by count and age (default 500 records, 30 days). Last-result badges are
+A record keeps at most 50 error lines and 50 failed test names, each cut
+to 500 characters. Pruned by count and age (500 records, 30 days) whenever
+a record is added. Last-result badges are
 loaded from it when a workspace opens. The History tab lists recent runs with
 "Open log" and "Run again", which reuses the recorded values except secrets.
 It is kept in LOCALAPPDATA because it is machine-specific and can grow large.
@@ -506,7 +516,7 @@ the stop script an entry with an id when it has none.
 |---|---|
 | batch | `cmd.exe /d /v:off /s /c ""<script>" <args>"` |
 | python | `py -3 -u <script> <args>` (or `-m <module>`), falling back to `python -u` when there is no launcher |
-| csharp | `dotnet run --file <script> -- <args>` (.NET 10 file-based apps); `.csx` via `dotnet script` if installed |
+| csharp | `dotnet run --file <script> -- <args>` (.NET 10 file-based apps) |
 | powershell | `pwsh -NoProfile -ExecutionPolicy Bypass -File <script> <args>`, falling back to `powershell.exe` |
 | exe | the file itself |
 | shell | `cmd.exe /d /v:off /s /c "<command>"` for inline `command` entries |
@@ -748,10 +758,11 @@ back fires once.
    works, and runs appear in the normal UI and history. The `missed` policy
    (`skip` | `runOnce`) decides what happens to runs that fell due while the
    app was closed.
-2. **Windows Task Scheduler (opt-in, time triggers only).** "Register with
-   Windows" creates a task that calls `BatchPad.exe run <target> --workspace …
-   --set …`. The task runs even when BatchPad is closed. Its runs still show
-   in BatchPad's history, because the CLI writes history too.
+2. **Windows Task Scheduler (opt-in, time triggers only; not built yet).**
+   "Register with Windows" would create a task that calls `batchpad run
+   <target> --workspace … --set …`. The task would run even when BatchPad is
+   closed, and its runs would still show in BatchPad's history, because the
+   CLI writes history too.
 
 Scheduled items get a clock badge in the tree. A **Schedules** view lists
 every schedule with its next and last run, has an enable toggle and "Run now"
@@ -796,7 +807,7 @@ does **not**:
 - run `argparse` or PowerShell detection, which calls the interpreter;
 - open links to executable file types (`.bat`, `.cmd`, `.exe`, `.lnk`, `.ps1`,
   and so on);
-- register hotkeys from shared definitions;
+- register hotkeys from shared definitions (once global hotkeys exist, §7);
 - read outside the workspace folder through `include`, `scriptFolders` or
   `choicesFrom` `file` and `glob`; such paths are skipped with a load problem.
 
@@ -827,6 +838,7 @@ tests?".
   "time": "2026-09-27T09:12:03.412Z", "queuedMs": 850, "durationMs": 94210,
   "workspace": { "id": "5c0f…", "name": "My Project", "branch": "main", "commit": "3f9a1c2" },
   "script": { "tree": "workspace", "id": "build", "name": "Build", "kind": "script", "folder": "Build", "tags": ["native"] },
+  "checkout": { "name": "fix-login", "kind": "worktree" },          // when the workspace is in a git checkout (§4.5)
   "trigger": "agent:claude-code",       // manual | cli | schedule:<key> | afterRun:<key> | resume:<step> | agent:<name>
   "outcome": "exited", "exitCode": 0,
   "tests": { "passed": 1284, "failed": 2, "skipped": 3 },           // when the run had a test report
@@ -843,16 +855,21 @@ apart: the history record doesn't keep the attempt number.
 
 **Insights (local, no backend).** An Insights view reads the run history and
 shows:
-- per script: runs, median and p95 duration, the trend over the last N
-  runs, and the failure rate;
-- per folder or tag: total time and share of time for a period, e.g.
-  "Test: 38% of today's run time";
-- time by trigger (you, agents, schedules), and repeats (the same script
-  and values run many times in a row);
-- the slowest tests from test reports, and tests that pass and fail
-  alternately (flaky).
+- per script: runs, median and p95 duration, the trend (the median of the
+  later half of the period's runs against the earlier half), and the
+  failure rate;
+- per folder, tag or git checkout: total time and share of time for a
+  period (1, 7 or 30 days), e.g. "Test: 38% of today's run time";
+- time by trigger (you, agents, schedules, `cli`), and repeats (the same
+  script and values run three or more times within 30 minutes);
+- the slowest tests from test reports, and flaky tests: tests that failed
+  after having passed (one that failed until it was fixed is not flaky).
 
-The command line has the same data as `batchpad stats [--since 7d] [--json]`.
+A stopped run is not a result: it is left out of the failure rate and the
+duration figures, but still counts in the runs and the total time.
+A workflow step counts under its own script, but not again in the total
+time and the shares. The
+command line has the same data as `batchpad stats [--since 7d] [--json]`.
 
 **Forwarding (sinks).** Sinks are configured in `settings.json` only,
 never in a workspace file, so a cloned repo can't send data anywhere. Every
@@ -880,11 +897,14 @@ sink is off until you add it:
 | `influx` | InfluxDB v2 line protocol: measurement `batchpad_run`, tags script/folder/trigger/outcome, fields duration/queued/exit code | Direct, no collector |
 | `http` | A JSON array of events, POSTed | Generic webhook |
 
-Credentials come from `${env:…}` (or later from Windows Credential Manager),
-never written in plain text by the app. An unset variable fails the send as
-retryable, as do 401 and 403, so a missing or expired key loses nothing;
-other 4xx answers drop the batch. Redirects are not followed, so headers
-never reach another host.
+Every sink takes `"enabled": false` to pause it; `elastic` also takes
+`username`/`password` instead of `apiKey`. Credentials come from `${env:…}`
+(or later from Windows Credential Manager), never written in plain text by
+the app. An unset variable fails the send as retryable, as do 401, 403, 408,
+429 and 5xx answers, so a missing or expired key loses nothing; other 4xx
+answers drop the batch. Redirects are not followed, so headers never reach
+another host; a redirect answer drops the batch and names the address to
+configure instead.
 
 `hashNames` replaces user-chosen names with a salted hash (HMAC-SHA256 with a
 per-install salt in `telemetry\salt`): workspace, script, folder and checkout
@@ -895,8 +915,10 @@ trigger names, keeping its kind (`schedule:<hash>`, `afterRun:<hash>`,
 
 **Delivery never slows a run.** Events go to a local outbox
 (`LocalDirectory\telemetry\outbox\`, one file per batch). A background sender
-posts batches with exponential backoff and drops the oldest when the outbox
-passes its cap (default 20 MB). Every sink shows its state on the Settings
+posts batches with exponential backoff (5 s up to 10 minutes) and drops the
+oldest when the outbox passes its cap (20 MB). A batch file another process
+has open is left for a later try, not dropped, and one process at a time
+drains the outbox. Removing a sink drops its queue. Every sink shows its state on the Settings
 page (toolbar): last success, last error, and how many events are waiting.
 **Send test event** checks a configuration. The command line and the scheduler write events the
 same way; a sender idle for a minute rechecks the outbox, so what a process
@@ -945,9 +967,12 @@ commands at once, next to a person using the app. So named locks and
   names the holder. The process's in-memory queue keeps FIFO order within
   the process, and other processes poll for the file. A released file is
   closed even when a run in the same process is next; that run then takes
-  it again like any other waiter.
+  it again like any other waiter. A lock file that can't be opened for any
+  reason other than being held (a permissions or disk error) fails the run
+  instead of leaving it waiting.
 - A queued command-line run prints "waiting for lock native-build (held by
-  <script> since 09:12)" to stderr, so an agent sees why it is waiting.
+  Build since 09:12)" to stderr, naming the holder's checkout when it is
+  another one, so an agent sees why it is waiting.
 - `--no-wait` fails fast instead of queueing. It applies to a single script;
   with a workflow or prerequisites it is a usage error.
 
@@ -960,20 +985,22 @@ refuses each call, since every call rereads the settings. Its tools:
 | Tool | Does |
 |---|---|
 | `list_scripts` | the runnable entries with their parameters (only the `mcp.allowIds` ones when that is set) |
-| `run_script` | runs one entry and returns the same result object as `run --json` (errors only, plus the log path; `errorsOnly: false` adds the log's last 2000 lines); `noWait` fails at once when a lock is held |
+| `run_script` | runs one entry by `id` with `values` (a multichoice takes an array) and returns the same result object as `run --json` (errors only, plus the log path; `errorsOnly: false` adds the log's last 2000 lines); `confirm` answers a `confirm` entry; `noWait` fails at once when a lock is held |
 | `get_log` | a recorded run's log by run id, from the directory's workspace only: tail, errors only, or a line range (ranges are MCP-only; `batchpad log` has tail and errors) |
-| `get_stats` | the Insights figures for a period |
+| `get_stats` | the Insights figures for a period (`since`, default `7d`) |
 
 Every tool takes a **required `directory`**: the agent's own working folder,
 from which the workspace is found as the command line finds it. It must be a
-local drive path; a UNC or device path is refused before anything touches it. The server has no default workspace, because one MCP
+local drive path; a UNC or device path is refused before anything touches
+it. Every tool, not only `run_script`, refuses a workspace that isn't
+trusted. The server has no default workspace, because one MCP
 server serves a whole agent session, including subagents that work in other
 git worktrees. A default taken from where the server was started would
 quietly run the main checkout's scripts for a worktree agent.
 
 A cancelled tool call stops its run, recorded as stopped. When the client
 closes the server, runs still in flight are stopped and recorded before it
-exits. The server shares one telemetry pipeline, delivering in the
+exits. All calls share one telemetry pipeline, delivering in the
 background, instead of flushing after every run.
 
 Register it with `claude mcp add batchpad -- batchpad.com mcp`. Agents then
@@ -1094,10 +1121,11 @@ light/dark mode and uses the accent colour and Mica backdrop.
   script" and "Workspace settings" are listed too. The tree filter keeps its
   own box.
   The keyboard should reach everything.
-- **Windows integration:** taskbar progress while running; a toast when a run
-  that took over 10 s finishes while the window is unfocused; jump-list entries
-  for pinned My Scripts; optional tray icon so servers keep running with the
-  window closed.
+- **Windows integration:** a tray icon, so schedules and servers keep running
+  with the window closed, and a tray notification for a failed scheduled run
+  (§4.2). Planned (L): taskbar progress while running; a toast when a run
+  that took over 10 s finishes while the window is unfocused; jump-list
+  entries for pinned My Scripts.
 - **Live reload:** config files are watched and reloaded on change, keeping
   the selection and the running processes.
 
@@ -1281,7 +1309,8 @@ later.
 | Telemetry sinks: jsonl (+ outbox), OTLP, Elasticsearch, InfluxDB, HTTP | 10 | §4.4; off by default, settings only |
 | Agent CLI: `list --json`, `run --json`/`--errors-only`, `log`, agent attribution | 10 | §4.5 |
 | Machine-wide named locks and `singleInstance` | 10 | §4.5; needed for parallel agents |
-| MCP server (`batchpad mcp`) | 10 | §4.5 |
+| MCP server (`batchpad mcp`), off until enabled in Settings | 10 | §4.5 |
+| Git worktrees: per-checkout lookup, locks and results; worktree trust | 10 | §4.5 |
 | Tray icon, keep running in the tray, failure notifications | 1 | §4.2 |
 | Toasts, taskbar progress, jump list | L | |
 | Hotkeys (global) | L | |
@@ -1309,17 +1338,27 @@ later.
     variable expansion, runner command lines, and process running against
     small fixture scripts.
   - View models, tested without a window.
-  - A few FlaUI tests that drive the real exe through automation ids.
+  - A few FlaUI tests that drive the real exe through automation ids. They
+    take the foreground, so they are skipped unless `BATCHPAD_UI_TESTS=1`
+    is set; `dotnet test` runs everything else.
+- **CI** (GitHub Actions, `.github/workflows/ci.yml`): builds, runs all the
+  tests including the UI ones, packages with `tools\publish.bat` and checks
+  that both `BatchPad.exe` and `batchpad.com` start. A `v*` tag builds that
+  version and publishes a GitHub release with both files.
 
 ### Solution layout
 
 ```
 BatchPad.slnx
-src/BatchPad.Core/     net10.0         model, config IO, resolution, argument assembly, runner, history
-src/BatchPad.App/      net10.0-windows WPF UI; view models over Core
-src/BatchPad.Shim/     net10.0         `batchpad.com` console stub for the CLI (v1, §9.3)
+src/BatchPad.Core/     net10.0         model, config IO, resolution, argument assembly, runner, history, telemetry
+src/BatchPad.App/      net10.0-windows WPF UI, view models over Core, the CLI verbs and the MCP server
+src/BatchPad.Shim/     net10.0         `batchpad.com` console stub for the CLI (§9.3)
 tests/BatchPad.Core.Tests/
+tests/BatchPad.App.Tests/              view models and CLI, headless
+tests/BatchPad.UiTests/                FlaUI
+tests/fixtures/                        fixture scripts and workspaces
 samples/               demo workspace with one script per runner
+tools/                 publish.bat, screenshot.cs
 docs/
 ```
 
@@ -1337,8 +1376,8 @@ the UI does.
    inside any workspace's My Scripts.
 3. **One exe or App + CLI?** *Decided:* `BatchPad.exe` (GUI) contains all
    the logic. A tiny console-subsystem `batchpad.com` sits beside it: it runs
-   `BatchPad.exe` with the `run`/`list` verbs, relays stdout, stderr and the
-   exit code, and waits. This is needed because cmd does not wait for a
+   `BatchPad.exe` with its arguments (`run`, `list`, `log`, `stats`, `mcp`,
+   `--version`), relays stdout, stderr and the exit code, and waits. This is needed because cmd does not wait for a
    GUI-subsystem exe, so `%errorlevel%` would be wrong. Typing `batchpad`
    finds the `.com` first.
    `run` takes an id (`global:` references too; a workspace id wins over a
@@ -1386,14 +1425,17 @@ the UI does.
 9. **Workflows & schedules:** parallel groups, step outputs, retry, re-run
    from the failed step, the in-app scheduler with a tray icon, the Schedules
    view, triggers. It builds on the history and locks from phase 8.
-10. **Telemetry and agents:** run events and the Insights view, the `jsonl`
-    sink and the outbox, the agent command line (`--json`, `--errors-only`,
-    `log`, `stats`, agent attribution), machine-wide locks, the OTLP,
-    Elasticsearch, InfluxDB and HTTP sinks, and the MCP server (§4.4, §4.5).
+10. **Telemetry, agents and git worktrees:** run events and the Insights
+    view, the `jsonl` sink and the outbox, the agent command line (`--json`,
+    `--errors-only`, `log`, `stats`, agent attribution), machine-wide locks,
+    the OTLP, Elasticsearch, InfluxDB and HTTP sinks, the MCP server (off
+    until enabled), and worktree support: per-checkout workspace lookup,
+    locks and results, and trust verified through git's own files (§4.4,
+    §4.5).
 11. **Later:** benchmark comparison, Task Scheduler export, Windows shell
-    integration (jump lists, taskbar progress). Open items that may join it:
-    unattended secrets from Windows Credential Manager, and a CLI command to
-    trust a workspace.
+    integration (jump lists, taskbar progress, toasts), global hotkeys. Open
+    items that may join it: unattended secrets from Windows Credential
+    Manager, and a CLI command to trust a workspace.
 
 Phases 1–10 are done; phase 11 remains. Each phase leaves the app building
 and runnable, and is broken into implementation steps when it starts.

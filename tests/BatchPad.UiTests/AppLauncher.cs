@@ -17,10 +17,12 @@ public sealed class AppLauncher : IDisposable
         DataDirectory = dataDirectory;
     }
 
-    /// <summary>Starts the exe with a fresh data folder, so no test reads or changes the user's settings.</summary>
     public const string OptIn = "BATCHPAD_UI_TESTS";
 
-    // They take the foreground and type real keys, so they only run where nobody is using the desktop.
+    /// <summary>
+    /// Starts the exe with a fresh data folder, so no test reads or changes the user's settings. Skipped unless
+    /// <see cref="OptIn"/> is 1: the tests take the foreground and type real keys.
+    /// </summary>
     public static AppLauncher Start(params string[] args)
     {
         if (Environment.GetEnvironmentVariable(OptIn) != "1")
