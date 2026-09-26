@@ -900,10 +900,10 @@ sink is off until you add it:
 Every sink takes `"enabled": false` to pause it; `elastic` also takes
 `username`/`password` instead of `apiKey`. Credentials come from `${env:…}`
 (or later from Windows Credential Manager), never written in plain text by
-the app. An unset variable fails the send as retryable, as do 401, 403, 408,
-429 and 5xx answers, so a missing or expired key loses nothing; other 4xx
-answers drop the batch. Redirects are not followed, so headers never reach
-another host; a redirect answer drops the batch and names the address to
+the app. An unset variable fails the send as retryable, as do 3xx, 401, 403,
+408, 429 and 5xx answers, so a missing or expired key or a moved endpoint
+loses nothing; other 4xx answers drop the batch. Redirects are not followed,
+so headers never reach another host; the sink's error names the address to
 configure instead.
 
 `hashNames` replaces user-chosen names with a salted hash (HMAC-SHA256 with a

@@ -256,9 +256,9 @@ readable. Secret values are never sent. Events wait in an outbox under
 `%LOCALAPPDATA%\BatchPad\telemetry\outbox` (capped at 20 MB) and a
 background sender delivers them, so a slow or unreachable backend never
 delays a run; any running BatchPad process also delivers what another left
-queued. A credential variable that is not set, or a 401/403 answer, keeps
-the events queued until it is fixed; other 4xx answers drop the batch, and
-redirects are not followed. The Settings page shows each
+queued. A credential variable that is not set, a 401/403 answer or a
+redirect keeps the events queued until it is fixed (redirects are not
+followed); other 4xx answers drop the batch. The Settings page shows each
 sink's last success, last error and pending count, and can send a test
 event.
 

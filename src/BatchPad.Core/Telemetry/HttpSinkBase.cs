@@ -24,8 +24,7 @@ public abstract class HttpSinkBase(SinkConfig config, HttpMessageHandler? handle
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if ((int)response.StatusCode is >= 300 and < 400)
             throw new TelemetrySendException(
-                $"{(int)response.StatusCode} {response.ReasonPhrase}: redirected to {response.Headers.Location}; set the sink's URL to the final address.",
-                retry: false);
+                $"{(int)response.StatusCode} {response.ReasonPhrase}: redirected to {response.Headers.Location}; set the sink's URL to the final address.");
         if (!response.IsSuccessStatusCode)
             throw new TelemetrySendException($"{(int)response.StatusCode} {response.ReasonPhrase}: {Shorten(body)}".TrimEnd(' ', ':'),
                 retry: IsTransient(response.StatusCode));

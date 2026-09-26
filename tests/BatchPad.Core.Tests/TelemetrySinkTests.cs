@@ -179,7 +179,7 @@ public sealed class TelemetrySinkTests
     }
 
     [TestMethod]
-    public async Task ARedirectIsAFailureNotFollowed()
+    public async Task ARedirectIsARetryableFailureNotFollowed()
     {
         var port = FreePort();
         using var listener = new HttpListener();
@@ -197,7 +197,7 @@ public sealed class TelemetrySinkTests
         var failure = await Assert.ThrowsAsync<TelemetrySendException>(() => sink.SendAsync(Workflow(), default));
 
         await answering;
-        Assert.IsFalse(failure.Retry);
+        Assert.IsTrue(failure.Retry);
         StringAssert.Contains(failure.Message, "redirected to http://localhost:1/elsewhere");
     }
 
