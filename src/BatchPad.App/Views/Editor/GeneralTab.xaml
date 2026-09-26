@@ -18,6 +18,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.Resources>
                 <Style TargetType="TextBlock">
@@ -64,6 +65,9 @@
             <TextBlock Grid.Row="9" Text="Lock" ToolTip="Runs that share a lock name wait for each other" />
             <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding LockName, UpdateSourceTrigger=PropertyChanged}"
                      AutomationProperties.AutomationId="EditorLock" AutomationProperties.Name="Lock" />
+            <CheckBox Grid.Row="10" Grid.Column="1" Margin="0,0,0,8" Content="Lock across every git checkout (a shared port or device)"
+                      IsChecked="{Binding MachineWideLock}" AutomationProperties.AutomationId="EditorMachineWideLock"
+                      ToolTip="Otherwise the lock and single instance hold only within this checkout, so worktrees don't wait for each other" />
         </Grid>
     </ScrollViewer>
 </UserControl>

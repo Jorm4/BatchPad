@@ -1,4 +1,3 @@
-using System.Globalization;
 using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Running;
@@ -22,13 +21,14 @@ public sealed class LockManager(string? machineDirectory = null)
     /// <param name="waiting">Called with what the caller is queued behind: the lock's name, and the holder when that is another process.</param>
     /// <param name="wait">False to fail with <see cref="LockBusyException"/> instead of queueing.</param>
     /// <param name="holder">Names the holder to other processes waiting for the lock.</param>
+    /// <param name="checkout">The caller's checkout directory, named in the holder text for waiters in another checkout.</param>
     public Task<LockLease> AcquireAsync(IEnumerable<string> names, object owner, Action<string>? waiting = null,
-        CancellationToken cancellation = default, bool wait = true, string? holder = null) =>
-        AcquireAsync(names.Select(name => (name, owner)), waiting, cancellation, wait, holder);
+        CancellationToken cancellation = default, bool wait = true, string? holder = null, string? checkout = null) =>
+        AcquireAsync(names.Select(name => (name, owner)), waiting, cancellation, wait, holder, checkout);
 
     /// <summary>Takes each lock for its own owner, in the same fixed order.</summary>
     public async Task<LockLease> AcquireAsync(IEnumerable<(string Name, object Owner)> locks, Action<string>? waiting = null,
-        CancellationToken cancellation = default, bool wait = true, string? holder = null)
+        CancellationToken cancellation = default, bool wait = true, string? holder = null, string? checkout = null)
     {
         var lease = new LockLease(this);
         try
@@ -36,7 +36,7 @@ public sealed class LockManager(string? machineDirectory = null)
             foreach (var (name, owner) in locks.DistinctBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
                          .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
             {
-                await AcquireOneAsync(new Request(name, owner, holder, waiting, wait), cancellation);
+                await AcquireOneAsync(new Request(name, owner, holder, checkout, waiting, wait), cancellation);
                 lease.Held.Add((name, owner));
             }
         }
@@ -49,17 +49,17 @@ public sealed class LockManager(string? machineDirectory = null)
     }
 
     /// <summary>Who holds <paramref name="name"/>, here or in another process, as "held by Build since 09:12"; null when nobody does.</summary>
-    public string? DescribeHolder(string name)
+    public string? DescribeHolder(string name, string? checkout = null)
     {
         lock (_lock)
         {
             if (_holders.TryGetValue(name, out var holder) && holder.Machine is { IsCompletedSuccessfully: true })
-                return holder.Description;
+                return holder.Describe(checkout);
         }
         if (MachineDirectory is null)
             return null;
-        using var probe = MachineLock.TryAcquire(MachineDirectory, name, null);
-        return probe is null ? MachineLock.DescribeHolder(MachineDirectory, name) : null;
+        using var probe = MachineLock.TryAcquire(MachineDirectory, name, null, null);
+        return probe is null ? MachineLock.DescribeHolder(MachineDirectory, name, checkout) : null;
     }
 
     internal bool IsHeld(string name)
@@ -75,22 +75,22 @@ public sealed class LockManager(string? machineDirectory = null)
         lock (_lock)
         {
             if (!_holders.TryGetValue(request.Name, out var holder))
-                _holders[request.Name] = holder = new Holder(request.Owner, request.HolderName);
+                _holders[request.Name] = holder = new Holder(request.Owner, request.HolderName, request.Checkout);
             else if (ReferenceEquals(holder.Owner, request.Owner))
                 holder.Count++;
             else if (!request.Wait)
-                throw new LockBusyException(request.Name, holder.Description);
+                throw new LockBusyException(LockKeys.NameOf(request.Name), holder.Describe(request.Checkout));
             else
             {
                 waiter = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                holder.Queue.AddLast((request.Owner, request.HolderName, waiter));
+                holder.Queue.AddLast((request.Owner, request.HolderName, request.Checkout, waiter));
             }
             if (waiter is null)
                 machine = MachineFor(holder, request);
         }
         if (waiter is not null)
         {
-            request.Waiting?.Invoke(request.Name);
+            request.Waiting?.Invoke(LockKeys.NameOf(request.Name));
             await WaitAsync(request, waiter, cancellation);
             lock (_lock)
                 machine = MachineFor(_holders[request.Name], request);
@@ -100,7 +100,7 @@ public sealed class LockManager(string? machineDirectory = null)
         try
         {
             if (!request.Wait && !machine.IsCompleted)
-                throw new LockBusyException(request.Name, "being taken by another run");
+                throw new LockBusyException(LockKeys.NameOf(request.Name), "being taken by another run");
             await machine.WaitAsync(cancellation);
         }
         catch
@@ -117,8 +117,8 @@ public sealed class LockManager(string? machineDirectory = null)
         if (MachineDirectory is null)
             return holder.Machine = Task.FromResult<MachineLock?>(null);
         holder.MachineCancel = new CancellationTokenSource();
-        return holder.Machine = MachineLock.AcquireAsync(MachineDirectory, request.Name, request.HolderName, request.Waiting,
-            request.Wait, holder.MachineCancel.Token);
+        return holder.Machine = MachineLock.AcquireAsync(MachineDirectory, request.Name, request.HolderName, request.Checkout,
+            request.Waiting, request.Wait, holder.MachineCancel.Token);
     }
 
     private async Task WaitAsync(Request request, TaskCompletionSource waiter, CancellationToken cancellation)
@@ -127,7 +127,7 @@ public sealed class LockManager(string? machineDirectory = null)
         {
             lock (_lock)
             {
-                if (_holders.TryGetValue(request.Name, out var holder) && holder.Queue.Remove((request.Owner, request.HolderName, waiter)))
+                if (_holders.TryGetValue(request.Name, out var holder) && holder.Queue.Remove((request.Owner, request.HolderName, request.Checkout, waiter)))
                     waiter.TrySetCanceled(cancellation);
             }
         });
@@ -149,8 +149,9 @@ public sealed class LockManager(string? machineDirectory = null)
                 return;
             }
             holder.Queue.RemoveFirst();
-            (holder.Owner, holder.HolderName, holder.Count, holder.Since) = (next.Value.Owner, next.Value.HolderName, 1, DateTimeOffset.Now);
-            holder.Machine?.Result?.Hand(holder.HolderName);
+            (holder.Owner, holder.HolderName, holder.Checkout, holder.Count, holder.Since) =
+                (next.Value.Owner, next.Value.HolderName, next.Value.Checkout, 1, DateTimeOffset.Now);
+            holder.Machine?.Result?.Hand(holder.HolderName, holder.Checkout);
             next.Value.Waiter.SetResult();
         }
     }
@@ -174,18 +175,20 @@ public sealed class LockManager(string? machineDirectory = null)
         (holder.Machine, holder.MachineCancel) = (null, null);
     }
 
-    private sealed record Request(string Name, object Owner, string? HolderName, Action<string>? Waiting, bool Wait);
+    private sealed record Request(string Name, object Owner, string? HolderName, string? Checkout, Action<string>? Waiting, bool Wait);
 
-    private sealed class Holder(object owner, string? holderName)
+    private sealed class Holder(object owner, string? holderName, string? checkout)
     {
         public object Owner { get; set; } = owner;
         public string? HolderName { get; set; } = holderName;
+        public string? Checkout { get; set; } = checkout;
         public DateTimeOffset Since { get; set; } = DateTimeOffset.Now;
         public int Count { get; set; } = 1;
         public Task<MachineLock?>? Machine { get; set; }
         public CancellationTokenSource? MachineCancel { get; set; }
-        public LinkedList<(object Owner, string? HolderName, TaskCompletionSource Waiter)> Queue { get; } = [];
-        public string Description => $"held by {HolderName ?? "another run"} since {Since.ToString("HH:mm", CultureInfo.InvariantCulture)}";
+        public LinkedList<(object Owner, string? HolderName, string? Checkout, TaskCompletionSource Waiter)> Queue { get; } = [];
+
+        public string Describe(string? waiterCheckout) => LockKeys.DescribeHolder(HolderName ?? "another run", Checkout, waiterCheckout, Since);
     }
 }
 

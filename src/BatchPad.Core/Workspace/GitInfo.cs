@@ -28,14 +28,17 @@ public sealed record GitInfo(string? Branch, string? Commit)
             if (Directory.Exists(dotGit))
                 return dotGit;
             if (File.Exists(dotGit))
-                return File.ReadLines(dotGit).FirstOrDefault(l => l.StartsWith("gitdir:", StringComparison.Ordinal)) is { } line
-                    ? Path.GetFullPath(line["gitdir:".Length..].Trim(), current.FullName)
-                    : null;
+                return GitDirectoryNamedBy(dotGit);
         }
         return null;
     }
 
-    private static GitInfo? FromGitDirectory(string gitDirectory)
+    internal static string? GitDirectoryNamedBy(string dotGitFile) =>
+        File.ReadLines(dotGitFile).FirstOrDefault(l => l.StartsWith("gitdir:", StringComparison.Ordinal)) is { } line
+            ? Path.GetFullPath(line["gitdir:".Length..].Trim(), Path.GetDirectoryName(dotGitFile)!)
+            : null;
+
+    internal static GitInfo? FromGitDirectory(string gitDirectory)
     {
         var headPath = Path.Combine(gitDirectory, "HEAD");
         if (!File.Exists(headPath))
@@ -50,7 +53,7 @@ public sealed record GitInfo(string? Branch, string? Commit)
     }
 
     // A linked worktree keeps HEAD in its own directory but refs in the main repository's.
-    private static string CommonDirectory(string gitDirectory)
+    internal static string CommonDirectory(string gitDirectory)
     {
         var file = Path.Combine(gitDirectory, "commondir");
         return File.Exists(file) ? Path.GetFullPath(File.ReadAllText(file).Trim(), gitDirectory) : gitDirectory;

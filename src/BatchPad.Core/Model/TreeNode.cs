@@ -25,6 +25,9 @@ public sealed class LinkNode : TreeNode
     public List<string>? Tags { get; set; }
 }
 
+/// <summary>Whether a lock and <c>singleInstance</c> hold within one git checkout (the default) or across the machine.</summary>
+public enum LockScope { Checkout, Machine }
+
 /// <summary>Fields shared by scripts and workflows. Null means "not set", so a customisation overlays only what it sets.</summary>
 public abstract class RunnableNode : TreeNode
 {
@@ -34,6 +37,7 @@ public abstract class RunnableNode : TreeNode
     public List<ParameterDefinition>? Params { get; set; }
     public Dictionary<string, string>? Env { get; set; }
     public string? Lock { get; set; }
+    public LockScope? LockScope { get; set; }
     public string? Confirm { get; set; }
     public string? NameTemplate { get; set; }
     public bool? Hidden { get; set; }

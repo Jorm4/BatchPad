@@ -8,14 +8,9 @@ namespace BatchPad.App.Cli;
 /// <summary>Serves <see cref="McpTools"/> over stdio (§4.5); stdout carries only protocol messages.</summary>
 public static class McpHost
 {
-    public static async Task<int> RunAsync(AppPaths paths, string? workspace, string currentDirectory, TextWriter error)
+    public static async Task<int> RunAsync(AppPaths paths)
     {
-        if (WorkspaceLocator.Locate(workspace, currentDirectory, []) is not { } file || !File.Exists(file))
-        {
-            error.WriteLine("No batchpad.json found here or above; pass --workspace <path>.");
-            return CliRunner.UsageError;
-        }
-        var tools = new McpTools(paths, file);
+        var tools = new McpTools(paths);
         var options = new McpServerOptions
         {
             ServerInfo = new Implementation

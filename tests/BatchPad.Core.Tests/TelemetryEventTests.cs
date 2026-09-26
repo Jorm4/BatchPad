@@ -51,6 +51,17 @@ public sealed class TelemetryEventTests
     }
 
     [TestMethod]
+    public void AnEventNamesItsCheckout()
+    {
+        var record = SampleRecord() with { Checkout = new Checkout("wt", CheckoutKind.Worktree, "wt", "feature", "3f9a1c2", "repo") };
+
+        var checkout = JsonNode.Parse(TelemetryEvents.From(record, Workspace, new TelemetryOptions()).ToJson())!["checkout"]!;
+
+        Assert.AreEqual("wt", checkout["name"]!.GetValue<string>());
+        Assert.AreEqual("worktree", checkout["kind"]!.GetValue<string>());
+    }
+
+    [TestMethod]
     public void ValuesAreSentOnlyWhenIncludedAndSecretsNever()
     {
         var record = SampleRecord();

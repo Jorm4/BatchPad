@@ -113,7 +113,9 @@ otherwise Windows PowerShell.
     and parameters (types, choices, defaults).
   - `batchpad run <id> --json` prints nothing while it runs, then one JSON
     object: run id, outcome, exit code, duration, time queued for locks, log
-    path, test summary, and error lines with their file and line.
+    path, test summary, error lines with their file and line, and the git
+    checkout it ran in (main or a worktree, with its branch). A run without
+    `--json` names its checkout on stderr.
   - `--errors-only` prints only stderr and error-pattern lines, then a short
     summary with the log path.
   - `--no-wait` fails at once instead of queueing when a lock is held.
@@ -121,9 +123,8 @@ otherwise Windows PowerShell.
     Claude Code are recognised by its `CLAUDECODE=1` variable.
   - `batchpad log <run-id> [--tail N] [--errors]` prints a recorded run's log.
   - `batchpad stats [--since 1d|7d|30d] [--json]` summarises where the time
-    went.
-  - `batchpad mcp [--workspace <path>]` serves the same over the Model
-    Context Protocol (below).
+    went, including per git checkout.
+  - `batchpad mcp` serves the same over the Model Context Protocol (below).
 - **Schedules** (toolbar, or "Schedules" in the Ctrl+K palette) lists every
   schedule with its next and last run. Add one by picking a script or
   workflow, a trigger and its values; it is stored in your own `user.json`,
@@ -139,7 +140,8 @@ otherwise Windows PowerShell.
 
 **Trust.** A `batchpad.json` comes with a cloned repository, so it is someone
 else's code. BatchPad runs nothing from a workspace until you trust its
-folder, and asks before a link opens an executable file.
+folder, and asks before a link opens an executable file. A git worktree of
+a trusted repository is trusted too.
 
 Settings live in `%APPDATA%\BatchPad`. Put an empty `batchpad.portable` file
 next to the exe to keep them in a `data` folder beside it instead.
@@ -152,11 +154,16 @@ To try it without a project of your own, open the demo workspace:
 `batchpad mcp` runs an MCP server over stdio with four tools: `list_scripts`,
 `run_script` (id, values, `errorsOnly`; returns the same result object as
 `run --json`), `get_log` (tail, errors only or a line range) and `get_stats`.
-Runs are recorded as `agent:<client name>`, for example `agent:claude-code`.
-Register it with Claude Code:
+`list_scripts`, `run_script` and `get_stats` take a required `directory`, the
+agent's working folder, and find the workspace from it as the command line
+does. The server has no workspace of its own, because one server serves a
+whole session, including subagents working in other git worktrees; every
+result names the checkout it ran in. Runs are recorded as
+`agent:<client name>`, for example `agent:claude-code`. Register it with
+Claude Code:
 
 ```
-claude mcp add batchpad -- C:\Tools\BatchPad\batchpad.com mcp --workspace C:\src\my-project
+claude mcp add batchpad -- C:\Tools\BatchPad\batchpad.com mcp
 ```
 
 The workspace must be trusted in the app first. To let agents run only some
@@ -172,10 +179,21 @@ To steer an agent to BatchPad, paste this into the project's `CLAUDE.md`:
 ## Building and testing
 Build and test through BatchPad, not by calling the tools directly:
 - `batchpad list --json` lists what can be run, with parameters.
-- `batchpad run <id> --errors-only` runs one; it prints only the errors and
-  a summary with the log path. `batchpad log <run-id> --tail 50` shows more.
-- With the batchpad MCP server, use `run_script` and `get_log` instead.
+- Run from your working folder: `batchpad run <id> --errors-only` runs one;
+  it prints only the errors and a summary with the log path.
+  `batchpad log <run-id> --tail 50` shows more.
+- With the batchpad MCP server, use `run_script` and `get_log` instead, with
+  `directory` set to your working folder.
+- Check that the reported checkout is yours (your worktree, not the main
+  checkout).
 ```
+
+**Git worktrees.** Each checkout runs its own scripts: the command line finds
+the workspace from its current folder, and the MCP tools from `directory`. A
+worktree of a trusted repository is trusted. Named locks and `singleInstance`
+hold per checkout, so agents in separate worktrees build in parallel; set
+`"lockScope": "machine"` on a script or workflow for things every checkout
+shares, such as a network port.
 
 ### Run telemetry
 

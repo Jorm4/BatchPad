@@ -45,7 +45,21 @@ public sealed class HistoryStore
     }
 
     public static HistoryStore For(AppPaths paths, string workspaceId, TimeProvider? time = null) =>
-        new(System.IO.Path.Combine(paths.LocalDirectory, "history", workspaceId), time);
+        new(System.IO.Path.Combine(RootOf(paths), workspaceId), time);
+
+    /// <summary>The store of whichever workspace recorded <paramref name="runId"/>, or null.</summary>
+    public static HistoryStore? Containing(AppPaths paths, string runId)
+    {
+        if (string.IsNullOrWhiteSpace(runId) || runId.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 || runId.Trim('.').Length == 0
+            || !System.IO.Directory.Exists(RootOf(paths)))
+            return null;
+        return System.IO.Directory.EnumerateDirectories(RootOf(paths))
+            .FirstOrDefault(directory => File.Exists(System.IO.Path.Combine(directory, runId + ".json"))) is { } found
+            ? new HistoryStore(found)
+            : null;
+    }
+
+    private static string RootOf(AppPaths paths) => System.IO.Path.Combine(paths.LocalDirectory, "history");
 
     public string Directory { get; }
     public TimeProvider Time { get; }

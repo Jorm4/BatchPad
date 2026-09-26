@@ -61,7 +61,7 @@ public sealed class CliRunner
             return UsageError;
         }
         if (command.Verb == CliVerb.Mcp)
-            return await McpHost.RunAsync(_paths, command.Workspace, currentDirectory, _error);
+            return await McpHost.RunAsync(_paths);
         return await RunAsync(command, currentDirectory);
     }
 
@@ -94,7 +94,7 @@ public sealed class CliRunner
         return command.Verb switch
         {
             CliVerb.List => List(command, workspace),
-            CliVerb.Log => ShowLog(command, workspace),
+            CliVerb.Log => ShowLog(command, HistoryStore.For(_paths, workspace.Id)),
             CliVerb.Stats => ShowStats(command, workspace),
             _ => await RunAsync(command, workspace),
         };
@@ -112,9 +112,8 @@ public sealed class CliRunner
         return 0;
     }
 
-    private int ShowLog(CliCommand command, LoadedWorkspace workspace)
+    internal int ShowLog(CliCommand command, HistoryStore store)
     {
-        var store = HistoryStore.For(_paths, workspace.Id);
         if (store.Recent().FirstOrDefault(r => r.Id == command.Target) is not { } record)
         {
             _error.WriteLine($"No run '{command.Target}' in this workspace's history.");
@@ -178,6 +177,8 @@ public sealed class CliRunner
         var store = HistoryStore.For(_paths, workspace.Id);
         await using var telemetry = _telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
         var run = new CliRun(command, TriggerFor(command), store, target);
+        if (!command.Json && Checkout.Read(workspace.Directory) is { } checkout)
+            _error.WriteLine($"in {checkout.Describe()}");
 
         try
         {

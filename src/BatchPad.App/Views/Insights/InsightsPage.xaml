@@ -103,6 +103,11 @@
                         <views:FlatItemsControl ItemsSource="{Binding Tags}" ItemTemplate="{StaticResource Bar}"
                                                 AutomationProperties.AutomationId="InsightsTags" />
                     </StackPanel>
+                    <StackPanel Margin="0,0,32,8">
+                        <TextBlock Text="By checkout" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <views:FlatItemsControl ItemsSource="{Binding Checkouts}" ItemTemplate="{StaticResource Bar}"
+                                               AutomationProperties.AutomationId="InsightsCheckouts" />
+                    </StackPanel>
                 </WrapPanel>
 
                 <TextBlock Text="Scripts" Style="{StaticResource Section}" />

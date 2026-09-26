@@ -2,6 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using BatchPad.Core.History;
+using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Running;
 
@@ -17,6 +18,7 @@ public sealed record RunSummary
     public long DurationMs { get; init; }
     public long QueuedMs { get; init; }
     public required string LogPath { get; init; }
+    public Checkout? Checkout { get; init; }
     public TestSummary? Tests { get; init; }
     public List<ErrorLine> Errors { get; init; } = [];
     public List<RunSummary> Steps { get; init; } = [];
@@ -36,6 +38,7 @@ public sealed record RunSummary
         DurationMs = (long)record.Duration.TotalMilliseconds,
         QueuedMs = record.QueuedMs,
         LogPath = store.LogPath(record),
+        Checkout = record.Checkout,
         Tests = record.Tests,
         Errors = record.Errors ?? [],
         Steps = [.. (steps ?? store.Recent().Where(r => r.ParentRunId == record.Id && r.Id != record.Id))

@@ -76,6 +76,7 @@ public sealed partial class InsightsViewModel : ObservableObject
     public IReadOnlyList<TimeBar> Folders => Bars(Stats?.Folders, name => name.Length == 0 ? "(top level)" : name);
     public IReadOnlyList<TimeBar> Tags => Bars(Stats?.Tags, name => name);
     public IReadOnlyList<TimeBar> Triggers => Bars(Stats?.Triggers, TriggerName);
+    public IReadOnlyList<TimeBar> Checkouts => Bars(Stats?.Checkouts, name => name.Length == 0 ? "(not a git checkout)" : name);
 
     public IReadOnlyList<ScriptRow> Scripts => Sorted(Stats?.Scripts.Select(s => new ScriptRow(s)) ?? []);
     public IReadOnlyList<RepeatRow> Repeats => [.. Stats?.Repeats.Select(r => new RepeatRow(r)) ?? []];

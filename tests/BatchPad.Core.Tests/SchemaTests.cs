@@ -47,6 +47,14 @@ public sealed class SchemaTests
         Assert.IsNotEmpty(Errors(WorkspaceSchema, """{ "scripts": [ { "items": [ { "path": "a.sh", "runner": "bash" } ] } ] }"""));
 
     [TestMethod]
+    public void ALockScopeIsCheckoutOrMachine()
+    {
+        Assert.IsEmpty(Errors(WorkspaceSchema, """{ "scripts": [ { "path": "a.bat", "lock": "port", "lockScope": "machine" } ] }"""));
+        Assert.IsEmpty(Errors(WorkspaceSchema, """{ "scripts": [ { "id": "w", "lockScope": "checkout", "steps": [ { "run": "a" } ] } ] }"""));
+        Assert.IsNotEmpty(Errors(WorkspaceSchema, """{ "scripts": [ { "path": "a.bat", "lockScope": "global" } ] }"""));
+    }
+
+    [TestMethod]
     public void SchedulesAreRejectedInAWorkspaceFile() =>
         Assert.IsNotEmpty(Errors(WorkspaceSchema, Fixtures.Path("config", "user_schedules.json")));
 

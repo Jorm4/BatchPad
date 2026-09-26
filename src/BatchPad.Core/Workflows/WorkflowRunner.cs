@@ -49,7 +49,7 @@ public sealed partial class WorkflowRunner(
             {
                 var lockNames = LocksHeldThroughout(request);
                 using var lease = lockNames.Count == 0 ? null : await _locks.AcquireAsync(lockNames, run.LockOwner, run.Wait, run.StopRequested,
-                    holder: ScriptTree.DisplayName(request.Workflow));
+                    holder: ScriptTree.DisplayName(request.Workflow), checkout: workspace.CheckoutDirectory);
                 run.Wait(null);
                 run.Complete(await ExecuteAsync(run, request, resumeAt));
             }
@@ -80,8 +80,8 @@ public sealed partial class WorkflowRunner(
         var names = new List<string>();
         var visited = new HashSet<TreeNode>(ReferenceEqualityComparer.Instance);
         Add(request.Workflow, request.Tree);
-        if (request.Target?.Script.Lock is { } targetLock && !string.IsNullOrWhiteSpace(targetLock))
-            names.Add(targetLock);
+        if (request.Target?.Script is { Lock: { } targetLock } target && !string.IsNullOrWhiteSpace(targetLock))
+            names.Add(LockKeys.For(targetLock, target.LockScope, workspace.CheckoutDirectory));
         return names;
 
         void Add(RunnableNode node, ScriptTree tree)
@@ -89,7 +89,7 @@ public sealed partial class WorkflowRunner(
             if (!visited.Add(node))
                 return;
             if (!string.IsNullOrWhiteSpace(node.Lock))
-                names.Add(node.Lock);
+                names.Add(LockKeys.For(node.Lock, node.LockScope, workspace.CheckoutDirectory));
             if (node is not WorkflowNode workflow)
                 return;
             foreach (var step in workflow.Steps.SelectMany(s => s.Leaves()))

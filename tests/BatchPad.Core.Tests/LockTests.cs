@@ -57,7 +57,7 @@ public sealed class LockTests
         var result = await run.Completion.WaitAsync(Limit);
 
         Assert.AreEqual(WorkflowOutcome.Succeeded, result.Outcome, string.Join('\n', run.Steps.Select(s => s.Error)));
-        Assert.IsFalse(test.Workspace.Gate.Locks.IsHeld("x"));
+        Assert.IsFalse(test.IsHeld("x"));
     }
 
     [TestMethod]
@@ -68,7 +68,7 @@ public sealed class LockTests
         var workflow = (WorkflowNode)loaded.References.Resolve("flow", TreeKind.Workspace)!;
         var run = new WorkflowRunner(loaded, test.Workspace.Gate, RunWorkspace.Interpreters)
             .Start(new WorkflowRequest(loaded.Workspace, workflow));
-        await Eventually(() => test.Workspace.Gate.Locks.IsHeld("x"));
+        await Eventually(() => test.IsHeld("x"));
 
         using var lone = test.Start("a");
         Assert.AreEqual("x", lone.WaitingForLock);
@@ -90,7 +90,7 @@ public sealed class LockTests
         var results = await Task.WhenAll(first.Completion, second.Completion).WaitAsync(Limit);
 
         Assert.IsTrue(results.All(r => r.Succeeded));
-        Assert.IsFalse(test.Workspace.Gate.Locks.IsHeld("x") || test.Workspace.Gate.Locks.IsHeld("y"));
+        Assert.IsFalse(test.IsHeld("x") || test.IsHeld("y"));
     }
 
     [TestMethod]
@@ -133,7 +133,7 @@ public sealed class LockTests
         Assert.AreEqual(RunOutcome.Stopped, second.Completion.Result.Outcome);
         Assert.AreEqual(default, second.StartedAt);
         await first.Completion.WaitAsync(Limit);
-        Assert.IsFalse(test.Workspace.Gate.Locks.IsHeld("x"));
+        Assert.IsFalse(test.IsHeld("x"));
     }
 
     [TestMethod]
@@ -254,6 +254,8 @@ public sealed class LockTests
         public RunWorkspace Workspace { get; }
 
         public RunHandle Start(string id) => Workspace.Gate.Start(Workspace.Request(id), RunWorkspace.Interpreters);
+
+        public bool IsHeld(string name) => Workspace.Gate.Locks.IsHeld(LockKeys.For(name, null, Workspace.Workspace.CheckoutDirectory));
 
         public void Dispose() => Workspace.Dispose();
     }

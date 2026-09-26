@@ -24,6 +24,7 @@ public sealed partial class GeneralTabViewModel : ObservableObject
         longRunning = definition.LongRunning == true;
         confirm = definition.Confirm ?? "";
         lockName = definition.Lock ?? "";
+        machineWideLock = definition.LockScope == LockScope.Machine;
         module = definition.Module ?? "";
         _changed = changed;
     }
@@ -70,6 +71,9 @@ public sealed partial class GeneralTabViewModel : ObservableObject
     private string lockName;
 
     [ObservableProperty]
+    private bool machineWideLock;
+
+    [ObservableProperty]
     private string module;
 
     /// <summary>A discovered script keeps its derived name unsaved until the user changes it.</summary>
@@ -83,6 +87,7 @@ public sealed partial class GeneralTabViewModel : ObservableObject
     partial void OnLongRunningChanged(bool value) => Set(() => _definition.LongRunning = value ? true : null);
     partial void OnConfirmChanged(string value) => Set(() => _definition.Confirm = NullIfEmpty(value));
     partial void OnLockNameChanged(string value) => Set(() => _definition.Lock = NullIfEmpty(value));
+    partial void OnMachineWideLockChanged(bool value) => Set(() => _definition.LockScope = value ? LockScope.Machine : null);
     partial void OnModuleChanged(string value) => Set(() => _definition.Module = NullIfEmpty(value));
 
     private void Set(Action apply)

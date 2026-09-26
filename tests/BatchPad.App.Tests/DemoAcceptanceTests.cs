@@ -31,7 +31,7 @@ public sealed class DemoAcceptanceTests
         var tests = await RunAsync<RunViewModel>(main, "Workspace/Pipeline/Run tests");
         Assert.AreEqual("3 passed · 0 failed · 0 skipped", tests.TestResults!.Summary);
 
-        var held = await gate.Locks.AcquireAsync(["demo-package"], new object());
+        var held = await gate.Locks.AcquireAsync([LockKeys.For("demo-package", null, Checkout.DirectoryOf(demo))], new object());
         main.Select("Workspace/Pipeline/Package");
         main.Details.RunCommand.Execute(null);
         var package = (RunViewModel)main.Output.Tabs[^1];

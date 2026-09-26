@@ -13,7 +13,13 @@ public sealed class TrustStore(Settings settings, string settingsFile)
 
     public IReadOnlyList<string> TrustedFolders => settings.TrustedFolders;
 
-    public bool IsTrusted(string folder)
+    /// <summary>A trusted folder or one under it, or the same place in a verified worktree of a trusted repository (§4.5).</summary>
+    public bool IsTrusted(string folder) =>
+        IsUnderTrustedFolder(folder)
+        || Checkout.Read(folder) is { Kind: CheckoutKind.Worktree } worktree
+        && IsUnderTrustedFolder(Path.Combine(worktree.Repository, Path.GetRelativePath(worktree.Directory, PathIdentity.Normalize(folder))));
+
+    private bool IsUnderTrustedFolder(string folder)
     {
         var candidate = Normalize(folder);
         return NormalizedTrustedFolders().Any(trusted =>

@@ -57,6 +57,7 @@ public sealed record RunRecord
     public string? Folder { get; init; }
     public List<string>? Tags { get; init; }
     public GitInfo? Git { get; init; }
+    public Checkout? Checkout { get; init; }
     public TestSummary? Tests { get; init; }
     public List<ErrorLine>? Errors { get; init; }
     public string? Machine { get; init; }

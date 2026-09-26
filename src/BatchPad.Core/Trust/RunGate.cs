@@ -52,14 +52,15 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
             return ProcessRunner.Start(specs, Time);
 
         var holder = ScriptTree.DisplayName(request.Script);
-        var lease = waitForLocks ? null : Locks.AcquireAsync(locks, wait: false, holder: holder).GetAwaiter().GetResult();
+        var checkout = request.Workspace.CheckoutDirectory;
+        var lease = waitForLocks ? null : Locks.AcquireAsync(locks, wait: false, holder: holder, checkout: checkout).GetAwaiter().GetResult();
         var handle = ProcessRunner.Create(specs, Time);
         if (lease is not null)
         {
             handle.Begin(lease);
             return handle;
         }
-        var acquiring = Locks.AcquireAsync(locks, handle.Wait, handle.StopRequested, holder: holder);
+        var acquiring = Locks.AcquireAsync(locks, handle.Wait, handle.StopRequested, holder: holder, checkout: checkout);
         if (acquiring.IsCompletedSuccessfully)
             handle.Begin(acquiring.Result);
         else
@@ -69,16 +70,18 @@ public sealed class RunGate(TrustStore trust, TimeProvider? time = null, LockMan
 
     /// <summary>
     /// The script's <c>lock</c>, held for the request's owner, plus a lock of its own when it is <c>singleInstance</c>, held for
-    /// this run alone so two parallel steps of one workflow don't share it.
+    /// this run alone so two parallel steps of one workflow don't share it. Both are keyed by the script's <c>lockScope</c>.
     /// </summary>
     public static IReadOnlyList<(string Name, object Owner)> LocksFor(RunRequest request)
     {
         var run = new object();
+        var script = request.Script;
         var locks = new List<(string, object)>();
-        if (!string.IsNullOrWhiteSpace(request.Script.Lock))
-            locks.Add((request.Script.Lock, request.LockOwner ?? run));
-        if (request.Script.SingleInstance == true)
-            locks.Add(($"single instance of {request.Tree.Kind}:{request.Script.Id ?? request.Script.Path} in {request.Workspace.Directory}", run));
+        string Key(string name) => LockKeys.For(name, script.LockScope, request.Workspace.CheckoutDirectory);
+        if (!string.IsNullOrWhiteSpace(script.Lock))
+            locks.Add((Key(script.Lock), request.LockOwner ?? run));
+        if (script.SingleInstance == true)
+            locks.Add((Key($"single instance of {request.Tree.Kind}:{script.Id ?? script.Path}"), run));
         return locks;
     }
 

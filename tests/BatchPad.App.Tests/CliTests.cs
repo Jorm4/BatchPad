@@ -265,7 +265,8 @@ public sealed class CliTests
         new TrustStore(settings, test.Paths.SettingsFile).Trust(Fixture);
         var error = new StringWriter();
         var runner = new CliRunner(test.Paths, settings, new StringWriter(), error) { EnvironmentVariable = _ => null };
-        using var held = await LockManager.For(test.Paths).AcquireAsync(["cli-fixture-lock"], new object(), holder: "someone else");
+        using var held = await LockManager.For(test.Paths).AcquireAsync(
+            [LockKeys.For("cli-fixture-lock", null, Checkout.DirectoryOf(Fixture))], new object(), holder: "someone else");
 
         Assert.AreEqual(CliRunner.Failure, await runner.RunAsync(["run", "locked", "--no-wait", "-w", Fixture], test.Root));
         StringAssert.Contains(error.ToString(), "cli-fixture-lock");

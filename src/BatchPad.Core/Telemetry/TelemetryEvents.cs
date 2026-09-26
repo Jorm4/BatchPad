@@ -31,6 +31,9 @@ public static class TelemetryEvents
                 Folder = Name(record.Folder),
                 Tags = record.Tags,
             },
+            Checkout = record.Checkout is { } checkout
+                ? new TelemetryCheckout(Name(checkout.Name)!, JsonNamingPolicy.CamelCase.ConvertName(checkout.Kind.ToString()))
+                : null,
             Trigger = record.Trigger,
             Outcome = JsonNamingPolicy.CamelCase.ConvertName(record.Outcome.ToString()),
             ExitCode = record.ExitCode,

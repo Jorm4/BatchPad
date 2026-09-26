@@ -35,12 +35,12 @@ public sealed record FlakyTest(string Name, string NodeKey, string Script, int F
 
 /// <summary>
 /// The Insights figures for the runs in a period (§4.4). A workflow's time is counted once: a step whose workflow record is
-/// in the period is left out of <see cref="TotalSeconds"/>, the folder, tag and trigger shares, and repeats, though it
+/// in the period is left out of <see cref="TotalSeconds"/>, the folder, tag, trigger and checkout shares, and repeats, though it
 /// still counts as a run of its own script.
 /// </summary>
 public sealed record RunStats(DateTimeOffset Since, DateTimeOffset Until, int Runs, double TotalSeconds,
     List<ScriptStats> Scripts, List<TimeShare> Folders, List<TimeShare> Tags, List<TimeShare> Triggers,
-    List<RepeatedRun> Repeats, List<SlowTest> SlowestTests, List<FlakyTest> FlakyTests)
+    List<RepeatedRun> Repeats, List<SlowTest> SlowestTests, List<FlakyTest> FlakyTests, List<TimeShare> Checkouts)
 {
     public const int RepeatCount = 3;
     public static readonly TimeSpan RepeatWindow = TimeSpan.FromMinutes(30);
@@ -61,7 +61,8 @@ public sealed record RunStats(DateTimeOffset Since, DateTimeOffset Until, int Ru
             Shares(counted, r => [TriggerClasses.Of(r.Trigger)], total),
             FindRepeats(counted),
             FindSlowestTests(inPeriod),
-            FindFlakyTests(inPeriod));
+            FindFlakyTests(inPeriod),
+            Shares(counted, r => [r.Checkout?.Name ?? ""], total));
     }
 
     /// <summary>Reads a period such as <c>1d</c>, <c>7d</c>, <c>30d</c> or <c>12h</c>.</summary>

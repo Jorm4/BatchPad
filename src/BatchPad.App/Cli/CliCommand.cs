@@ -30,7 +30,7 @@ public sealed record CliCommand(CliVerb Verb)
           batchpad list [--workspace <path>] [--json]
           batchpad log <run-id> [--workspace <path>] [--tail N] [--errors]
           batchpad stats [--workspace <path>] [--since 1d|7d|30d] [--json]
-          batchpad mcp [--workspace <path>]
+          batchpad mcp
         """;
 
     public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "mcp", ..];
@@ -53,6 +53,8 @@ public sealed record CliCommand(CliVerb Verb)
         {
             command = (args[i], verb) switch
             {
+                ("--workspace" or "-w", CliVerb.Mcp) => throw new CliUsageException(
+                    "'batchpad mcp' has no workspace of its own: each tool call passes its 'directory', so an agent in a worktree runs that worktree's scripts."),
                 ("--workspace" or "-w", _) => command with { Workspace = ValueAfter(args, ref i) },
                 ("--set", CliVerb.Run) => Set(command, values, ValueAfter(args, ref i)),
                 ("--yes" or "-y", CliVerb.Run) => command with { Yes = true },

@@ -85,6 +85,8 @@ public sealed class OtlpSink(SinkConfig config, HttpMessageHandler? handler = nu
         yield return ("batchpad.script.tags", e.Script.Tags is { Count: > 0 } tags
             ? new JsonObject { ["arrayValue"] = new JsonObject { ["values"] = new JsonArray([.. tags.Select(t => Text(t))]) } }
             : null);
+        yield return ("batchpad.checkout.name", Text(e.Checkout?.Name));
+        yield return ("batchpad.checkout.kind", Text(e.Checkout?.Kind));
         yield return ("batchpad.step.id", Text(e.StepId));
         yield return ("batchpad.trigger", Text(e.Trigger));
         yield return ("batchpad.outcome", Text(e.Outcome));

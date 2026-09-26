@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using BatchPad.Core.History;
 using BatchPad.Core.Running;
 using BatchPad.Core.Telemetry;
+using BatchPad.Core.Workspace;
 
 namespace BatchPad.Core.Tests;
 
@@ -47,6 +48,26 @@ public sealed class RunStatsTests
         Assert.AreEqual(0.1, build.FailureRate, 1e-9);
         Assert.AreEqual(80.0 / 30 - 1, build.Trend!.Value, 1e-9);
         Assert.AreEqual(Now.AddMinutes(-60), build.LastRun);
+    }
+
+    [TestMethod]
+    public void TimeIsSplitByCheckout()
+    {
+        Checkout In(string name) => new(name, name == Checkout.MainName ? CheckoutKind.Main : CheckoutKind.Worktree, name, null, null, "repo");
+        var records = new[]
+        {
+            Run("build", 30, 30) with { Checkout = In(Checkout.MainName) },
+            Run("build", 20, 60) with { Checkout = In("wt") },
+            Run("test", 10, 10) with { Checkout = In("wt") },
+        };
+
+        var checkouts = RunStats.Compute(records, TimeSpan.FromDays(1), Now).Checkouts;
+
+        Assert.AreEqual("wt", checkouts[0].Name);
+        Assert.AreEqual(70, checkouts[0].Seconds);
+        Assert.AreEqual(0.7, checkouts[0].Share, 1e-9);
+        Assert.AreEqual(Checkout.MainName, checkouts[1].Name);
+        Assert.AreEqual(1, checkouts[1].Runs);
     }
 
     [TestMethod]

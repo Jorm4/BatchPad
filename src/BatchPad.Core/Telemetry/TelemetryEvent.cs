@@ -24,6 +24,7 @@ public sealed record TelemetryEvent
     public long DurationMs { get; init; }
     public required TelemetryWorkspace Workspace { get; init; }
     public required TelemetryScript Script { get; init; }
+    public TelemetryCheckout? Checkout { get; init; }
     public required string Trigger { get; init; }
     public required string Outcome { get; init; }
     public int ExitCode { get; init; }
@@ -65,5 +66,7 @@ public sealed record TelemetryScript(string Tree, string? Id, string Name, strin
     public string? Folder { get; init; }
     public List<string>? Tags { get; init; }
 }
+
+public sealed record TelemetryCheckout(string Name, string Kind);
 
 public sealed record TelemetryTests(int Passed, int Failed, int Skipped);

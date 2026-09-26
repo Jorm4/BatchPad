@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -29,36 +28,37 @@ internal sealed class MachineLock : IDisposable
     public static string PathFor(string directory, string name) => Path.Combine(directory, Hash(name) + ".lock");
 
     /// <exception cref="LockBusyException">Another process holds it and <paramref name="wait"/> is false.</exception>
-    public static async Task<MachineLock?> AcquireAsync(string directory, string name, string? holder, Action<string>? waiting,
-        bool wait, CancellationToken cancellation)
+    public static async Task<MachineLock?> AcquireAsync(string directory, string name, string? holder, string? checkout,
+        Action<string>? waiting, bool wait, CancellationToken cancellation)
     {
-        if (TryAcquire(directory, name, holder) is { } taken)
+        if (TryAcquire(directory, name, holder, checkout) is { } taken)
             return taken;
         if (!wait)
-            throw new LockBusyException(name, DescribeHolder(directory, name));
+            throw new LockBusyException(LockKeys.NameOf(name), DescribeHolder(directory, name, checkout));
         await Task.Yield();
         string? reported = null;
         var delay = TimeSpan.FromMilliseconds(20);
         while (true)
         {
-            var description = $"{name} ({DescribeHolder(directory, name)})";
+            var description = $"{LockKeys.NameOf(name)} ({DescribeHolder(directory, name, checkout)})";
             if (description != reported)
                 waiting?.Invoke(reported = description);
             await Task.Delay(delay, cancellation);
-            if (TryAcquire(directory, name, holder) is { } acquired)
+            if (TryAcquire(directory, name, holder, checkout) is { } acquired)
                 return acquired;
             delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, LongestPoll.Ticks));
         }
     }
 
     /// <summary>"held by Build since 09:12", from the owner file; vaguer when that file is missing or unreadable.</summary>
-    public static string DescribeHolder(string directory, string name)
+    public static string DescribeHolder(string directory, string name, string? waiterCheckout)
     {
         try
         {
             var owner = JsonSerializer.Deserialize<Owner>(File.ReadAllText(OwnerPathFor(directory, name)), Json);
             if (owner is not null)
-                return $"held by {owner.Holder ?? $"{owner.Process} (process {owner.ProcessId})"} since {owner.Since.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture)}";
+                return LockKeys.DescribeHolder(owner.Holder ?? $"{owner.Process} (process {owner.ProcessId})", owner.Checkout, waiterCheckout,
+                    owner.Since.ToLocalTime());
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -66,7 +66,7 @@ internal sealed class MachineLock : IDisposable
         return "held by another process";
     }
 
-    public static MachineLock? TryAcquire(string directory, string name, string? holder)
+    public static MachineLock? TryAcquire(string directory, string name, string? holder, string? checkout)
     {
         Directory.CreateDirectory(directory);
         FileStream file;
@@ -79,18 +79,18 @@ internal sealed class MachineLock : IDisposable
             return null;
         }
         var taken = new MachineLock(file, OwnerPathFor(directory, name));
-        taken.Hand(holder);
+        taken.Hand(holder, checkout);
         return taken;
     }
 
     /// <summary>Names a new holder, for a lock handed on within this process.</summary>
-    public void Hand(string? holder)
+    public void Hand(string? holder, string? checkout)
     {
         try
         {
             using var process = Process.GetCurrentProcess();
             File.WriteAllText(_ownerPath, JsonSerializer.Serialize(
-                new Owner(Environment.ProcessId, process.ProcessName, holder, DateTimeOffset.Now), Json));
+                new Owner(Environment.ProcessId, process.ProcessName, holder, checkout, DateTimeOffset.Now), Json));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -118,7 +118,7 @@ internal sealed class MachineLock : IDisposable
 
     private static bool IsSharingViolation(IOException ex) => (ex.HResult & 0xFFFF) is 32 or 33;
 
-    private sealed record Owner(int ProcessId, string Process, string? Holder, DateTimeOffset Since);
+    private sealed record Owner(int ProcessId, string Process, string? Holder, string? Checkout, DateTimeOffset Since);
 }
 
 /// <summary>A lock was taken without waiting and someone else holds it.</summary>

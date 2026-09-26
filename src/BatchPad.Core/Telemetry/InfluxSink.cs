@@ -30,7 +30,7 @@ public sealed class InfluxSink(SinkConfig config, HttpMessageHandler? handler = 
             text.Append(Measurement);
             foreach (var (key, value) in new[]
                      {
-                         ("folder", e.Script.Folder), ("outcome", e.Outcome), ("script", e.Script.Name),
+                         ("checkout", e.Checkout?.Name), ("folder", e.Script.Folder), ("outcome", e.Outcome), ("script", e.Script.Name),
                          ("trigger", e.Trigger), ("workspace", e.Workspace.Name),
                      })
                 if (!string.IsNullOrEmpty(value))

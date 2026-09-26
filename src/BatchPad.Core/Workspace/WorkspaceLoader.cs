@@ -20,6 +20,11 @@ public sealed class LoadedWorkspace
     public required IReadOnlyList<LoadError> Errors { get; init; }
 
     public string Directory => Workspace.BaseDirectory;
+
+    /// <summary>What locks are scoped to by default.</summary>
+    public string CheckoutDirectory => _checkoutDirectory ??= Checkout.DirectoryOf(Directory);
+
+    private string? _checkoutDirectory;
     public IEnumerable<ScriptTree> Trees => [MyScripts, Workspace, Global];
 
     public IEnumerable<ScriptTree> AllTrees => Trees.SelectMany(t => t.SelfAndParts());

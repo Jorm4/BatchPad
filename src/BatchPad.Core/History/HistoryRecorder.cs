@@ -88,6 +88,7 @@ public static class HistoryRecorder
         Folder = tree.FolderOf(node),
         Tags = node.Tags is { Count: > 0 } tags ? [.. tags] : null,
         Git = GitInfo.Read(directory),
+        Checkout = Checkout.Read(directory),
     };
 
     private static TestSummary? Summarize(JUnitReport? report)

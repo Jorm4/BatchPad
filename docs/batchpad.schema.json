@@ -125,6 +125,7 @@
         "params": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
         "env": { "$ref": "#/$defs/stringMap" },
         "lock": { "type": "string" },
+        "lockScope": { "enum": ["checkout", "machine"], "description": "Whether lock and singleInstance hold per git checkout (default) or machine-wide." },
         "confirm": { "type": "string" },
         "nameTemplate": { "type": "string" },
         "hidden": { "type": "boolean" },

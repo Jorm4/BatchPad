@@ -53,6 +53,9 @@ internal static unsafe partial class NativeMethods
         public int ThreadId;
     }
 
+    [LibraryImport("kernel32.dll", EntryPoint = "GetLongPathNameW", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial uint GetLongPathName(string shortPath, char* longPath, uint bufferLength);
+
     [LibraryImport("shlwapi.dll", StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool AssocIsDangerous(string association);

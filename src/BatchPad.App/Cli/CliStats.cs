@@ -23,14 +23,15 @@ public static class CliStatsFormatter
         }
         WriteShares(output, "By folder", stats.Folders);
         WriteShares(output, "By trigger", stats.Triggers);
+        WriteShares(output, "By checkout", stats.Checkouts, "(not a git checkout)");
         WriteList(output, $"Repeated {RunStats.RepeatCount}+ times within {RunStats.RepeatWindow.TotalMinutes:0} minutes",
             stats.Repeats.Select(r => $"{r.Name}  x{r.Count}"));
         WriteList(output, "Slowest tests", stats.SlowestTests.Select(t => $"{t.Name}  {Duration(t.Seconds)}  ({t.Script})"));
         WriteList(output, "Flaky tests", stats.FlakyTests.Select(t => $"{t.Name}  ({t.Script}: {t.Failures} failed, {t.Passes} passed later)"));
     }
 
-    private static void WriteShares(TextWriter output, string title, List<TimeShare> shares) =>
-        WriteList(output, title, shares.Select(s => $"{(s.Name.Length > 0 ? s.Name : "(top level)")}  {Percent(s.Share)}  ({Duration(s.Seconds)})"));
+    private static void WriteShares(TextWriter output, string title, List<TimeShare> shares, string unnamed = "(top level)") =>
+        WriteList(output, title, shares.Select(s => $"{(s.Name.Length > 0 ? s.Name : unnamed)}  {Percent(s.Share)}  ({Duration(s.Seconds)})"));
 
     private static void WriteList(TextWriter output, string title, IEnumerable<string> lines)
     {

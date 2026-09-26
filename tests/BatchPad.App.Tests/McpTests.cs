@@ -14,27 +14,66 @@ namespace BatchPad.App.Tests;
 public sealed class McpTests
 {
     [TestMethod]
-    public void TheParserAcceptsMcpWithAWorkspace()
+    public void TheParserRefusesAWorkspaceForMcp()
     {
-        var command = CliCommand.Parse(["mcp", "--workspace", "repo"]);
-
-        Assert.AreEqual(CliVerb.Mcp, command.Verb);
-        Assert.AreEqual("repo", command.Workspace);
+        Assert.AreEqual(CliVerb.Mcp, CliCommand.Parse(["mcp"]).Verb);
         Assert.IsTrue(CliCommand.IsCli(["mcp"]));
         Assert.Throws<CliUsageException>(() => CliCommand.Parse(["mcp", "--json"]));
+        StringAssert.Contains(Assert.Throws<CliUsageException>(() => CliCommand.Parse(["mcp", "--workspace", "repo"])).Message, "'directory'");
     }
 
     [TestMethod]
-    public async Task AnUntrustedWorkspaceRefusesEveryTool()
+    public async Task AnUntrustedDirectoryRefusesEveryTool()
     {
         using var test = new TestWorkspace();
-        var tools = new McpTools(test.Paths, WriteWorkspace(test));
+        var directory = Path.GetDirectoryName(WriteWorkspace(test))!;
+        var tools = new McpTools(test.Paths);
 
-        foreach (var result in new[] { await tools.ListScripts(), await tools.GetStats(), await tools.GetLog("any") })
+        foreach (var result in new[] { await tools.ListScripts(directory), await tools.GetStats(Path.Combine(directory, "src")) })
         {
             Assert.IsTrue(result.IsError);
             StringAssert.Contains(((TextContentBlock)result.Content.Single()).Text, "until you trust this workspace folder");
         }
+        Assert.IsTrue((await tools.GetLog("any")).IsError);
+        Assert.IsTrue((await tools.GetLog(@"..\..\settings")).IsError);
+    }
+
+    [TestMethod]
+    public async Task AServerStartedInTheMainCheckoutRunsTheScriptsOfTheDirectoryItIsGiven()
+    {
+        using var repo = GitRepo.WithWhichScript();
+        using var test = new TestWorkspace();
+        new TrustStore(new Settings(), test.Paths.SettingsFile).Trust(repo.Main);
+        await using var client = await McpClient.StartInitializedAsync(test, repo.Main);
+
+        var worktree = await client.RunScriptAsync(repo.Worktree, "which");
+        Assert.AreEqual("worktree", worktree["checkout"]!["kind"]!.GetValue<string>());
+        Assert.AreEqual(GitRepo.WorktreeBranch, worktree["checkout"]!["branch"]!.GetValue<string>());
+        StringAssert.Contains(File.ReadAllText(worktree["logPath"]!.GetValue<string>()), "worktree");
+
+        var main = await client.RunScriptAsync(repo.Main, "which");
+        Assert.AreEqual("main", main["checkout"]!["kind"]!.GetValue<string>());
+        Assert.AreEqual("main", File.ReadAllText(main["logPath"]!.GetValue<string>()).Trim());
+
+        var listed = JsonNode.Parse(TextOf(await client.CallToolAsync("list_scripts", new JsonObject { ["directory"] = repo.Worktree })))!;
+        Assert.AreEqual("worktree", listed["checkout"]!["kind"]!.GetValue<string>());
+        Assert.AreEqual("which", listed["scripts"]![0]!["id"]!.GetValue<string>());
+
+        var withoutDirectory = await client.RequestAsync("tools/call", new JsonObject
+        {
+            ["name"] = "run_script",
+            ["arguments"] = new JsonObject { ["id"] = "which" },
+        });
+        Assert.IsTrue(withoutDirectory["error"] is not null || withoutDirectory["result"]!["isError"]?.GetValue<bool>() == true,
+            withoutDirectory.ToJsonString());
+
+        var untrusted = await client.CallToolAsync("run_script",
+            new JsonObject { ["directory"] = Path.GetDirectoryName(WriteWorkspace(test))!, ["id"] = "pass" });
+        Assert.IsTrue(untrusted["isError"]!.GetValue<bool>());
+        StringAssert.Contains(TextOf(untrusted), "until you trust this workspace folder");
+        Assert.HasCount(2, HistoryStore.For(test.Paths, GitRepo.WorkspaceId).Recent());
+
+        Assert.AreEqual(0, await client.CloseAsync());
     }
 
     [TestMethod]
@@ -45,28 +84,19 @@ public sealed class McpTests
         var settings = new Settings();
         new TrustStore(settings, test.Paths.SettingsFile).Trust(workspace);
         settings.Update(test.Paths.SettingsFile, s => s.Mcp = new McpSettings { AllowIds = ["pass", "fail"] });
-        await using var client = McpClient.Start(test, "mcp", "--workspace", workspace);
-
-        var initialized = await client.CallAsync("initialize", new JsonObject
-        {
-            ["protocolVersion"] = "2025-06-18",
-            ["capabilities"] = new JsonObject(),
-            ["clientInfo"] = new JsonObject { ["name"] = "test-agent", ["version"] = "1" },
-        });
-        Assert.AreEqual("batchpad", initialized["serverInfo"]!["name"]!.GetValue<string>());
-        await client.NotifyAsync("notifications/initialized");
+        await using var client = await McpClient.StartInitializedAsync(test, test.Root);
 
         var tools = (await client.CallAsync("tools/list"))["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Order();
         CollectionAssert.AreEqual(new[] { "get_log", "get_stats", "list_scripts", "run_script" }, tools.ToArray());
 
-        var passed = await client.RunScriptAsync("pass");
+        var passed = await client.RunScriptAsync(workspace, "pass");
         Assert.AreEqual(0, passed["exitCode"]!.GetValue<int>());
         Assert.IsTrue(passed["succeeded"]!.GetValue<bool>());
         Assert.AreEqual("exited", passed["outcome"]!.GetValue<string>());
         var runId = passed["runId"]!.GetValue<string>();
         Assert.AreEqual(RunTriggers.Agent("test-agent"), HistoryStore.For(test.Paths, "mcp-fixture").Recent().Single(r => r.Id == runId).Trigger);
 
-        var failed = await client.RunScriptAsync("fail");
+        var failed = await client.RunScriptAsync(workspace, "fail");
         Assert.AreEqual(1, failed["exitCode"]!.GetValue<int>());
         var error = failed["errors"]!.AsArray().Single(e => e!["file"] is not null)!;
         Assert.AreEqual(3, error["line"]!.GetValue<int>());
@@ -77,7 +107,7 @@ public sealed class McpTests
         var range = await client.CallToolAsync("get_log", new JsonObject { ["runId"] = runId, ["fromLine"] = 1, ["toLine"] = 1 });
         Assert.AreEqual("one", TextOf(range));
 
-        var refused = await client.CallToolAsync("run_script", new JsonObject { ["id"] = "blocked" });
+        var refused = await client.CallToolAsync("run_script", new JsonObject { ["directory"] = workspace, ["id"] = "blocked" });
         Assert.IsTrue(refused["isError"]!.GetValue<bool>());
         StringAssert.Contains(TextOf(refused), "allowIds");
 
@@ -115,10 +145,25 @@ public sealed class McpTests
 
         private McpClient(Process process) => _process = process;
 
-        public static McpClient Start(TestWorkspace test, params string[] args)
+        public static async Task<McpClient> StartInitializedAsync(TestWorkspace test, string workingDirectory)
+        {
+            var client = Start(test, workingDirectory);
+            var initialized = await client.CallAsync("initialize", new JsonObject
+            {
+                ["protocolVersion"] = "2025-06-18",
+                ["capabilities"] = new JsonObject(),
+                ["clientInfo"] = new JsonObject { ["name"] = "test-agent", ["version"] = "1" },
+            });
+            Assert.AreEqual("batchpad", initialized["serverInfo"]!["name"]!.GetValue<string>());
+            await client.NotifyAsync("notifications/initialized");
+            return client;
+        }
+
+        private static McpClient Start(TestWorkspace test, string workingDirectory)
         {
             var startInfo = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "batchpad.com"))
             {
+                WorkingDirectory = workingDirectory,
                 UseShellExecute = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -127,8 +172,7 @@ public sealed class McpTests
                 StandardOutputEncoding = Encoding.UTF8,
             };
             startInfo.Environment[App.DataDirectoryVariable] = test.Paths.DataDirectory;
-            foreach (var arg in args)
-                startInfo.ArgumentList.Add(arg);
+            startInfo.ArgumentList.Add("mcp");
             var process = Process.Start(startInfo)!;
             process.StandardInput.AutoFlush = true;
             process.ErrorDataReceived += (_, _) => { };
@@ -138,6 +182,13 @@ public sealed class McpTests
 
         public async Task<JsonNode> CallAsync(string method, JsonObject? parameters = null)
         {
+            var message = await RequestAsync(method, parameters);
+            Assert.IsNull(message["error"], message.ToJsonString());
+            return message["result"]!;
+        }
+
+        public async Task<JsonNode> RequestAsync(string method, JsonObject? parameters = null)
+        {
             var id = ++_nextId;
             await SendAsync(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method, ["params"] = parameters });
             while (true)
@@ -146,10 +197,8 @@ public sealed class McpTests
                     ?? throw new AssertFailedException($"stdout closed while waiting for {method}.");
                 var message = JsonNode.Parse(line)!;
                 Assert.AreEqual("2.0", message["jsonrpc"]?.GetValue<string>(), line);
-                if (message["id"]?.GetValue<int>() != id)
-                    continue;
-                Assert.IsNull(message["error"], line);
-                return message["result"]!;
+                if (message["id"]?.GetValue<int>() == id)
+                    return message;
             }
         }
 
@@ -158,9 +207,9 @@ public sealed class McpTests
         public Task<JsonNode> CallToolAsync(string name, JsonObject arguments) =>
             CallAsync("tools/call", new JsonObject { ["name"] = name, ["arguments"] = arguments });
 
-        public async Task<JsonNode> RunScriptAsync(string id)
+        public async Task<JsonNode> RunScriptAsync(string directory, string id)
         {
-            var result = await CallToolAsync("run_script", new JsonObject { ["id"] = id });
+            var result = await CallToolAsync("run_script", new JsonObject { ["directory"] = directory, ["id"] = id });
             Assert.IsNull(result["isError"], result.ToJsonString());
             return JsonNode.Parse(TextOf(result))!;
         }

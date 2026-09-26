@@ -168,6 +168,7 @@ taken) and stores it in the script's entry.
   "ready": { "pattern": "Serving .* on (http://\\S+)", "open": "$1" },
   "stop": "stop-web",             // id of a script that stops this one (else kill tree)
   "lock": "native-build",         // runs sharing a lock name queue instead of overlapping
+  "lockScope": "checkout",        // checkout | machine: lock and singleInstance hold per git checkout, or across all (§4)
   "confirm": "Deploys to the public site. Continue?",
   "errorPatterns": [": error ", "LNK\\d{4}"],   // highlighting only, never decides success
   "artifacts": [{ "path": "qa_report.html", "open": "onSuccess" }],  // links on the run tab; open: never|onSuccess|always
@@ -575,8 +576,12 @@ Locks are re-entrant within one workflow run, so a workflow holding
 `native-build` can run a step that takes `native-build` too. `singleInstance`
 is not: two parallel steps running the same script still take turns. A queued run
 shows "waiting for lock X" on its tab and its tree badge, and Stop takes it
-out of the queue without starting it. Locks and `singleInstance` are
-machine-wide: the app, command-line runs and agents all share them (§4.5).
+out of the queue without starting it. Locks and `singleInstance` hold across
+processes (the app, command-line runs and agents all share them; §4.5) and,
+by default, **per checkout**: two git worktrees of one repository build into
+separate folders, so their `native-build` locks don't block each other. For
+things every checkout shares, such as a network port or a device, set
+`"lockScope": "machine"` on the script or workflow.
 
 **Unattended runs.** Scheduled runs and CLI runs have nobody to answer
 prompts. `confirm`, `ask` and `secret` then fail the run immediately, with a
@@ -932,8 +937,8 @@ commands at once, next to a person using the app. So named locks and
 - `--no-wait` fails fast instead of queueing. It applies to a single script;
   with a workflow or prerequisites it is a usage error.
 
-**An MCP server.** `batchpad mcp [--workspace <path>]` runs an MCP server
-over stdio with these tools:
+**An MCP server.** `batchpad mcp` runs an MCP server over stdio with these
+tools:
 
 | Tool | Does |
 |---|---|
@@ -942,9 +947,40 @@ over stdio with these tools:
 | `get_log` | a recorded run's log: tail, errors only, or a line range (ranges are MCP-only; `batchpad log` has tail and errors) |
 | `get_stats` | the Insights figures for a period |
 
-Register it with `claude mcp add batchpad -- batchpad.com mcp --workspace .`.
-Agents then get typed tools, and the permission system can allow
-`run_script` for chosen ids only (`mcp.allowIds` in settings.json).
+`list_scripts`, `run_script` and `get_stats` take a **required `directory`**:
+the agent's own working folder, from which the workspace is found as the
+command line finds it. The server has no default workspace, because one MCP
+server serves a whole agent session, including subagents that work in other
+git worktrees. A default taken from where the server was started would
+quietly run the main checkout's scripts for a worktree agent.
+
+Register it with `claude mcp add batchpad -- batchpad.com mcp`. Agents then
+get typed tools, and the permission system can allow `run_script` for chosen
+ids only (`mcp.allowIds` in settings.json).
+
+**Git worktrees.** Agents often work in worktrees (`git worktree add`), one
+checkout per task. BatchPad makes sure a script always runs in the checkout
+the agent is working in:
+- **Resolution.** The command line resolves the workspace from its current
+  folder, and the MCP tools from `directory`. Either way the worktree's own
+  `batchpad.json` is found first; the file is committed, so every worktree
+  has it.
+- **Every result says where it ran.** Run and list results carry
+  `checkout: { directory, kind: "main" | "worktree", name, branch, commit,
+  repository }`. The command line also prints "in <checkout>" on stderr in
+  text mode, so a run in the wrong checkout is visible at once.
+- **Trust follows the repository.** A worktree of a trusted repository is
+  trusted. BatchPad reads git's own files in both directions: the worktree's
+  `.git` file points at `<repo>/.git/worktrees/<name>`, whose `gitdir` file
+  must point back at that worktree, and whose `commondir` leads to the
+  repository. A hand-made `.git` file that points at a trusted repository is
+  not enough.
+- **Locks are per checkout** by default (§4 Locks), so agents in separate
+  worktrees build in parallel, and `lockScope: machine` covers shared ports
+  and devices.
+- **One identity, one history.** Worktrees share the workspace id, so My
+  Scripts and the run history are shared. Each run records its checkout,
+  and Insights and `batchpad stats` can filter or group by checkout.
 
 **Trust stays with people.** The command line and the MCP server run only in
 workspaces trusted in the app (§4.3). A future command-line trust command
@@ -952,8 +988,9 @@ would require an interactive confirmation, so an agent cannot trust a
 workspace for itself.
 
 **A project snippet.** The README gives a short CLAUDE.md section to paste
-into a project: "build and test through `batchpad run <id> --errors-only`;
-see `batchpad list --json`".
+into a project: "build and test through `batchpad run <id> --errors-only`
+from your working folder (or the MCP tools with `directory` set to it); see
+`batchpad list --json`; check that the reported checkout is yours".
 
 ## 5. UI
 

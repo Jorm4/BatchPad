@@ -31,6 +31,21 @@ public sealed class EditorTabsTests
     }
 
     [TestMethod]
+    public void AMachineWideLockSavesItsScope()
+    {
+        using var test = new TestWorkspace();
+        var (main, demo) = Open(test);
+        var editor = Edit(main);
+
+        editor.General.LockName = "port";
+        editor.General.MachineWideLock = true;
+        editor.SaveCommand.Execute(null);
+
+        Assert.AreEqual(LockScope.Machine, Read(demo).LockScope);
+        Assert.IsTrue(Edit(main).General.MachineWideLock);
+    }
+
+    [TestMethod]
     public void ReadyTesterReportsTheMatchAndExpandedUrl()
     {
         using var test = new TestWorkspace();
