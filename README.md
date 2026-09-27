@@ -334,9 +334,11 @@ To keep a build you use day to day apart from `dist\`, which every publish
 replaces, pin `stable\BatchPad.exe` (git-ignored) and refresh it with the
 repository's own *Update stable BatchPad* script, or
 `tools\update-stable.ps1`. It publishes, then closes a stable BatchPad
-that is open, copies the new files into `stable\` and restarts it. Closing
-is forced after 10 seconds, which also ends command-line runs of the stable
-copy.
+that is open, copies the new files into `stable\` and restarts it. It asks
+BatchPad to exit as the tray's Exit does, even while hidden to the tray,
+and forces it after 30 seconds. Command-line runs of the stable copy are
+left alone; one still running keeps the old files in place, and the log
+(`stable\update.log`) says so.
 
 `dotnet test` runs every test, but the UI tests skip themselves unless
 `BATCHPAD_UI_TESTS=1` is set: they start the real app, take the foreground

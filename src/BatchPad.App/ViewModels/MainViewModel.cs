@@ -454,7 +454,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private void Exit()
+    public void Exit()
     {
         if (Output.Tabs.Any(t => t.IsRunning))
             ShowWindow();

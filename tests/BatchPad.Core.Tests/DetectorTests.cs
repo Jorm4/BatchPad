@@ -134,6 +134,24 @@ public sealed class DetectorTests
     }
 
     [TestMethod]
+    [DataRow("rem   tool.bat  <file>", "file")]
+    [DataRow("rem   tool.bat  <file>  the file to pack", "file")]
+    [DataRow("rem   tool.bat            AVX2 build (any CPU)", "")]
+    [DataRow("rem   pack.bat <archive> file ...", "archive,file")]
+    public void UsageArgumentsAfterAWideGapOrBeforeAnEllipsisAreKept(string usage, string expected)
+    {
+        using var dir = new TempDir();
+        var script = dir.Path(usage.Contains("pack.bat") ? "pack.bat" : "tool.bat");
+        File.WriteAllText(script, $"@echo off\r\n{usage}\r\n");
+
+        var result = Detector.Detect(script);
+
+        Assert.AreEqual(expected, string.Join(",", result.Parameters.Select(p => p.Name)));
+        if (expected.Contains(','))
+            Assert.IsTrue(result.Parameters.Last().Split);
+    }
+
+    [TestMethod]
     public void CachedDetectionFollowsFileChangesAndHandsOutCopies()
     {
         using var dir = new TempDir();

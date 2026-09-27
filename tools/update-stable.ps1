@@ -18,14 +18,29 @@ if (-not $Swap) {
 
 New-Item -ItemType Directory -Force $stable | Out-Null
 Start-Transcript -Path (Join-Path $stable 'update.log') | Out-Null
+$apps = @()
 try {
     # Lets the BatchPad that started this record the run as finished before it closes.
     Start-Sleep -Seconds 3
-    $running = @(Get-Process BatchPad -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
-    $closing = @($running | Where-Object { $_.CloseMainWindow() })
-    $closing | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
-    $running | Where-Object { -not $_.HasExited } | Stop-Process -Force
-    $running | Wait-Process -ErrorAction SilentlyContinue
+    # Command-line runs (started by batchpad.com) are left to finish; only the app windows are closed.
+    $apps = @(Get-Process BatchPad -ErrorAction SilentlyContinue | Where-Object {
+        $parentId = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").ParentProcessId
+        $parent = Get-Process -Id $parentId -ErrorAction SilentlyContinue
+        $_.Path -eq $exe -and -not ($parent -and $parent.Path -like '*.com')
+    })
+    foreach ($app in $apps) {
+        try {
+            # Exits as the tray's Exit does, even while hidden to the tray; older builds only answer a window close.
+            [System.Threading.EventWaitHandle]::OpenExisting("BatchPad-Exit-$($app.Id)").Set() | Out-Null
+        }
+        catch {
+            $app.CloseMainWindow() | Out-Null
+        }
+    }
+    # Leaves time to answer "runs are still running" before forcing it.
+    $apps | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
+    $apps | Where-Object { -not $_.HasExited } | Stop-Process -Force
+    $apps | Wait-Process -ErrorAction SilentlyContinue
 
     foreach ($attempt in 1..10) {
         try {
@@ -38,8 +53,9 @@ try {
         }
     }
     Write-Host "Installed $exe"
-    if ($running) { Start-Process $exe }
 }
 finally {
+    # Started in its own folder, BatchPad opens the most recent workspace rather than the one around this script.
+    if ($apps) { Start-Process $exe -WorkingDirectory $stable }
     Stop-Transcript | Out-Null
 }

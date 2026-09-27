@@ -18,10 +18,15 @@ public partial class App : Application
 
     private readonly TrayService _tray = new();
     private MainViewModel? _main;
+    private EventWaitHandle? _exitRequest;
+
+    /// <summary>Setting this event exits BatchPad as the tray's Exit does, even while hidden to the tray; tools/update-stable.ps1 uses it.</summary>
+    public static string ExitEventName(int processId) => $"BatchPad-Exit-{processId}";
 
     protected override void OnExit(ExitEventArgs e)
     {
         _tray.Dispose();
+        _exitRequest?.Dispose();
         _main?.Shutdown();
         base.OnExit(e);
     }
@@ -34,6 +39,8 @@ public partial class App : Application
         main.OpenInitial(e.Args.FirstOrDefault(), Environment.CurrentDirectory, AppContext.BaseDirectory);
         main.EnableFileWatching();
         new MainWindow { DataContext = main }.Show();
+        _exitRequest = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName(Environment.ProcessId));
+        ThreadPool.RegisterWaitForSingleObject(_exitRequest, (_, _) => Dispatcher.BeginInvoke(main.Exit), null, Timeout.Infinite, executeOnlyOnce: false);
     }
 
     internal static int RunCli(string[] args)

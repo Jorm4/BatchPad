@@ -37,9 +37,22 @@ internal static partial class BatchParameterDetector
             var firstSpace = text.IndexOf(' ');
             var command = firstSpace < 0 ? text : text[..firstSpace];
             if (command.Equals(fileName, StringComparison.OrdinalIgnoreCase) || command.Equals(stem, StringComparison.OrdinalIgnoreCase))
-                yield return firstSpace < 0 ? "" : DescriptionGap().Split(text[firstSpace..], 2)[0].Trim();
+                yield return firstSpace < 0 ? "" : Arguments(text[firstSpace..]);
         }
     }
+
+    /// <summary>What follows the command, up to its aligned description.</summary>
+    private static string Arguments(string rest)
+    {
+        var parts = DescriptionGap().Split(rest, 3);
+        if (parts[0].Trim() is { Length: > 0 } arguments)
+            return arguments;
+        // A gap right after the command starts either the arguments or, on a line with none, the description.
+        var next = parts.Length > 1 ? parts[1].Trim() : "";
+        return UsageToken().Matches(next).All(m => IsSyntax(m.Value)) ? next : "";
+    }
+
+    private static bool IsSyntax(string token) => token is "[" or "]" or "|" or "..." || IsOption(token) || token.StartsWith('<');
 
     private static List<ParameterDefinition> ParseUsage(string usage)
     {
@@ -69,7 +82,8 @@ internal static partial class BatchParameterDetector
                     group.Add(tokens[++i]);
             }
 
-            if (ParseGroup(group, optional) is { } parameter)
+            var listed = i + 1 < tokens.Count && tokens[i + 1] == "...";
+            if (ParseGroup(group, optional || listed) is { } parameter)
                 parameters.Add(parameter);
         }
         return parameters;

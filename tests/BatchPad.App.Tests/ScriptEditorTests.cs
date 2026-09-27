@@ -108,6 +108,20 @@ public sealed class ScriptEditorTests
     }
 
     [TestMethod]
+    public void EditLeavesAPageHoldingUnsavedEditsOpen()
+    {
+        using var test = new TestWorkspace();
+        var main = test.OpenMain(test.CopyDemo(), trusted: true);
+        main.Tree!.Find("Workspace/Parameters demo")!.IsSelected = true;
+        main.OpenWorkspaceSettingsCommand.Execute(null);
+
+        main.Details.EditCommand.Execute(null);
+
+        Assert.IsNotNull(main.WorkspaceSettings);
+        Assert.IsNull(main.Details.Editor);
+    }
+
+    [TestMethod]
     public void TheSharedBannerShowsForWorkspaceScriptsButNotMyScripts()
     {
         using var test = new TestWorkspace();
