@@ -14,7 +14,7 @@ namespace BatchPad.App.ViewModels.Workspace;
 /// "New link…", "New entry…" and "New folder": adds the node to the nearest explicit folder of the tree it was asked from.
 /// "New script…" writes a file from a template into one of the tree's script folders, or the workspace's.
 /// </summary>
-public sealed partial class NewItemViewModel : ObservableObject
+public sealed partial class NewItemViewModel : ObservableObject, IUnsavedEdits
 {
     private readonly MainViewModel _main;
     private readonly ScriptTree _tree;
@@ -41,6 +41,10 @@ public sealed partial class NewItemViewModel : ObservableObject
     }
 
     public NewItemKind Kind { get; }
+
+    public bool HasUnsavedEdits => !string.IsNullOrWhiteSpace(Name) || !string.IsNullOrWhiteSpace(Target) || !string.IsNullOrWhiteSpace(Description);
+
+    public string EditsDescription => $"the {Title.ToLowerInvariant()}";
     public bool IsLink => Kind == NewItemKind.Link;
     public bool IsEntry => Kind == NewItemKind.Entry;
     public bool HasTarget => IsLink || IsEntry;

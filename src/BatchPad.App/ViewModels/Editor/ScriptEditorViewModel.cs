@@ -11,12 +11,13 @@ using CommunityToolkit.Mvvm.Input;
 namespace BatchPad.App.ViewModels.Editor;
 
 /// <summary>Edits a copy of a script's definition (§5.1); nothing is written until <see cref="SaveCommand"/>.</summary>
-public sealed partial class ScriptEditorViewModel : ObservableObject
+public sealed partial class ScriptEditorViewModel : ObservableObject, IUnsavedEdits
 {
     private readonly MainViewModel _main;
     private NodeViewModel _node;
     private readonly ScriptNode _original;
     private (string Path, string Id)? _newCompanion;
+    private readonly string _initial;
 
     public ScriptEditorViewModel(MainViewModel main, NodeViewModel node)
     {
@@ -47,7 +48,12 @@ public sealed partial class ScriptEditorViewModel : ObservableObject
         };
         choices = BuildChoices();
         Refresh();
+        _initial = ConfigJson.Serialize(Definition);
     }
+
+    public bool HasUnsavedEdits => _newCompanion is not null || ConfigJson.Serialize(Definition) != _initial;
+
+    public string EditsDescription => $"'{_node.Name}'";
 
     public ChoiceEnvironment ChoiceEnvironment { get; }
 

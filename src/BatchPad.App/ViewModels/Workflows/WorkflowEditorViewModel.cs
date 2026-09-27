@@ -25,7 +25,7 @@ public sealed record StepChoice(string Label, NodeViewModel Node)
 }
 
 /// <summary>Edits a copy of a workflow (§4.1, §5.1) as a list of step cards; nothing is written until <see cref="SaveCommand"/>.</summary>
-public sealed partial class WorkflowEditorViewModel : ObservableObject
+public sealed partial class WorkflowEditorViewModel : ObservableObject, IUnsavedEdits
 {
     private readonly MainViewModel _main;
     private readonly ScriptTree _tree;
@@ -61,6 +61,24 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
             Steps.Add(CardFor(step));
         _loading = false;
         Refresh();
+        _initial = ConfigJson.Serialize(Built());
+    }
+
+    private readonly string _initial;
+
+    public bool HasUnsavedEdits => ConfigJson.Serialize(Built()) != _initial;
+
+    public string EditsDescription => _original is null ? "the new workflow" : $"'{Name}'";
+
+    private WorkflowNode Built()
+    {
+        var built = ConfigJson.Clone(Definition);
+        built.Name = Name.Trim().Length == 0 ? null : Name.Trim();
+        built.Description = GeneralTabViewModel.NullIfEmpty(Description);
+        built.Id = GeneralTabViewModel.NullIfEmpty(Id);
+        built.NameTemplate = GeneralTabViewModel.NullIfEmpty(NameTemplate);
+        built.Steps = Steps.Select(s => s.ToStep()).ToList();
+        return built;
     }
 
     public LoadedWorkspace Workspace { get; }
@@ -265,12 +283,7 @@ public sealed partial class WorkflowEditorViewModel : ObservableObject
     [RelayCommand]
     private void Save()
     {
-        var saved = ConfigJson.Clone(Definition);
-        saved.Name = Name.Trim().Length == 0 ? null : Name.Trim();
-        saved.Description = GeneralTabViewModel.NullIfEmpty(Description);
-        saved.Id = GeneralTabViewModel.NullIfEmpty(Id);
-        saved.NameTemplate = GeneralTabViewModel.NullIfEmpty(NameTemplate);
-        saved.Steps = Steps.Select(s => s.ToStep()).ToList();
+        var saved = Built();
         var folderPath = _folder is null ? null : ConfigEntries.IndexPath(_tree.File.Scripts, _folder);
         try
         {

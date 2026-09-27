@@ -126,7 +126,7 @@ public sealed class SharedParameterViewModel(string key, ParameterDefinition def
 }
 
 /// <summary>The workspace page (§5.1): edits a copy of the workspace file's settings and writes them on Save.</summary>
-public sealed partial class WorkspaceSettingsViewModel : ObservableObject
+public sealed partial class WorkspaceSettingsViewModel : ObservableObject, IUnsavedEdits
 {
     private readonly MainViewModel _main;
     private readonly ScriptTree _tree;
@@ -223,22 +223,35 @@ public sealed partial class WorkspaceSettingsViewModel : ObservableObject
     [RelayCommand]
     private void RemoveEnvironment(KeyValueRow row) => Environment.Remove(row);
 
+    public bool HasUnsavedEdits
+    {
+        get
+        {
+            var edited = ConfigJson.Clone(_tree.File);
+            ApplyTo(edited);
+            return ConfigJson.Serialize(edited) != ConfigJson.Serialize(_tree.File);
+        }
+    }
+
+    public string EditsDescription => "the workspace settings";
+
+    private void ApplyTo(WorkspaceFile file)
+    {
+        file.Name = NullIfEmpty(Name);
+        if (_foldersChanged)
+            file.ScriptFolders = ScriptFolders.Where(f => f.Path.Trim().Length > 0).Select(f => f.ToDefinition()).ToList();
+        var shared = SharedParameters.ToDictionary(s => s.Key, s => ConfigJson.Clone(s.Definition));
+        file.SharedParams = shared.Count == 0 ? null : shared;
+        file.Variables = KeyValueRow.ToDictionary(Variables);
+        file.Env = KeyValueRow.ToDictionary(Environment);
+    }
+
     [RelayCommand]
     private void Save()
     {
-        var folders = _foldersChanged ? ScriptFolders.Where(f => f.Path.Trim().Length > 0).Select(f => f.ToDefinition()).ToList() : null;
-        var shared = SharedParameters.ToDictionary(s => s.Key, s => ConfigJson.Clone(s.Definition));
         try
         {
-            ConfigWriter.Update(_tree.FilePath, file =>
-            {
-                file.Name = NullIfEmpty(Name);
-                if (folders is not null)
-                    file.ScriptFolders = folders;
-                file.SharedParams = shared.Count == 0 ? null : shared;
-                file.Variables = KeyValueRow.ToDictionary(Variables);
-                file.Env = KeyValueRow.ToDictionary(Environment);
-            });
+            ConfigWriter.Update(_tree.FilePath, ApplyTo);
         }
         catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {

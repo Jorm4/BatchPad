@@ -1088,6 +1088,10 @@ light/dark mode and uses the accent colour and Mica backdrop.
   show; a page holding unsaved edits stays open.
 - **Saving:** a My Scripts entry saves its form values as they change, and a
   rename saves on Enter or when the box loses focus; there is no Save button.
+  The script and workflow editors, Workspace settings, a new item and the
+  schedule editor save on Save. Leaving one with unsaved edits another way
+  (choosing another item, Esc, opening another page, switching workspace)
+  asks before discarding them; keeping them returns to the edit.
 - **Drag and drop:** from a shared tree to My Scripts creates a customisation
   with the current values. Within My Scripts it moves and reorders. Dropping
   a script file from Explorer onto My Scripts creates a standalone entry.

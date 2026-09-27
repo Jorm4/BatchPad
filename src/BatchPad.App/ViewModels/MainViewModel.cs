@@ -577,11 +577,14 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (Palette.IsOpen)
             Palette.IsOpen = false;
-        else if (Schedules is { Editor: not null } page)
-            page.Editor = null;
+        else if (Schedules is { Editor: { } editor } page)
+        {
+            if (ConfirmDiscard(editor))
+                page.Editor = null;
+        }
         else if (IsPageOpen)
-            ClosePages();
-        else
+            TryClosePages();
+        else if (ConfirmDiscard(Details.Editor, Details.WorkflowEditor))
             Details.LeaveEditMode();
     }
 
@@ -708,7 +711,8 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasWorkspace))]
     private void OpenWorkspaceSettings()
     {
-        ClosePages();
+        if (!TryClosePages())
+            return;
         var settings = new WorkspaceSettingsViewModel(this);
         settings.Closed += () => WorkspaceSettings = null;
         WorkspaceSettings = settings;
@@ -717,7 +721,8 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void OpenNewWorkspace()
     {
-        ClosePages();
+        if (!TryClosePages())
+            return;
         var wizard = new NewWorkspaceWizardViewModel(this);
         wizard.Closed += () => NewWorkspace = null;
         NewWorkspace = wizard;
@@ -725,9 +730,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void OpenNewItem(NodeViewModel near, NewItemKind kind)
     {
-        ClosePages();
+        if (!TryClosePages())
+            return;
         if (kind == NewItemKind.Workflow)
         {
+            if (!ConfirmDiscard(Details.Editor, Details.WorkflowEditor))
+                return;
             Details.OpenWorkflowEditor(new WorkflowEditorViewModel(this, near.Tree, null, NewItemViewModel.NearestFolder(near)));
             return;
         }
@@ -739,8 +747,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasWorkspace))]
     private void OpenSchedules()
     {
-        ClosePages(keepSchedules: true);
-        if (Schedules is not null)
+        if (!TryClosePages(keepSchedules: true) || Schedules is not null)
             return;
         var page = new SchedulesViewModel(this);
         page.Closed += () => Schedules = null;
@@ -750,8 +757,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasWorkspace))]
     private void OpenInsights()
     {
-        ClosePages(keepInsights: true);
-        if (Insights is not null)
+        if (!TryClosePages(keepInsights: true) || Insights is not null)
             return;
         var page = new InsightsViewModel(this);
         page.Closed += () => Insights = null;
@@ -761,12 +767,28 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void OpenSettings()
     {
-        ClosePages(keepSettings: true);
-        if (SettingsPage is not null)
+        if (!TryClosePages(keepSettings: true) || SettingsPage is not null)
             return;
         var page = new SettingsViewModel(this);
         page.Closed += () => SettingsPage = null;
         SettingsPage = page;
+    }
+
+    /// <summary>Asks before unsaved edits are thrown away; true when there are none or the user agrees.</summary>
+    internal bool ConfirmDiscard(params IUnsavedEdits?[] closing)
+    {
+        var unsaved = closing.OfType<IUnsavedEdits>().Where(e => e.HasUnsavedEdits).Select(e => e.EditsDescription).ToList();
+        return unsaved.Count == 0
+            || Services.Confirm.Confirm("Unsaved changes", $"Discard your unsaved changes to {string.Join(" and ", unsaved)}?");
+    }
+
+    /// <summary><see cref="ClosePages"/>, after asking about unsaved edits on the pages it closes; false when the user keeps them.</summary>
+    private bool TryClosePages(bool keepSchedules = false, bool keepInsights = false, bool keepSettings = false)
+    {
+        if (!ConfirmDiscard(WorkspaceSettings, NewItem, keepSchedules ? null : Schedules?.Editor))
+            return false;
+        ClosePages(keepSchedules, keepInsights, keepSettings);
+        return true;
     }
 
     internal void ClosePages(bool keepSchedules = false, bool keepInsights = false, bool keepSettings = false)
@@ -879,8 +901,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnSelectedWorkspaceChanged(WorkspaceChoice? value)
     {
-        if (!_opening && value is not null && !string.Equals(value.FilePath, Workspace?.FilePath, StringComparison.OrdinalIgnoreCase))
+        if (_opening || value is null || string.Equals(value.FilePath, Workspace?.FilePath, StringComparison.OrdinalIgnoreCase))
+            return;
+        if (ConfirmDiscard(Details.Editor, Details.WorkflowEditor, WorkspaceSettings, NewItem, Schedules?.Editor))
             Open(value.FilePath);
+        else
+            Services.Dispatcher.Post(RefreshRecents);
     }
 
     private void RefreshRecents()
@@ -904,6 +930,13 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (e.PropertyName != nameof(TreeViewModel.SelectedNode))
             return;
+        // Choosing another item closes an open editor; kept instead, the selection goes back to the item being edited.
+        if (SelectedNode is not null && Details.Node is { } edited && SelectedNode != edited && !_keepPageOpen
+            && !ConfirmDiscard(Details.Editor, Details.WorkflowEditor))
+        {
+            Services.Dispatcher.Post(() => KeepingPageOpen(edited.Reveal));
+            return;
+        }
         OnPropertyChanged(nameof(SelectedNode));
         if (SelectedNode is not null && !_keepPageOpen)
             ShowDetails();

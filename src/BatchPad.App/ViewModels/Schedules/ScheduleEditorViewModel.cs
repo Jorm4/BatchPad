@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.Arguments;
+using BatchPad.Core.Config;
 using BatchPad.Core.Discovery;
 using BatchPad.Core.Model;
 using BatchPad.Core.Scheduling;
@@ -16,7 +17,7 @@ public sealed record Option<T>(T Value, string Label);
 
 public sealed record ScheduleTargetChoice(string Reference, string Label, string Name, TreeKind Tree);
 
-public sealed partial class ScheduleEditorViewModel : ObservableObject
+public sealed partial class ScheduleEditorViewModel : ObservableObject, IUnsavedEdits
 {
     private readonly MainViewModel _main;
     private readonly ScheduleEntry? _existing;
@@ -60,7 +61,23 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject
         if (selectedTarget is null && schedule is not null)
             Targets = [.. Targets, selectedTarget = new ScheduleTargetChoice(schedule.Target, schedule.Target, schedule.Target, TreeKind.Workspace)];
         BuildForm();
+        _initial = State();
     }
+
+    private readonly string _initial;
+
+    public bool HasUnsavedEdits => State() != _initial;
+
+    public string EditsDescription => _existing is null ? "the new schedule" : "the schedule";
+
+    private string State() => $"{IsGlobal}|" + ConfigJson.Serialize(new Schedule
+    {
+        Target = SelectedTarget?.Reference ?? "",
+        Trigger = BuildTrigger(),
+        Values = ChangedValues(),
+        Missed = Missed,
+        Overlap = Overlap,
+    });
 
     public string Title => _existing is null ? "New schedule" : "Edit schedule";
 
