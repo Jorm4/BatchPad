@@ -24,6 +24,16 @@ public sealed class ProposalTrackerTests
     }
 
     [TestMethod]
+    public void ABadgeForMoreThanThreeOptionsGivesOnlyTheCount()
+    {
+        using var temp = new TempDir();
+        var script = temp.Path("tool.bat");
+        File.WriteAllText(script, "@echo off\r\nrem   tool.bat [--a] [--b] [--c] [--d]\r\necho %*\r\n");
+
+        Assert.AreEqual("4 new options", ProposalTracker.For(new ScriptNode { Path = "tool.bat" }, script, []).Badge);
+    }
+
+    [TestMethod]
     public void DismissedProposalsAreLeftOut()
     {
         using var temp = new TempDir();

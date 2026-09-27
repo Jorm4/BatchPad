@@ -10,15 +10,15 @@ public sealed record ScriptProposals(IReadOnlyList<ParameterDefinition> Paramete
 
     public bool IsEmpty => Parameters.Count == 0 && LongRunningReason is null && StopCompanion is null;
 
-    /// <summary>The tree badge text, e.g. <c>1 new option: --gated</c>; null when there is nothing to propose.</summary>
+    /// <summary>The tree badge text, e.g. <c>1 new option: --gated</c>, naming at most three; null when there is nothing to propose.</summary>
     public string? Badge
     {
         get
         {
             var parts = new List<string>();
             if (Parameters.Count > 0)
-                parts.Add($"{Parameters.Count} new option{(Parameters.Count == 1 ? "" : "s")}: "
-                    + string.Join(", ", Parameters.Select(p => p.Arg ?? p.Name)));
+                parts.Add($"{Parameters.Count} new option{(Parameters.Count == 1 ? "" : "s")}"
+                    + (Parameters.Count <= 3 ? ": " + string.Join(", ", Parameters.Select(p => p.Arg ?? p.Name)) : ""));
             if (LongRunningReason is not null)
                 parts.Add("long-running");
             if (StopCompanion is not null)

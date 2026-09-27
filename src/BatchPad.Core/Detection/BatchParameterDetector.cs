@@ -37,7 +37,7 @@ internal static partial class BatchParameterDetector
             var firstSpace = text.IndexOf(' ');
             var command = firstSpace < 0 ? text : text[..firstSpace];
             if (command.Equals(fileName, StringComparison.OrdinalIgnoreCase) || command.Equals(stem, StringComparison.OrdinalIgnoreCase))
-                yield return firstSpace < 0 ? "" : text[(firstSpace + 1)..];
+                yield return firstSpace < 0 ? "" : DescriptionGap().Split(text[firstSpace..], 2)[0].Trim();
         }
     }
 
@@ -101,6 +101,9 @@ internal static partial class BatchParameterDetector
                 : new ParameterDefinition { Name = Identifier(first), Type = ParameterType.Text, Arg = first };
         }
 
+        // A bare word outside brackets is a sample value (build.bat SpaceTrader), not a placeholder.
+        if (!optional && !IsValuePlaceholder(first) && !group.Any(t => t.Contains("...")))
+            return null;
         var parameter = new ParameterDefinition
         {
             Name = Identifier(first),
@@ -173,6 +176,10 @@ internal static partial class BatchParameterDetector
 
     [GeneratedRegex(@"^\s*usage\s*:?\s*", RegexOptions.IgnoreCase)]
     private static partial Regex UsagePrefix();
+
+    /// <summary>Two spaces or a tab: where a usage line's aligned description starts.</summary>
+    [GeneratedRegex(@" {2,}|\t")]
+    private static partial Regex DescriptionGap();
 
     [GeneratedRegex(@"\[|\]|\||<[^>]*>|\.\.\.|[^\s\[\]|<]+")]
     private static partial Regex UsageToken();

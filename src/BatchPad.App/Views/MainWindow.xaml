@@ -200,7 +200,7 @@
                                 <TextBlock x:Name="RunBadge" DockPanel.Dock="Right" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center" />
                                 <TextBlock x:Name="BrokenBadge" DockPanel.Dock="Right" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center"
                                            FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="#9D5D00" ToolTip="{Binding Description}" />
-                                <Grid ToolTip="{Binding Header}">
+                                <Grid ToolTip="{Binding Header}" MinWidth="80">
                                     <TextBlock x:Name="Label" Text="{Binding Header}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                     <TextBox x:Name="RenameBox" Visibility="Collapsed" MinWidth="160" Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}"
                                              IsVisibleChanged="OnRenameBoxVisibleChanged" LostKeyboardFocus="OnRenameBoxLostFocus"

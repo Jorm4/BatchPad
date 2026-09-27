@@ -124,6 +124,16 @@ public sealed class DetectorTests
     }
 
     [TestMethod]
+    public void UsageExamplesWithAlignedDescriptionsProposeOnlyTheirOptions()
+    {
+        var result = Detect("build_examples.bat");
+
+        CollectionAssert.AreEquivalent(new[] { "--games", "--tests", "--asan", null },
+            result.Parameters.Select(p => p.Arg).ToList());
+        Assert.AreEqual("names", result.Parameters.Single(p => p.Arg is null).Name);
+    }
+
+    [TestMethod]
     public void CachedDetectionFollowsFileChangesAndHandsOutCopies()
     {
         using var dir = new TempDir();
