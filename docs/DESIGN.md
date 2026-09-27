@@ -1085,7 +1085,8 @@ light/dark mode and uses the accent colour and Mica backdrop.
   broken references. Filter-as-you-type. Double-click runs with the current
   values; Enter runs; F2 renames; Delete removes a My Scripts entry.
   Choosing an item closes Insights, Schedules or Settings so its details
-  show; a page holding unsaved edits stays open.
+  show; a page holding unsaved edits stays open. It also shows the item's
+  running output tab, else its latest one.
 - **Saving:** a My Scripts entry saves its form values as they change, and a
   rename saves on Enter or when the box loses focus; there is no Save button.
   The script and workflow editors, Workspace settings, a new item and the

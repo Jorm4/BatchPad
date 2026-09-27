@@ -9,6 +9,29 @@ namespace BatchPad.App.Tests;
 public sealed class RunViewModelTests
 {
     [TestMethod]
+    public void ChoosingAScriptShowsItsTab()
+    {
+        using var test = new TestWorkspace();
+        var launcher = new FakeLauncher();
+        var main = Open(test, launcher, "Workspace/Hello/hello.bat");
+        main.Details.RunCommand.Execute(null);
+        var hello = main.Output.SelectedTab;
+        launcher.Started.Single().Finish(RunOutcome.Exited, 0);
+        main.Select("Workspace/Hello/hello.py");
+        main.Details.RunCommand.Execute(null);
+        var python = main.Output.SelectedTab;
+
+        main.Select("Workspace/Hello/hello.bat");
+        Assert.AreSame(hello, main.Output.SelectedTab);
+
+        main.Select("Workspace/Hello/hello.cs");
+        Assert.AreSame(hello, main.Output.SelectedTab, "A script without a tab leaves the panel as it is.");
+
+        main.Select("Workspace/Hello/hello.py");
+        Assert.AreSame(python, main.Output.SelectedTab);
+    }
+
+    [TestMethod]
     public async Task ATabGoesFromRunningToExitAndTheBadgeFollows()
     {
         using var test = new TestWorkspace();

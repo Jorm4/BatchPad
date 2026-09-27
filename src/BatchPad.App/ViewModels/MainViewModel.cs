@@ -951,7 +951,10 @@ public sealed partial class MainViewModel : ObservableObject
         }
         OnPropertyChanged(nameof(SelectedNode));
         if (SelectedNode is not null && !_keepPageOpen)
+        {
             ShowDetails();
+            Output.ShowLatestFor(SelectedNode);
+        }
         Details.Node = SelectedNode;
         if (SelectedNode is { IsNew: true } node)
             MarkSeen(node);

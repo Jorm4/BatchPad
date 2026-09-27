@@ -29,6 +29,15 @@ public sealed partial class OutputPanelViewModel(HistoryViewModel history) : Obs
             IsHistoryOpen = false;
     }
 
+    /// <summary>Shows the node's running tab, else its latest; a node without one leaves the panel as it is.</summary>
+    public void ShowLatestFor(NodeViewModel node)
+    {
+        // By key: a reload rebuilds the tree, while tabs keep the node they were started from.
+        var tabs = Tabs.Where(t => t.Node?.Key == node.Key).ToList();
+        if ((tabs.LastOrDefault(t => t.IsRunning) ?? tabs.LastOrDefault()) is { } tab)
+            SelectedTab = tab;
+    }
+
     public IEnumerable<OutputTabViewModel> RunningFor(NodeViewModel node) => Tabs.Where(t => t.Node == node && t.IsRunning);
 
     [RelayCommand]
