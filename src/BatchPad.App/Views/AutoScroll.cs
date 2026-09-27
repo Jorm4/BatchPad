@@ -55,7 +55,8 @@ public static class ScrollSelection
         if (element is ListBox list && (bool)e.NewValue)
             list.SelectionChanged += (_, _) =>
             {
-                if (list.SelectedItem is { } item)
+                // Several selected means the user is dragging a range; scrolling to the first would pull the view back up.
+                if (list.SelectedItems.Count == 1 && list.SelectedItem is { } item)
                     list.ScrollIntoView(item);
             };
     }

@@ -53,7 +53,9 @@ and plain executables are all first-class.
   each script's last result, and any past run can be run again.
 - **Readable output.** ANSI colours, error lines highlighted, clickable
   `file:line` locations, search, F8 to the next error, and a test-results view
-  for scripts that write JUnit XML.
+  for scripts that write JUnit XML. Drag, Shift+click or Ctrl+A to select
+  lines and Ctrl+C to copy them; "Copy all" copies every line the search
+  leaves shown, such as all the errors.
 - **Safe to run together.** Named locks queue runs that must not overlap,
   across the app, the command line and agents, and `dependsOn` runs a
   script's prerequisites first.
