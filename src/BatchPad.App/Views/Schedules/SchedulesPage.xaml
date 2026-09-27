@@ -24,7 +24,7 @@
                        AutomationProperties.AutomationId="SchedulesError" />
             <TextBlock DockPanel.Dock="Top" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,8"
                        Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"
-                       Text="No schedules yet. A schedule runs a script or workflow unattended while BatchPad is open; it is kept in your user.json, never in the shared workspace file." />
+                       Text="No schedules yet. A schedule runs a script or workflow unattended while BatchPad is open, or through Windows Task Scheduler; it is kept in your user.json, never in the shared workspace file." />
 
             <CheckBox DockPanel.Dock="Bottom" Margin="0,8,0,0" IsChecked="{Binding KeepRunningInTray}"
                       Content="Keep running in the tray while schedules are enabled"
@@ -53,6 +53,13 @@
                                             <TextBlock Text="{Binding TargetName}" FontWeight="SemiBold"
                                                        AutomationProperties.AutomationId="ScheduleTargetName" />
                                             <TextBlock Text="{Binding Location}" Margin="8,0,0,0" FontSize="{views:ScaledSize 11}" Opacity="0.6" VerticalAlignment="Center" />
+                                            <Border Margin="8,0,0,0" Padding="6,0" CornerRadius="4" BorderThickness="1" VerticalAlignment="Center"
+                                                    BorderBrush="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                                    Visibility="{Binding RunsInWindows, Converter={StaticResource BoolToVisibility}}"
+                                                    ToolTip="Windows Task Scheduler runs it, also while BatchPad is closed"
+                                                    AutomationProperties.AutomationId="ScheduleWindowsChip">
+                                                <TextBlock Text="Windows" FontSize="{views:ScaledSize 11}" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                            </Border>
                                         </WrapPanel>
                                         <TextBlock Text="{Binding TriggerText}" AutomationProperties.AutomationId="ScheduleTrigger" />
                                         <WrapPanel Margin="0,4,0,0" Opacity="0.8">
@@ -63,6 +70,9 @@
                                             <TextBlock x:Name="LastResult" Text="{Binding LastResultText}" Margin="6,0,0,0" Foreground="{DynamicResource SystemFillColorCriticalBrush}"
                                                        AutomationProperties.AutomationId="ScheduleLastResult" />
                                         </WrapPanel>
+                                        <TextBlock x:Name="WindowsTask" Text="{Binding WindowsTaskText}" Margin="0,4,0,0" Opacity="0.8" TextWrapping="Wrap"
+                                                   Visibility="{Binding WindowsTaskText, Converter={StaticResource NullToCollapsed}}"
+                                                   AutomationProperties.AutomationId="ScheduleWindowsTask" />
                                         <DockPanel Margin="0,6,0,0" Visibility="{Binding StatusText, Converter={StaticResource NullToCollapsed}}">
                                             <Button DockPanel.Dock="Right" Content="Re-confirm" Command="{Binding ReconfirmCommand}" Margin="6,0,0,0"
                                                     Visibility="{Binding NeedsReview, Converter={StaticResource BoolToVisibility}}"
@@ -77,6 +87,10 @@
                             <DataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding LastSucceeded}" Value="True">
                                     <Setter TargetName="LastResult" Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding WindowsTaskFailed}" Value="True">
+                                    <Setter TargetName="WindowsTask" Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                                    <Setter TargetName="WindowsTask" Property="Opacity" Value="1" />
                                 </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>

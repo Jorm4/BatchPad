@@ -206,6 +206,83 @@ public sealed class SchedulesViewModelTests
     }
 
     [TestMethod]
+    public void SwitchingACronScheduleToWindowsSavesItAndRegistersItsNextFire()
+    {
+        using var test = new TestWorkspace();
+        var registrar = new FakeTaskRegistrar();
+        var main = Open(test, TestWorkspace.DemoSource, new FakeLauncher(), registrar);
+        AddSchedule(main, "Build & run", editor => editor.Cron = "0 2 * * *");
+        Assert.IsEmpty(registrar.Registered);
+
+        main.Schedules!.Items.Single().EditCommand.Execute(null);
+        main.Schedules.Editor!.RunInWindows = true;
+        main.Schedules.Editor.SaveCommand.Execute(null);
+
+        Assert.AreEqual(RunIn.Windows, UserStore.For(main.Workspace!).Load().Schedules!.Single().RunIn);
+        var (name, xml) = registrar.Registered.Single();
+        StringAssert.Contains(name, @"\batchpad-demo\build-run-");
+        var item = main.Schedules.Items.Single();
+        Assert.IsTrue(item.RunsInWindows);
+        Assert.AreEqual("Registered in Windows Task Scheduler", item.WindowsTaskText);
+        var next = main.WindowsTasks.StatusOf(item.Key)!.NextRun!.Value;
+        Assert.AreEqual(next, item.NextRun);
+        Assert.AreEqual(next.ToLocalTime().ToString("g"), item.NextRunText);
+        StringAssert.Contains(xml, next.ToLocalTime().ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.IsNull(main.Scheduler!.Statuses().Single().NextFire);
+
+        item.IsEnabled = false;
+        Assert.IsEmpty(registrar.Registered);
+        Assert.AreEqual("Not registered in Windows: Disabled", main.Schedules.Items.Single().WindowsTaskText);
+    }
+
+    [TestMethod]
+    public void OnlyATimeTriggerCanRunInWindows()
+    {
+        using var test = new TestWorkspace();
+        var main = Open(test, TestWorkspace.DemoSource, new FakeLauncher());
+        main.Schedules!.AddCommand.Execute(null);
+        var editor = main.Schedules.Editor!;
+        editor.RunInWindows = true;
+
+        editor.Kind = TriggerKind.FileChanged;
+
+        Assert.IsFalse(editor.IsTimed);
+        Assert.IsFalse(editor.RunInWindows);
+        Assert.AreEqual(ScheduleEntry.OnlyTimeTriggersInWindows, editor.RunInWindowsHint);
+    }
+
+    [TestMethod]
+    public void ARegistrarErrorShowsOnTheRow()
+    {
+        using var test = new TestWorkspace();
+        var registrar = new FakeTaskRegistrar { Error = "Access is denied." };
+        var main = Open(test, TestWorkspace.DemoSource, new FakeLauncher(), registrar);
+
+        AddSchedule(main, "hello.bat", editor => editor.RunInWindows = true);
+
+        var item = main.Schedules!.Items.Single();
+        Assert.IsTrue(item.WindowsTaskFailed);
+        Assert.AreEqual("Couldn't register it in Windows: Access is denied.", item.WindowsTaskText);
+        Assert.IsNull(item.NextRun);
+    }
+
+    [TestMethod]
+    public void AFailedRegistrationFromATaskRunShowsOnTheRow()
+    {
+        using var test = new TestWorkspace();
+        var main = Open(test, TestWorkspace.DemoSource, new FakeLauncher(), new FakeTaskRegistrar());
+        AddSchedule(main, "hello.bat", editor => editor.RunInWindows = true);
+        var item = main.Schedules!.Items.Single();
+        var states = ScheduleStateStore.For(main.Paths);
+        states.Set(item.Key, new ScheduleState { WindowsTaskFailure = new WindowsTaskFailure("Access is denied.", main.Time.GetUtcNow().AddMinutes(1)) });
+        states.Save();
+
+        main.Schedules.RefreshStatus();
+
+        Assert.AreEqual("Couldn't register it in Windows: Access is denied.", item.WindowsTaskText);
+    }
+
+    [TestMethod]
     public void ThePaletteOpensSchedules()
     {
         using var test = new TestWorkspace();
@@ -219,9 +296,9 @@ public sealed class SchedulesViewModelTests
         Assert.IsNotNull(main.Schedules);
     }
 
-    private static MainViewModel Open(TestWorkspace test, string workspace, FakeLauncher launcher)
+    private static MainViewModel Open(TestWorkspace test, string workspace, FakeLauncher launcher, FakeTaskRegistrar? registrar = null)
     {
-        var main = test.OpenMain(workspace, trusted: true, launcher: launcher, shell: new FakeShell(), confirm: new FakeConfirm());
+        var main = test.OpenMain(workspace, trusted: true, launcher: launcher, shell: new FakeShell(), confirm: new FakeConfirm(), tasks: registrar);
         main.OpenSchedulesCommand.Execute(null);
         return main;
     }

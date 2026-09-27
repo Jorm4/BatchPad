@@ -30,6 +30,7 @@ public sealed partial class ScheduleItemViewModel : ObservableObject
     public string TargetName => Entry.Target?.Name ?? Schedule.Target;
     public string Location => IsGlobal ? "global.json" : "user.json";
     public string TriggerText => BatchPad.Core.Scheduling.TriggerText.Describe(Schedule.Trigger);
+    public bool RunsInWindows => Schedule.RunIn == RunIn.Windows;
 
     public bool IsLastRun(RunRecord record) => RunTriggers.ScheduleKey(record.Trigger) == Key && record.NodeKey == Entry.Target?.NodeKey;
 
@@ -57,6 +58,21 @@ public sealed partial class ScheduleItemViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     private string? message;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WindowsTaskText), nameof(WindowsTaskFailed))]
+    private WindowsTaskStatus? windowsTask;
+
+    public string? WindowsTaskText => Entry.Problem is not null ? null : WindowsTask switch
+    {
+        null => null,
+        { State: WindowsTaskState.Registered } => "Registered in Windows Task Scheduler",
+        { State: WindowsTaskState.Failed } failed => $"Couldn't register it in Windows: {failed.Reason}",
+        { State: WindowsTaskState.OtherWorkspace } other => $"Registered in Windows from {other.Reason}",
+        { Reason: var reason } => $"Not registered in Windows: {reason}",
+    };
+
+    public bool WindowsTaskFailed => WindowsTask?.State == WindowsTaskState.Failed;
 
     public string? StatusText =>
         Entry.Problem ?? Message ?? (NeedsReview ? "Definition changed — review" : null);
@@ -138,10 +154,15 @@ public sealed partial class SchedulesViewModel : ObservableObject
     private void ShowStatuses()
     {
         var statuses = _main.Scheduler?.Statuses().ToDictionary(s => s.Entry.Key) ?? [];
+        // Read afresh: a run from a Windows task writes it in another process.
+        var states = ScheduleStateStore.For(_main.Paths);
         foreach (var item in Items)
         {
             var status = statuses.GetValueOrDefault(item.Key);
-            item.NextRun = status?.NextFire;
+            item.WindowsTask = item.RunsInWindows
+                ? WindowsTaskStatus.Latest(_main.WindowsTasks.StatusOf(item.Key), states.Get(item.Key)?.WindowsTaskFailure)
+                : null;
+            item.NextRun = item.RunsInWindows ? item.WindowsTask?.NextRun : status?.NextFire;
             item.NeedsReview = status?.Paused == true;
         }
     }

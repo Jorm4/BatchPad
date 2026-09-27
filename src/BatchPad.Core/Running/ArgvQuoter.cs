@@ -26,4 +26,49 @@ public static class ArgvQuoter
     }
 
     public static string Join(IEnumerable<string> arguments) => string.Join(' ', arguments.Select(Quote));
+
+    /// <summary>Splits a command line the way <c>CommandLineToArgvW</c> does, undoing <see cref="Join"/>.</summary>
+    public static List<string> Split(string commandLine)
+    {
+        var arguments = new List<string>();
+        var current = new StringBuilder();
+        var inArgument = false;
+        var inQuotes = false;
+        for (var i = 0; i < commandLine.Length; i++)
+        {
+            var c = commandLine[i];
+            if (!inQuotes && char.IsWhiteSpace(c))
+            {
+                if (inArgument)
+                    arguments.Add(current.ToString());
+                current.Clear();
+                inArgument = false;
+                continue;
+            }
+            inArgument = true;
+            if (c == '"')
+                inQuotes = !inQuotes;
+            else if (c != '\\')
+                current.Append(c);
+            else
+            {
+                var backslashes = 1;
+                while (i + 1 < commandLine.Length && commandLine[i + 1] == '\\')
+                {
+                    backslashes++;
+                    i++;
+                }
+                var beforeQuote = i + 1 < commandLine.Length && commandLine[i + 1] == '"';
+                current.Append('\\', beforeQuote ? backslashes / 2 : backslashes);
+                if (beforeQuote && backslashes % 2 == 1)
+                {
+                    current.Append('"');
+                    i++;
+                }
+            }
+        }
+        if (inArgument)
+            arguments.Add(current.ToString());
+        return arguments;
+    }
 }

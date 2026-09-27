@@ -15,7 +15,12 @@ public sealed record ScheduleState
 
     /// <summary>The definition a schedule without <c>definitionHash</c> was first seen with.</summary>
     public string? AdoptedHash { get; init; }
+
+    /// <summary>Why a run from its Windows task couldn't register the next fire.</summary>
+    public WindowsTaskFailure? WindowsTaskFailure { get; init; }
 }
+
+public sealed record WindowsTaskFailure(string Reason, DateTimeOffset At);
 
 /// <summary>
 /// <c>schedules.json</c> in the local-data folder, keyed by <see cref="ScheduleEntry.Key"/>. Changes are kept in memory

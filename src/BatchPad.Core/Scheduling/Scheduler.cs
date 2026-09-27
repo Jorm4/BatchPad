@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using BatchPad.Core.Config;
 using BatchPad.Core.History;
 using BatchPad.Core.Model;
@@ -30,14 +29,12 @@ public interface ITriggerSource
 /// <summary>
 /// Runs schedules unattended (§4.2): arms time triggers, applies <c>missed</c> and <c>overlap</c>, pauses a schedule whose
 /// target changed until it is re-confirmed, and records each run in history with the schedule as its trigger.
+/// Schedules that run in Windows are only listed and checked; Task Scheduler fires them.
 /// </summary>
 public sealed class Scheduler : IDisposable
 {
     // Re-read the clock at least this often, so sleep and clock changes don't leave a fire waiting.
     private static readonly TimeSpan MaxWait = TimeSpan.FromMinutes(1);
-
-    // Adopted instead of the current definition when the state file was unreadable, so the schedule waits for a confirm.
-    private const string NothingAdopted = "";
 
     private readonly HistoryStore _history;
     private readonly IScheduleLauncher _launcher;
@@ -158,9 +155,10 @@ public sealed class Scheduler : IDisposable
                 if (state is null)
                     _state.Set(entry.Key, state = new ScheduleState { Seen = now });
                 var wasPaused = item.Paused;
-                CheckDefinition(item, hash, ref state);
+                CheckDefinition(item, hash);
                 if (item.Paused && !wasPaused)
                     paused.Add(new SchedulePause(entry, item.Hash!));
+                state = _state.Get(entry.Key)!;
 
                 var trigger = entry.Schedule.Trigger;
                 var active = IsActive(item);
@@ -196,7 +194,7 @@ public sealed class Scheduler : IDisposable
         Arm();
     }
 
-    private static bool IsActive(Item item) => item.Entry.Schedule.Enabled && item.Entry.Problem is null && !item.Paused;
+    private static bool IsActive(Item item) => item.Entry.Schedule is { Enabled: true, RunIn: RunIn.App } && item.Entry.Problem is null && !item.Paused;
 
     private void StartWatch(Item item)
     {
@@ -213,21 +211,13 @@ public sealed class Scheduler : IDisposable
         watch.Dispose();
     }
 
-    private void CheckDefinition(Item item, string? hash, ref ScheduleState state)
+    private void CheckDefinition(Item item, string? hash)
     {
-        var entry = item.Entry;
         item.Hash = hash;
-        if (hash is null)
-        {
-            (item.Paused, item.Confirmed) = (false, false);
-            return;
-        }
-        if (entry.Schedule.DefinitionHash is null && state.AdoptedHash is null)
-            _state.Set(entry.Key, state = state with { AdoptedHash = _state.LoadFailed ? NothingAdopted : hash });
-        var expected = entry.Schedule.DefinitionHash ?? state.AdoptedHash;
-        var confirmedHere = _confirmedHashes.GetValueOrDefault(entry.Key) == hash;
-        item.Paused = expected != hash && !confirmedHere;
-        item.Confirmed = entry.Schedule.DefinitionHash == hash || confirmedHere;
+        var verdict = hash is null
+            ? default
+            : ScheduleGate.Check(item.Entry, hash, _state, _time.GetUtcNow(), _confirmedHashes.GetValueOrDefault(item.Entry.Key));
+        (item.Paused, item.Confirmed) = (verdict.Paused, verdict.Confirmed);
     }
 
     private bool PausedByChange(Item item, string hash)
@@ -239,8 +229,7 @@ public sealed class Scheduler : IDisposable
             if (hash == item.Hash || item.Entry.Target is null)
                 return false;
             var wasPaused = item.Paused;
-            var state = _state.Get(item.Entry.Key) ?? new ScheduleState { Seen = _time.GetUtcNow() };
-            CheckDefinition(item, hash, ref state);
+            CheckDefinition(item, hash);
             paused = item.Paused;
             if (paused && !wasPaused)
                 pause = new SchedulePause(item.Entry, hash);
@@ -362,10 +351,7 @@ public sealed class Scheduler : IDisposable
 
     private (IRunOutput Run, Task<RunRecord> Recorded, RunRequest? Request) StartRun(ScheduleTarget target, Schedule schedule, string trigger, bool confirmed)
     {
-        var values = new Dictionary<string, JsonNode?>(target.Values);
-        foreach (var (name, value) in schedule.Values ?? [])
-            values[name] = value?.DeepClone();
-
+        var values = target.ValuesWith(schedule);
         if (target.Definition is ScriptNode script)
         {
             var request = SecretFill.Apply(new RunRequest(target.Workspace, target.Tree, script)

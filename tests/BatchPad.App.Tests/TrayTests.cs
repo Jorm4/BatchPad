@@ -32,6 +32,18 @@ public sealed class TrayTests
     }
 
     [TestMethod]
+    public void SchedulesThatRunInWindowsDoNotKeepBatchPadInTheTray()
+    {
+        using var test = new TestWorkspace();
+        var (main, tray, _) = Open(test, new Settings());
+
+        SchedulesViewModelTests.AddSchedule(main, "hello.bat", editor => editor.RunInWindows = true);
+
+        Assert.IsFalse(tray.IsVisible);
+        Assert.AreEqual(CloseAction.Close, main.ConfirmClose());
+    }
+
+    [TestMethod]
     public void TheTrayIconShownForANotificationGoesAwayWhenItCloses()
     {
         using var test = new TestWorkspace();

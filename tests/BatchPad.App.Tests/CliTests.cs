@@ -1,13 +1,16 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using BatchPad.App.Cli;
 using BatchPad.Core.History;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
+using BatchPad.Core.Scheduling;
 using BatchPad.Core.Telemetry;
 using BatchPad.Core.Trust;
 using BatchPad.Core.Workspace;
+using Microsoft.Extensions.Time.Testing;
 
 namespace BatchPad.App.Tests;
 
@@ -390,6 +393,231 @@ public sealed class CliTests
         Assert.IsTrue(result.GetProperty("errors").EnumerateArray().Any(e => e.GetProperty("line").GetInt32() == 3));
         Assert.IsTrue(File.Exists(result.GetProperty("logPath").GetString()));
         Assert.AreEqual("agent:claude-code", HistoryStore.For(test.Paths, "cli-fixture").Recent().Single().Trigger);
+    }
+
+    [TestMethod]
+    public void TheParserReadsARunOfASchedule()
+    {
+        Assert.AreEqual("nightly", CliCommand.Parse(["run", "--schedule", "nightly", "-w", "repo"]).Schedule);
+
+        Assert.Throws<CliUsageException>(() => CliCommand.Parse(["run", "build", "--schedule", "nightly"]));
+        Assert.Throws<CliUsageException>(() => CliCommand.Parse(["run", "--schedule", "nightly", "--set", "a=b"]));
+        Assert.Throws<CliUsageException>(() => CliCommand.Parse(["run", "--schedule", "nightly", "--yes"]));
+        Assert.Throws<CliUsageException>(() => CliCommand.Parse(["list", "--schedule", "nightly"]));
+    }
+
+    [TestMethod]
+    public async Task RunScheduleRunsWithTheSchedulesTypedValuesAndConfirmAndIsRecorded()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test);
+        var (runner, output, error) = RealRunner(test, workspace);
+
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace], test.Root), error.ToString());
+
+        StringAssert.Contains(output.ToString(), "args: Alpha Gamma");
+        var record = new HistoryStore(HistoryStore.For(test.Paths, "sched-cli").Directory).Recent().Single();
+        Assert.AreEqual(RunTriggers.Schedule("sched-cli:nightly"), record.Trigger);
+        Assert.AreEqual("Workspace:id:echo", record.NodeKey);
+        Assert.IsNotNull(ScheduleStateStore.For(test.Paths).Get("sched-cli:nightly")!.LastFire);
+    }
+
+    [TestMethod]
+    public async Task RunScheduleRefusesAChangedDefinitionAndAnUnknownKey()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test);
+        var (runner, _, error) = RealRunner(test, workspace);
+        File.AppendAllText(Path.Combine(workspace, "echo.bat"), "rem changed\r\n");
+
+        Assert.AreEqual(CliRunner.Failure, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace], test.Root));
+        StringAssert.Contains(error.ToString(), ScheduleGate.ChangedMessage);
+        Assert.AreEqual(CliRunner.UsageError, await runner.RunAsync(["run", "--schedule", "weekly", "-w", workspace], test.Root));
+        Assert.IsEmpty(HistoryStore.For(test.Paths, "sched-cli").Recent());
+    }
+
+    [TestMethod]
+    public async Task RunScheduleRegistersAWindowsSchedulesNextFireBeforeRunning()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test, """ "runIn": "windows", """);
+        var registrar = new FakeTaskRegistrar();
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 25, 2, 0, 0, TimeSpan.FromHours(2)));
+        time.SetLocalTimeZone(TimeZoneInfo.FindSystemTimeZoneById("W. Europe Standard Time"));
+        var (runner, _, error) = RealRunner(test, workspace, registrar, time);
+
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace, "--due", "2026-09-25T02:00:00+02:00"], test.Root),
+            error.ToString());
+
+        var (name, xml) = registrar.Registered.Single();
+        StringAssert.Contains(name, @"\sched-cli\nightly-");
+        StringAssert.Contains(xml, "<StartBoundary>2026-09-26T02:00:00+02:00</StartBoundary>");
+        Assert.HasCount(1, HistoryStore.For(test.Paths, "sched-cli").Recent());
+    }
+
+    [TestMethod]
+    public async Task ALateWindowsRunIsSkippedWhenMissedRunsAreButStillRegistersTheNext()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test, """ "runIn": "windows", """);
+        var registrar = new FakeTaskRegistrar();
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 25, 9, 0, 0, TimeSpan.FromHours(2)));
+        var (runner, _, error) = RealRunner(test, workspace, registrar, time);
+
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace, "--due", "2026-09-25T02:00:00+02:00"], test.Root));
+
+        StringAssert.Contains(error.ToString(), "skipped");
+        Assert.IsEmpty(HistoryStore.For(test.Paths, "sched-cli").Recent());
+        Assert.HasCount(1, registrar.Registered);
+    }
+
+    [TestMethod]
+    public async Task AWindowsRunSkipsWhileThePreviousRunHoldsTheScheduleButStillRegistersTheNext()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test, """ "runIn": "windows", """);
+        var registrar = new FakeTaskRegistrar();
+        var (runner, _, error) = RealRunner(test, workspace, registrar);
+        using var previous = await HoldOverlapLock(test, workspace);
+
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "sched-cli:nightly", "-w", workspace, "--due", DueNow()], test.Root));
+
+        StringAssert.Contains(error.ToString(), "previous run is still going");
+        Assert.IsEmpty(HistoryStore.For(test.Paths, "sched-cli").Recent());
+        Assert.HasCount(1, registrar.Registered);
+    }
+
+    [TestMethod]
+    public async Task AQueuedWindowsRunWaitsForThePreviousOneAndIsNotSkippedAsLate()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test, """ "runIn": "windows", "overlap": "queue", "missed": "skip", """);
+        var time = new FakeTimeProvider(DateTimeOffset.Now);
+        var (runner, _, error) = RealRunner(test, workspace, time: time);
+        var previous = await HoldOverlapLock(test, workspace);
+
+        var run = runner.RunAsync(["run", "--schedule", "sched-cli:nightly", "-w", workspace, "--due", DueNow()], test.Root);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!error.ToString().Contains("waiting for its previous run") && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
+        Assert.IsFalse(run.IsCompleted, error.ToString());
+        time.Advance(TimeSpan.FromMinutes(10));
+        previous.Dispose();
+
+        Assert.AreEqual(0, await run, error.ToString());
+        Assert.HasCount(1, HistoryStore.For(test.Paths, "sched-cli").Recent());
+    }
+
+    [TestMethod]
+    public async Task AParallelWindowsRunIgnoresThePreviousRun()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test, """ "runIn": "windows", "overlap": "parallel", """);
+        var (runner, _, error) = RealRunner(test, workspace);
+        using var previous = await HoldOverlapLock(test, workspace);
+
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace, "--due", DueNow()], test.Root), error.ToString());
+        Assert.HasCount(1, HistoryStore.For(test.Paths, "sched-cli").Recent());
+    }
+
+    [TestMethod]
+    public async Task RunScheduleTellsAGlobalScheduleFromAUserOneWithTheSameId()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test);
+        File.WriteAllText(test.Paths.GlobalFile, $$"""
+            { "schedules": [ { "id": "nightly", "workspace": {{JsonSerializer.Serialize(workspace)}}, "target": "workspace:echo", "trigger": { "cron": "0 3 * * *" } } ] }
+            """);
+        var (runner, _, error) = RealRunner(test, workspace);
+
+        Assert.AreEqual(CliRunner.UsageError, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace], test.Root));
+        StringAssert.Contains(error.ToString(), "sched-cli:nightly, global:nightly");
+        await runner.RunAsync(["run", "--schedule", "global:nightly", "-w", workspace], test.Root);
+        Assert.IsNotNull(ScheduleStateStore.For(test.Paths).Get("global:nightly"));
+        Assert.IsNull(ScheduleStateStore.For(test.Paths).Get("sched-cli:nightly"));
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "sched-cli:nightly", "-w", workspace], test.Root), error.ToString());
+        Assert.IsTrue(HistoryStore.For(test.Paths, "sched-cli").Recent().Any(r => r.Trigger == RunTriggers.Schedule("sched-cli:nightly")));
+    }
+
+    [TestMethod]
+    [DataRow(""" "runIn": "windows", "enabled": false, """)]
+    [DataRow("")]
+    public async Task ATaskOfAScheduleThatNoLongerRunsInWindowsRemovesItselfWithoutRunning(string fields)
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test, fields);
+        var registrar = new FakeTaskRegistrar();
+        var (runner, _, error) = RealRunner(test, workspace, registrar);
+        var entry = ScheduleEntry.For(WorkspaceLoader.Load(Path.Combine(workspace, "batchpad.json"), test.Paths)).Single();
+        var name = TaskHost.ForThisApp(test.Paths).TaskName("sched-cli", entry);
+        registrar.Registered[name] = "<Task/>";
+
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "sched-cli:nightly", "-w", workspace, "--due", DueNow()], test.Root));
+
+        StringAssert.Contains(error.ToString(), "didn't run");
+        Assert.IsEmpty(registrar.Registered);
+        Assert.IsEmpty(HistoryStore.For(test.Paths, "sched-cli").Recent());
+        Assert.IsNull(ScheduleStateStore.For(test.Paths).Get("sched-cli:nightly")?.LastFire);
+    }
+
+    [TestMethod]
+    public async Task AFailedRegistrationOfTheNextFireWarnsAndIsKeptForTheSchedulesPage()
+    {
+        using var test = new TestWorkspace();
+        var workspace = ScheduledWorkspace(test, """ "runIn": "windows", """);
+        var registrar = new FakeTaskRegistrar { Error = "Access is denied." };
+        var (runner, _, error) = RealRunner(test, workspace, registrar);
+
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace, "--due", DueNow()], test.Root), error.ToString());
+
+        StringAssert.Contains(error.ToString(), "warning: couldn't register the next run in Windows: Access is denied.");
+        Assert.AreEqual("Access is denied.", ScheduleStateStore.For(test.Paths).Get("sched-cli:nightly")!.WindowsTaskFailure!.Reason);
+
+        registrar.Error = null;
+        Assert.AreEqual(0, await runner.RunAsync(["run", "--schedule", "nightly", "-w", workspace, "--due", DueNow()], test.Root), error.ToString());
+        Assert.IsNull(ScheduleStateStore.For(test.Paths).Get("sched-cli:nightly")!.WindowsTaskFailure);
+    }
+
+    private static string DueNow() => DateTimeOffset.Now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture);
+
+    private static Task<LockLease> HoldOverlapLock(TestWorkspace test, string workspace)
+    {
+        var entry = ScheduleEntry.For(WorkspaceLoader.Load(Path.Combine(workspace, "batchpad.json"), test.Paths)).Single();
+        return LockManager.For(test.Paths).AcquireAsync([entry.OverlapLock], new object());
+    }
+
+    /// <summary>A workspace whose confirm-guarded script echoes its args, with a confirmed <c>nightly</c> schedule in user.json.</summary>
+    private static string ScheduledWorkspace(TestWorkspace test, string extraFields = "")
+    {
+        var workspace = Directory.CreateDirectory(Path.Combine(test.Root, "scheduled")).FullName;
+        File.WriteAllText(Path.Combine(workspace, "echo.bat"), "@echo args: %*\r\n");
+        File.WriteAllText(Path.Combine(workspace, "batchpad.json"), """
+            { "id": "sched-cli", "scripts": [
+              { "id": "echo", "path": "echo.bat", "confirm": "Really?",
+                "params": [ { "name": "apps", "type": "multichoice", "choices": [ "Alpha", "Beta", "Gamma" ] } ] } ] }
+            """);
+        var userFile = test.Paths.UserFile("sched-cli");
+        Directory.CreateDirectory(Path.GetDirectoryName(userFile)!);
+        var schedule = $$"""{ "id": "nightly", {{extraFields}} "target": "workspace:echo", "values": { "apps": [ "Alpha", "Gamma" ] }, "trigger": { "cron": "0 2 * * *" } """;
+        File.WriteAllText(userFile, $$"""{ "schedules": [ {{schedule}} } ] }""");
+        var hash = DefinitionHash.Of(ScheduleEntry.For(WorkspaceLoader.Load(Path.Combine(workspace, "batchpad.json"), test.Paths)).Single().Target!);
+        File.WriteAllText(userFile, $$"""{ "schedules": [ {{schedule}}, "definitionHash": "{{hash}}" } ] }""");
+        return workspace;
+    }
+
+    private static (CliRunner Runner, StringWriter Output, StringWriter Error) RealRunner(TestWorkspace test, string workspace,
+        ITaskRegistrar? registrar = null, TimeProvider? time = null)
+    {
+        var settings = new Settings();
+        new TrustStore(settings, test.Paths.SettingsFile).Trust(workspace);
+        var output = new StringWriter();
+        var error = new StringWriter();
+        return (new CliRunner(test.Paths, settings, output, error) {
+            EnvironmentVariable = _ => null,
+            Secrets = new FakeSecretStore(),
+            TaskRegistrar = registrar ?? new FakeTaskRegistrar(),
+            Time = time ?? TimeProvider.System,
+        }, output, error);
     }
 
     private const string BuildError = @"src\thing.cs(3,5): error CS1002: ; expected";

@@ -11,6 +11,8 @@ public enum MissedPolicy { Skip, RunOnce }
 
 public enum OverlapPolicy { Skip, Queue, Parallel }
 
+public enum RunIn { App, Windows }
+
 /// <summary>A trigger attached to a script or workflow, with fixed values (§4.2). Only user.json and global.json hold them.</summary>
 public sealed class Schedule : ExtensibleObject
 {
@@ -25,6 +27,9 @@ public sealed class Schedule : ExtensibleObject
     public MissedPolicy Missed { get; set; }
     public OverlapPolicy Overlap { get; set; }
     public bool Enabled { get; set; } = true;
+
+    /// <summary>Windows: a Task Scheduler task runs it, so it runs while BatchPad is closed too.</summary>
+    public RunIn RunIn { get; set; }
 
     /// <summary>The target's definition when the user last confirmed it; a different one pauses the schedule.</summary>
     public string? DefinitionHash { get; set; }

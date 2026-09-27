@@ -17,6 +17,15 @@ public sealed record ScheduleTarget(LoadedWorkspace Workspace, ScriptTree Tree, 
     public IReadOnlyDictionary<string, Dictionary<string, JsonNode?>>? StepValues { get; init; }
     public string? ExtraArguments { get; init; }
 
+    /// <summary>The target's values with the schedule's fixed ones over them.</summary>
+    public Dictionary<string, JsonNode?> ValuesWith(Schedule schedule)
+    {
+        var values = new Dictionary<string, JsonNode?>(Values);
+        foreach (var (name, value) in schedule.Values ?? [])
+            values[name] = value?.DeepClone();
+        return values;
+    }
+
     public RunRecord RecordTemplate(string trigger) =>
         new() { NodeKey = NodeKey, Tree = Tree.Kind, NodeId = Definition.Id, Name = Name, Trigger = trigger };
 
@@ -55,8 +64,13 @@ public sealed record ScheduleTarget(LoadedWorkspace Workspace, ScriptTree Tree, 
 public sealed record ScheduleEntry(string Key, Schedule Schedule)
 {
     private const string GlobalPrefix = "global:";
+    public const string OnlyTimeTriggersInWindows = "Only time triggers can run in Windows.";
+    public const string PercentInWindows = "Can't run in Windows: the path or id contains %.";
 
     public bool IsGlobal => Key.StartsWith(GlobalPrefix, StringComparison.Ordinal);
+
+    /// <summary>The machine-wide lock a run from the command line holds to apply <see cref="Schedule.Overlap"/>.</summary>
+    public string OverlapLock => "batchpad-schedule:" + Key;
     public ScheduleTarget? Target { get; init; }
     public string? Problem { get; init; }
 
@@ -79,11 +93,20 @@ public sealed record ScheduleEntry(string Key, Schedule Schedule)
 
     public static ScheduleEntry Create(string key, Schedule schedule, ScriptTree from, LoadedWorkspace workspace)
     {
-        if (TriggerMath.Problem(schedule.Trigger) is { } triggerProblem)
-            return new ScheduleEntry(key, schedule) { Problem = triggerProblem, From = from };
+        if ((TriggerMath.Problem(schedule.Trigger) ?? WindowsProblem(key, schedule, from, workspace)) is { } scheduleProblem)
+            return new ScheduleEntry(key, schedule) { Problem = scheduleProblem, From = from };
         var target = ScheduleTarget.Resolve(schedule.Target, from, workspace, out var problem);
         return new ScheduleEntry(key, schedule) { Target = target, Problem = problem, From = from };
     }
+
+    private static string? WindowsProblem(string key, Schedule schedule, ScriptTree from, LoadedWorkspace workspace) =>
+        schedule.RunIn != RunIn.Windows ? null
+        : !schedule.Trigger.IsTimed ? OnlyTimeTriggersInWindows
+        // Otherwise every workspace it loads in would register its own task.
+        : from.Kind == TreeKind.Global && schedule.Workspace is null ? "A global schedule runs in Windows only when it names its workspace."
+        // Task Scheduler expands %VAR% in a task's arguments.
+        : key.Contains('%') || workspace.FilePath.Contains('%') ? PercentInWindows
+        : null;
 
     private static bool Names(LoadedWorkspace workspace, string path)
     {

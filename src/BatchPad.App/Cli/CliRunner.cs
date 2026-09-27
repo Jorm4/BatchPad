@@ -10,6 +10,7 @@ using BatchPad.Core.History;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
+using BatchPad.Core.Scheduling;
 using BatchPad.Core.Telemetry;
 using BatchPad.Core.Trust;
 using BatchPad.Core.Workflows;
@@ -23,6 +24,9 @@ public sealed class CliRunner
     public const int UsageError = 2;
     public const int Failure = 1;
     public const string ClaudeCodeAgent = "claude-code";
+
+    /// <summary>A Windows task that starts this much after its fire counts as missed.</summary>
+    public static readonly TimeSpan LateAfter = TimeSpan.FromMinutes(5);
 
     private readonly AppPaths _paths;
     private readonly TextWriter _out;
@@ -56,6 +60,10 @@ public sealed class CliRunner
     public ISecretStore Secrets { get; init; } = new CredentialManagerSecretStore();
 
     public IConsolePrompt Prompt { get; init; } = new ConsolePrompt();
+
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
+    public ITaskRegistrar TaskRegistrar { get; init; } = new SchtasksRegistrar();
 
     internal RunSummary? LastSummary { get; private set; }
 
@@ -190,6 +198,8 @@ public sealed class CliRunner
 
     private async Task<int> RunAsync(CliCommand command, LoadedWorkspace workspace, CancellationToken cancellation)
     {
+        if (command.Schedule is { } scheduleKey)
+            return await RunScheduleAsync(command, workspace, scheduleKey, cancellation);
         var matches = Find(workspace, command.Target!);
         if (matches.Count != 1)
         {
@@ -209,11 +219,105 @@ public sealed class CliRunner
             values[name] = value?.DeepClone();
         foreach (var (name, value) in command.Values)
             values[name] = JsonValue.Create(value);
+        return await RunAsync(command, workspace, target, values, TriggerFor(command), command.Yes, cancellation);
+    }
+
+    /// <summary>Runs a schedule from user.json or global.json with the rules the app's scheduler applies.</summary>
+    /// <param name="key">The entry key (<c>global:x</c>, <c>&lt;workspace id&gt;:x</c>), or a schedule id naming one entry.</param>
+    private async Task<int> RunScheduleAsync(CliCommand command, LoadedWorkspace workspace, string key, CancellationToken cancellation)
+    {
+        var entries = ScheduleEntry.For(workspace);
+        var matches = entries.Where(e => e.Key == key).ToList() is { Count: > 0 } exact ? exact : entries.Where(e => e.Schedule.Key == key).ToList();
+        if (matches.Count != 1)
+        {
+            _error.WriteLine(matches.Count == 0
+                ? $"No schedule '{key}' in this workspace's user.json or in global.json."
+                : $"'{key}' names {matches.Count} schedules; use one of: {string.Join(", ", matches.Select(m => m.Key))}");
+            return UsageError;
+        }
+        var entry = matches[0];
+        var schedule = entry.Schedule;
+        var tasks = new TaskSchedulerSync(TaskRegistrar, TaskHost.ForThisApp(_paths), Time);
+        if (command.Due is not null && (!schedule.Enabled || schedule.RunIn != RunIn.Windows))
+        {
+            tasks.Unregister(workspace, entry);
+            _error.WriteLine($"Schedule '{key}' is {(schedule.Enabled ? "no longer set to run in Windows" : "disabled")}, so it didn't run and its Windows task was removed.");
+            return 0;
+        }
+        if (entry.Target is not { } target)
+        {
+            _error.WriteLine(entry.Problem ?? $"'{schedule.Target}' was not found.");
+            return Failure;
+        }
+        var now = Time.GetUtcNow();
+        var registration = schedule.RunIn != RunIn.Windows ? null
+            : tasks.RegisterNext(workspace, entry, _trust.IsTrusted(workspace.Directory), command.Due > now ? command.Due.Value : now,
+                fromTask: command.Due is not null);
+        if (registration is { State: WindowsTaskState.Failed })
+            _error.WriteLine($"warning: couldn't register the next run in Windows: {registration.Reason}");
+        var states = ScheduleStateStore.For(_paths);
+        var verdict = ScheduleGate.Check(entry, DefinitionHash.Of(target), states, now);
+        var state = verdict.State with
+        {
+            WindowsTaskFailure = registration is { State: WindowsTaskState.Failed, Reason: var reason } ? new WindowsTaskFailure(reason ?? "", now) : null,
+        };
+        if (verdict.Paused)
+        {
+            states.Set(entry.Key, state);
+            states.Save();
+            _error.WriteLine($"Schedule '{key}': {ScheduleGate.ChangedMessage}.");
+            return Failure;
+        }
+        var late = command.Due is { } due && now - due > LateAfter && schedule.Missed == MissedPolicy.Skip;
+        states.Set(entry.Key, state with { LastFire = now });
+        states.Save();
+        if (late)
+        {
+            _error.WriteLine($"Schedule '{key}' skipped its run due at {command.Due!.Value.ToLocalTime():g}, as it skips missed runs.");
+            return 0;
+        }
+
+        LockLease? overlap;
+        try
+        {
+            overlap = await OverlapLockAsync(entry, key, cancellation);
+        }
+        catch (LockBusyException)
+        {
+            _error.WriteLine($"Schedule '{key}' skipped this run: its previous run is still going.");
+            return 0;
+        }
+        using (overlap)
+        {
+            var scheduled = new Entry(target.Reference, target.Name, target.Tree, target.Definition, target.NodeKey)
+            {
+                StepValues = target.StepValues,
+                ExtraArguments = target.ExtraArguments,
+            };
+            return await RunAsync(command, workspace, scheduled, target.ValuesWith(schedule), RunTriggers.Schedule(entry.Key),
+                verdict.Confirmed, cancellation);
+        }
+    }
+
+    /// <summary>The schedule's overlap policy across processes, as each fire of a Windows task starts its own.</summary>
+    /// <exception cref="LockBusyException">The previous run holds it and the schedule skips overlapping runs.</exception>
+    private async Task<LockLease?> OverlapLockAsync(ScheduleEntry entry, string key, CancellationToken cancellation)
+    {
+        if (entry.Schedule.Overlap == OverlapPolicy.Parallel)
+            return null;
+        return await LockManager.For(_paths).AcquireAsync([entry.OverlapLock], owner: new object(),
+            waiting: _ => _error.WriteLine($"Schedule '{key}' is waiting for its previous run to finish."),
+            cancellation, wait: entry.Schedule.Overlap == OverlapPolicy.Queue, holder: $"schedule {key}");
+    }
+
+    private async Task<int> RunAsync(CliCommand command, LoadedWorkspace workspace, Entry target, Dictionary<string, JsonNode?> values,
+        string trigger, bool confirmed, CancellationToken cancellation)
+    {
         var store = HistoryStore.For(_paths, workspace.Id);
         var telemetry = _telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
         await using var flushedTelemetry = _flushTelemetryAfterRun ? telemetry : null;
         using var sharedTelemetry = _flushTelemetryAfterRun ? null : telemetry;
-        var run = new CliRun(command, TriggerFor(command), store, target, CliTrust.IsAgent(command, EnvironmentVariable));
+        var run = new CliRun(command, trigger, store, target, CliTrust.IsAgent(command, EnvironmentVariable));
         if (!command.Json && Checkout.Read(workspace.Directory) is { } checkout)
             _error.WriteLine($"in {checkout.Describe()}");
 
@@ -226,7 +330,7 @@ public sealed class CliRunner
                     Values = values,
                     StepValues = target.StepValues,
                     Unattended = true,
-                    Confirmed = command.Yes,
+                    Confirmed = confirmed,
                 };
                 return await RunWorkflowAsync(workspace, request, run, recordAs: target, cancellation);
             }
@@ -236,7 +340,7 @@ public sealed class CliRunner
                 Values = values,
                 ExtraArguments = target.ExtraArguments,
                 Unattended = true,
-                Confirmed = command.Yes,
+                Confirmed = confirmed,
             }, SecretsFor(run));
             RunPlanner.CheckUnattended(runRequest);
             if (Prerequisites.WorkflowFor(runRequest) is { } withPrerequisites)

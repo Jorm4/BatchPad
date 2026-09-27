@@ -310,6 +310,7 @@
         "missed": { "enum": ["skip", "runOnce"] },
         "overlap": { "enum": ["skip", "queue", "parallel"] },
         "enabled": { "type": "boolean" },
+        "runIn": { "enum": ["app", "windows"], "description": "windows: a Task Scheduler task runs it while BatchPad is closed too. Time triggers only." },
         "definitionHash": { "type": "string" }
       }
     },

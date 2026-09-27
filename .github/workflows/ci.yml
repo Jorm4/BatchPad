@@ -27,6 +27,9 @@ jobs:
           python-version: "3.x"
       - run: dotnet build -c Release
       - name: Test
+        env:
+          # Lets the Task Scheduler test register and delete a task of its own.
+          BATCHPAD_SYSTEM_TESTS: "1"
         run: dotnet test -c Release --no-build --filter "TestCategory!=UI" --logger trx --results-directory TestResults
       # The runner's desktop is nobody's, so the UI tests can take it over here.
       - name: UI tests

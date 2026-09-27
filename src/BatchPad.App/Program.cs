@@ -7,6 +7,11 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args is ["--data-dir", var dataDirectory, .. var rest])
+        {
+            Environment.SetEnvironmentVariable(App.DataDirectoryVariable, dataDirectory);
+            args = rest;
+        }
         if (args is ["--version"])
         {
             App.PrintVersion();

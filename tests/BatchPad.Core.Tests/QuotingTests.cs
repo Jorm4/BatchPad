@@ -59,6 +59,15 @@ public sealed class QuotingTests
     }
 
     [TestMethod]
+    public void ArgvQuoterSplitsWhatItJoined()
+    {
+        string[] arguments = ["plain", "", @"a b\", "a\\\"b", @"C:\My Work\batchpad.json", @"a\\b", "\"", "tab\there"];
+
+        CollectionAssert.AreEqual(arguments, ArgvQuoter.Split(ArgvQuoter.Join(arguments)));
+        CollectionAssert.AreEqual(new[] { "a", "b c", "d" }, ArgvQuoter.Split("  a \"b c\"   d "));
+    }
+
+    [TestMethod]
     public void PowerShellFallsBackToWindowsPowerShellWithoutPwsh()
     {
         using var dir = new TempDir();

@@ -9,6 +9,12 @@ public enum CliVerb { Run, List, Log, Stats, Compare, Mcp, Trust, Untrust, Secre
 public sealed record CliCommand(CliVerb Verb)
 {
     public string? Target { get; init; }
+
+    /// <summary><c>run --schedule</c>: the key of the schedule to run, as its host would.</summary>
+    public string? Schedule { get; init; }
+
+    /// <summary><c>run --schedule --due</c>: the fire a Windows task was registered for, so a late one can be skipped.</summary>
+    public DateTimeOffset? Due { get; init; }
     public string? Baseline { get; init; }
     public bool Cpu { get; init; }
     public string? Workspace { get; init; }
@@ -41,6 +47,7 @@ public sealed record CliCommand(CliVerb Verb)
         Usage:
           batchpad run <id|name> [--workspace <path>] [--set name=value]... [--yes]
                        [--json | --errors-only] [--no-wait] [--agent <name>]
+          batchpad run --schedule <key> [--workspace <path>] [--json | --errors-only]
           batchpad list [--workspace <path>] [--json]
           batchpad log <run-id> [--workspace <path>] [--tail N] [--errors]
           batchpad stats [--workspace <path>] [--since 1d|7d|30d] [--json]
@@ -79,6 +86,8 @@ public sealed record CliCommand(CliVerb Verb)
                 ("--workspace" or "-w", CliVerb.Mcp) => throw new CliUsageException(
                     "'batchpad mcp' has no workspace of its own: each tool call passes its 'directory', so an agent in a worktree runs that worktree's scripts."),
                 ("--workspace" or "-w", _) => command with { Workspace = ValueAfter(args, ref i) },
+                ("--schedule", CliVerb.Run) => command with { Schedule = ValueAfter(args, ref i) },
+                ("--due", CliVerb.Run) => command with { Due = Time(ValueAfter(args, ref i), "--due") },
                 ("--set", CliVerb.Run) => Set(command, values, ValueAfter(args, ref i)),
                 ("--yes" or "-y", CliVerb.Run) => command with { Yes = true },
                 ("--json", CliVerb.Run or CliVerb.List or CliVerb.Stats or CliVerb.Compare) => command with { Json = true },
@@ -98,7 +107,11 @@ public sealed record CliCommand(CliVerb Verb)
                 _ => throw new CliUsageException($"Unexpected argument '{args[i]}'."),
             };
         }
-        if (command.Target is null && verb is CliVerb.Run)
+        if (command.Schedule is not null)
+            CheckSchedule(command, values);
+        else if (command.Due is not null)
+            throw new CliUsageException("--due works only with --schedule.");
+        else if (command.Target is null && verb is CliVerb.Run)
             throw new CliUsageException("'run' needs the id or name of a script or workflow.");
         if (command.Target is null && verb is CliVerb.Log or CliVerb.Compare)
             throw new CliUsageException($"'{args[0]}' needs a run id.");
@@ -107,6 +120,14 @@ public sealed record CliCommand(CliVerb Verb)
         if (command.Json && command.ErrorsOnly)
             throw new CliUsageException("Use either --json or --errors-only.");
         return command with { Values = values };
+    }
+
+    private static void CheckSchedule(CliCommand command, Dictionary<string, string> values)
+    {
+        if (command.Target is not null)
+            throw new CliUsageException("'run --schedule' runs the schedule's own target; drop the script or workflow.");
+        if (values.Count > 0 || command.Yes)
+            throw new CliUsageException("'run --schedule' uses the schedule's values and confirm rules; drop --set and --yes.");
     }
 
     private static void CheckSecret(CliCommand command)
@@ -129,6 +150,11 @@ public sealed record CliCommand(CliVerb Verb)
         values[assignment[..equals]] = assignment[(equals + 1)..];
         return command;
     }
+
+    private static DateTimeOffset Time(string text, string option) =>
+        DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var time)
+            ? time
+            : throw new CliUsageException($"{option} expects a date and time such as 2026-09-25T02:00:00+02:00, not '{text}'.");
 
     private static int Count(string text) =>
         int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count > 0

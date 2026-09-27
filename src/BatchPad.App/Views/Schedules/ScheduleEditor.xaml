@@ -97,6 +97,13 @@
                 <TextBlock Text="{Binding Preview}" Margin="0,8,0,0" FontStyle="Italic" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="SchedulePreview" />
 
+                <TextBlock Text="Run in" Style="{StaticResource Label}" />
+                <RadioButton Content="BatchPad, while it is open" IsChecked="{Binding RunInApp}" GroupName="RunIn"
+                             AutomationProperties.AutomationId="ScheduleRunInApp" />
+                <RadioButton Content="Windows, also while BatchPad is closed" IsChecked="{Binding RunInWindows}" IsEnabled="{Binding IsTimed}"
+                             GroupName="RunIn" Margin="0,4,0,0" AutomationProperties.AutomationId="ScheduleRunInWindows" />
+                <TextBlock Style="{StaticResource Hint}" Text="{Binding RunInWindowsHint}" AutomationProperties.AutomationId="ScheduleRunInHint" />
+
                 <TextBlock Text="Values" Style="{StaticResource Label}"
                            Visibility="{Binding Form, Converter={StaticResource NullToCollapsed}}" />
                 <views:ParameterForm DataContext="{Binding Form}" Visibility="{Binding Converter={StaticResource NullToCollapsed}}" />

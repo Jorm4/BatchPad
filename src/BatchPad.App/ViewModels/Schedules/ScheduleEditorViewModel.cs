@@ -53,6 +53,7 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject, IUnsaved
         afterRunResult = trigger.Result ?? AfterRunResult.Always;
         missed = schedule?.Missed ?? MissedPolicy.Skip;
         overlap = schedule?.Overlap ?? OverlapPolicy.Skip;
+        runInWindows = schedule?.RunIn == RunIn.Windows;
         Targets = Available();
 
         var reference = schedule?.Target
@@ -77,6 +78,7 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject, IUnsaved
         Values = ChangedValues(),
         Missed = Missed,
         Overlap = Overlap,
+        RunIn = RunIn,
     });
 
     public string Title => _existing is null ? "New schedule" : "Edit schedule";
@@ -106,7 +108,8 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject, IUnsaved
     private bool isGlobal;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsCron), nameof(IsEvery), nameof(IsAt), nameof(IsFileChanged), nameof(IsAfterRun), nameof(IsTimed))]
+    [NotifyPropertyChangedFor(nameof(IsCron), nameof(IsEvery), nameof(IsAt), nameof(IsFileChanged), nameof(IsAfterRun), nameof(IsTimed),
+        nameof(RunInWindowsHint))]
     private TriggerKind kind;
 
     public bool IsCron => Kind == TriggerKind.Cron;
@@ -147,6 +150,22 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject, IUnsaved
     private OverlapPolicy overlap;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RunInApp))]
+    private bool runInWindows;
+
+    public bool RunInApp
+    {
+        get => !RunInWindows;
+        set => RunInWindows = !value;
+    }
+
+    public RunIn RunIn => RunInWindows ? RunIn.Windows : RunIn.App;
+
+    public string RunInWindowsHint => IsTimed
+        ? "Task Scheduler starts each run, also while BatchPad is closed; you need to be signed in to Windows."
+        : ScheduleEntry.OnlyTimeTriggersInWindows;
+
+    [ObservableProperty]
     private ParameterFormViewModel? form;
 
     [ObservableProperty]
@@ -177,6 +196,12 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject, IUnsaved
     }
 
     partial void OnSelectedTargetChanged(ScheduleTargetChoice? value) => BuildForm();
+
+    partial void OnKindChanged(TriggerKind value)
+    {
+        if (!IsTimed)
+            RunInWindows = false;
+    }
 
     partial void OnIsGlobalChanged(bool value)
     {
@@ -235,11 +260,12 @@ public sealed partial class ScheduleEditorViewModel : ObservableObject, IUnsaved
                     schedules.Add(schedule);
                 }
                 schedule.Target = SelectedTarget.Reference;
-                schedule.Workspace = IsGlobal && SelectedTarget.Tree == TreeKind.Workspace ? workspace.FilePath : null;
+                schedule.Workspace = IsGlobal && (SelectedTarget.Tree == TreeKind.Workspace || RunInWindows) ? workspace.FilePath : null;
                 schedule.Trigger = trigger;
                 schedule.Values = values;
                 schedule.Missed = Missed;
                 schedule.Overlap = Overlap;
+                schedule.RunIn = RunIn;
                 schedule.DefinitionHash = hash;
             });
             if (_existing is not null && _wasGlobal != IsGlobal)

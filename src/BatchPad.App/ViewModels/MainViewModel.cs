@@ -46,6 +46,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ConcurrentDictionary<string, (DateTime Stamp, long Length, string Hash)> _configHashes =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Debouncer _fingerprints;
+    private readonly Debouncer _windowsTaskSync;
     private readonly Dictionary<string, DateTime> _scriptStamps = new(StringComparer.OrdinalIgnoreCase);
     private readonly ScheduleStateStore _scheduleState;
     private string? _schedulerWorkspaceId;
@@ -56,7 +57,7 @@ public sealed partial class MainViewModel : ObservableObject
     public MainViewModel(AppPaths paths, Settings settings,
         IRunLauncher? launcher = null, IUiDispatcher? dispatcher = null, IShellService? shell = null, IFileDialogService? dialogs = null,
         IConfirmService? confirm = null, IWorkflowLauncher? workflows = null, TimeProvider? time = null, IAskService? ask = null,
-        ITrayService? tray = null, ISecretStore? secrets = null)
+        ITrayService? tray = null, ISecretStore? secrets = null, ITaskRegistrar? tasks = null)
     {
         _paths = paths;
         _settings = settings;
@@ -75,6 +76,8 @@ public sealed partial class MainViewModel : ObservableObject
             ask ?? new AskDialogService(), secrets);
         Sources = new SourceOpener(shell, settings);
         _fingerprints = new Debouncer(Services.Dispatcher, TimeSpan.Zero);
+        _windowsTaskSync = new Debouncer(Services.Dispatcher, TimeSpan.Zero);
+        WindowsTasks = new TaskSchedulerSync(tasks ?? new SchtasksRegistrar(), TaskHost.ForThisApp(paths), Time);
         _scheduleState = ScheduleStateStore.For(paths);
         Details = new DetailsViewModel(this);
         Telemetry = TelemetryPipeline.For(paths, settings, Time);
@@ -113,6 +116,7 @@ public sealed partial class MainViewModel : ObservableObject
     public Settings UserSettings => _settings;
     public RenameTracker Renames { get; } = new();
     public Scheduler? Scheduler { get; private set; }
+    public TaskSchedulerSync WindowsTasks { get; }
 
     public ITrayService? Tray { get; }
     public RunActivityViewModel Activity { get; }
@@ -153,7 +157,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private bool HasEnabledSchedules => Scheduler?.Statuses().Any(s => s.Entry.Schedule.Enabled) == true;
+    private bool HasEnabledSchedules => Scheduler?.Statuses().Any(s => s.Entry.Schedule is { Enabled: true, RunIn: RunIn.App }) == true;
 
     public Dictionary<string, ParameterValues> SessionValues { get; } = [];
     public DetailsViewModel Details { get; }
@@ -263,6 +267,7 @@ public sealed partial class MainViewModel : ObservableObject
         ShowLastResults(Tree);
         var schedules = ScheduleEntry.For(loaded);
         StartScheduler(loaded, schedules);
+        SyncWindowsTasks(loaded, schedules);
         ShowScheduleBadges(Tree, schedules);
         Schedules?.Refresh(schedules);
         Tree.RefreshLinks(Time);
@@ -313,7 +318,21 @@ public sealed partial class MainViewModel : ObservableObject
     internal void RefreshSchedules()
     {
         if (Workspace is { } workspace && Scheduler is { } scheduler)
-            scheduler.Update(ScheduleEntry.For(workspace));
+        {
+            var entries = ScheduleEntry.For(workspace);
+            scheduler.Update(entries);
+            SyncWindowsTasks(workspace, entries);
+        }
+    }
+
+    private void SyncWindowsTasks(LoadedWorkspace loaded, IReadOnlyList<ScheduleEntry> entries)
+    {
+        var trusted = IsTrusted;
+        _windowsTaskSync.Run(() =>
+        {
+            WindowsTasks.Sync(loaded, entries, trusted);
+            return true;
+        }, _ => Schedules?.RefreshStatus());
     }
 
     /// <summary>Closes an open page so the selected item's details show, unless the page holds unsaved edits.</summary>
