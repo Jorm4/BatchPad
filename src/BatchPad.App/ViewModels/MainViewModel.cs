@@ -274,6 +274,13 @@ public sealed partial class MainViewModel : ObservableObject
         });
     }
 
+    /// <summary>Hands the scheduler the workspace's schedules again, after an entry they run changed in place.</summary>
+    internal void RefreshSchedules()
+    {
+        if (Workspace is { } workspace && Scheduler is { } scheduler)
+            scheduler.Update(ScheduleEntry.For(workspace));
+    }
+
     /// <summary>Closes an open page so the selected item's details show, unless the page holds unsaved edits.</summary>
     public void ShowDetails()
     {
@@ -658,6 +665,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     internal void RefreshConfigFingerprint(LoadedWorkspace workspace)
     {
+        // A check that read the files before this write would otherwise see a change and reload.
+        _fingerprints.Cancel();
         if (_fingerprint is not null)
             _fingerprint = _fingerprint with { Configs = ConfigsHash(workspace) };
     }

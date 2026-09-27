@@ -46,5 +46,8 @@ public sealed class Debouncer(IUiDispatcher dispatcher, TimeSpan delay)
             delay);
     }
 
+    /// <summary>Drops work already under way, so its result never applies.</summary>
+    public void Cancel() => Interlocked.Increment(ref _latest);
+
     private bool IsLatest(int request) => Volatile.Read(ref _latest) == request;
 }

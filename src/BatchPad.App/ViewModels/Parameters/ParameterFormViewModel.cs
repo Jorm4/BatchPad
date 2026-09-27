@@ -43,9 +43,17 @@ public sealed partial class ParameterFormViewModel : ObservableObject
         if (resolving.Count > 0)
             dispatcher.Background(() => resolving.Select(f => resolveChoices(f.Definition)).ToList(), resolved =>
             {
-                for (var i = 0; i < resolving.Count; i++)
-                    resolving[i].Fill(resolved[i]);
-                Changed?.Invoke();
+                IsFilling = true;
+                try
+                {
+                    for (var i = 0; i < resolving.Count; i++)
+                        resolving[i].Fill(resolved[i]);
+                    Changed?.Invoke();
+                }
+                finally
+                {
+                    IsFilling = false;
+                }
             });
     }
 
@@ -77,6 +85,12 @@ public sealed partial class ParameterFormViewModel : ObservableObject
     public IReadOnlyDictionary<string, JsonNode?> Values => Fields.Where(f => f.IsSet).ToDictionary(f => f.Name, f => f.Value);
 
     /// <summary>The values to keep, which leave out secrets.</summary>
+    /// <summary>True while loaded choices are being filled in: the form changes, but not by the user.</summary>
+    public bool IsFilling { get; private set; }
+
+    /// <summary>The fields whose values <see cref="Snapshot"/> reports; a secret's value is never stored.</summary>
+    public IReadOnlyList<string> StoredFieldNames => [.. Fields.Where(f => f is not SecretFieldViewModel).Select(f => f.Name)];
+
     public ParameterValues Snapshot() =>
         new(Fields.Where(f => f.IsSet && f is not SecretFieldViewModel).ToDictionary(f => f.Name, f => f.Value), ExtraArguments);
 

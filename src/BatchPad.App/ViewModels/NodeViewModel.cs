@@ -48,7 +48,7 @@ public sealed partial class NodeViewModel : ObservableObject
     public bool IsRunnable => Kind is NodeKind.Script or NodeKind.Workflow;
     public bool IsMyScript => Tree.Kind == TreeKind.MyScripts && Item?.HasEntry == true;
 
-    public ResolvedCustomisation? Customisation { get; }
+    public ResolvedCustomisation? Customisation { get; internal set; }
     public bool IsBroken => Customisation?.IsBroken == true;
 
     public string? Description => Item?.Node switch

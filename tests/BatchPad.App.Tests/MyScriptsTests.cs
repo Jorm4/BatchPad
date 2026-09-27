@@ -1,5 +1,6 @@
 using BatchPad.App.ViewModels;
 using BatchPad.App.ViewModels.Parameters;
+using BatchPad.Core.Config;
 using BatchPad.Core.Model;
 using BatchPad.Core.Workspace;
 
@@ -172,6 +173,52 @@ public sealed class MyScriptsTests
         var reopened = test.OpenMain(Path.Combine(test.Root, "build"), trusted: true);
         reopened.Select("MyScripts/Run pirates");
         StringAssert.Contains(reopened.Details.Preview, "SpaceTrader");
+    }
+
+    [TestMethod]
+    public void SelectingAnEntryKeepsValuesItsFormDoesNotShow()
+    {
+        using var test = new TestWorkspace();
+        var main = OpenBuildWorkspace(test);
+        main.Select(BuildAndRun);
+        main.Details.SaveAsMyScriptCommand.Execute(null);
+        main.MyScripts.Rename(main.SelectedNode!, "Mine");
+        UserStore.For(main.Workspace!).Update(file =>
+        {
+            var entry = file.Scripts.OfType<ScriptNode>().Single();
+            entry.Values = new() { ["app"] = "SpaceTrader", ["token"] = "asked-on-run", ["dropped"] = "old" };
+        });
+        var before = File.ReadAllText(main.Paths.UserFile(main.Workspace!.Id));
+
+        // Choices load in the background in the app, so they land after the form is hooked up.
+        var dispatcher = new QueuedDispatcher();
+        var reopened = test.OpenMain(Path.Combine(test.Root, "build"), trusted: true, dispatcher: dispatcher);
+        reopened.Select("MyScripts/Mine");
+        dispatcher.RunAll();
+
+        Assert.AreEqual(before, File.ReadAllText(reopened.Paths.UserFile(reopened.Workspace!.Id)), "Selecting must not rewrite the entry.");
+        Choose(reopened, "app", "RallyRacer");
+        var values = UserEntries(reopened).Single().Values!;
+        Assert.AreEqual("RallyRacer", values["app"]!.GetValue<string>());
+        Assert.AreEqual("asked-on-run", values["token"]!.GetValue<string>());
+        Assert.AreEqual("old", values["dropped"]!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public void SharingRightAfterAnEditSharesTheEditedValues()
+    {
+        using var test = new TestWorkspace();
+        var main = OpenBuildWorkspace(test, new FakeConfirm { Answer = true });
+        main.Select(BuildAndRun);
+        Choose(main, "app", "SpaceTrader");
+        main.Details.SaveAsMyScriptCommand.Execute(null);
+        main.MyScripts.Rename(main.SelectedNode!, "Mine");
+
+        Choose(main, "app", "RallyRacer");
+        main.MyScripts.ShareWithWorkspaceCommand.Execute(main.SelectedNode);
+
+        var shared = ConfigReader.ReadFile(main.Workspace!.FilePath).Scripts.OfType<ScriptNode>().Single(s => s.Name == "Mine");
+        Assert.AreEqual("RallyRacer", shared.Params!.Single(p => p.Name == "app").Default!.GetValue<string>());
     }
 
     private static MainViewModel OpenBuildWorkspace(TestWorkspace test, FakeConfirm? confirm = null)

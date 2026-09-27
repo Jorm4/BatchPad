@@ -477,8 +477,8 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         form.Changed += () =>
         {
             var values = main.SessionValues[node.Key] = form.Snapshot();
-            if (node.IsMyScript)
-                main.MyScripts.SaveValues(node, values);
+            if (node.IsMyScript && !form.IsFilling)
+                main.MyScripts.SaveValues(node, values, form.StoredFieldNames);
             Refresh();
         };
         return form;

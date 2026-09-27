@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using BatchPad.App.ViewModels.Editor;
 using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.Config;
@@ -214,22 +215,30 @@ public sealed partial class MyScriptsViewModel : ObservableObject
 
     /// <summary>
     /// Saves the form's values on a My Scripts entry as they change; an entry still named by its <c>nameTemplate</c> is renamed to match.
-    /// Only a rename reloads the tree: otherwise the file and the loaded entry are updated in place, so the form keeps focus.
+    /// Only <paramref name="formFields"/> are replaced, so values the form doesn't show (ask on run, a secret, a parameter the base
+    /// dropped) are kept. Only a rename reloads the tree: otherwise the file and the loaded entry are updated in place, so the form
+    /// keeps focus.
     /// </summary>
-    public bool SaveValues(NodeViewModel node, ParameterValues values)
+    public bool SaveValues(NodeViewModel node, ParameterValues values, IReadOnlyCollection<string> formFields)
     {
         if (node.Node is not ScriptNode loaded || _main.Workspace is not { } workspace)
             return false;
-        var stored = values.Values.Count == 0 ? null : values.Values.ToDictionary(v => v.Key, v => v.Value?.DeepClone());
         var extraArgs = values.ExtraArguments.Trim().Length == 0 ? null : values.ExtraArguments.Trim();
-        var newName = IsAutoNamed(node) && node.Customisation is { Definition: { } definition, DefinitionTree: { } tree }
-            ? new CustomisationResolver(workspace).NameFor(definition, tree, stored)
-            : null;
+        Dictionary<string, JsonNode?>? Merged(ScriptNode entry)
+        {
+            var merged = (entry.Values ?? []).Where(v => !formFields.Contains(v.Key))
+                .Concat(values.Values)
+                .ToDictionary(v => v.Key, v => v.Value?.DeepClone());
+            return merged.Count == 0 ? null : merged;
+        }
         void Apply(ScriptNode entry)
         {
-            entry.Values = stored?.ToDictionary(v => v.Key, v => v.Value?.DeepClone());
+            entry.Values = Merged(entry);
             entry.ExtraArgs = extraArgs;
         }
+        var newName = IsAutoNamed(node) && node.Customisation is { Definition: { } definition, DefinitionTree: { } tree }
+            ? new CustomisationResolver(workspace).NameFor(definition, tree, Merged(loaded))
+            : null;
         if (newName is not null && newName != node.Name)
             return Edit(file =>
             {
@@ -258,7 +267,9 @@ public sealed partial class MyScriptsViewModel : ObservableObject
             return false;
         }
         Apply(loaded);
+        node.Customisation = new CustomisationResolver(workspace).Resolve(loaded);
         _main.RefreshConfigFingerprint(workspace);
+        _main.RefreshSchedules();
         return true;
     }
 
