@@ -20,7 +20,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
 {
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsRunnable), nameof(IsWorkflow), nameof(IsLink), nameof(IsMyScript), nameof(CanSaveAsMyScript),
-        nameof(CustomisesText), nameof(CanTogglePin), nameof(PinText))]
+        nameof(CustomisesText), nameof(CanTogglePin), nameof(PinText), nameof(HotkeyText), nameof(HotkeyProblem))]
     [NotifyCanExecuteChangedFor(nameof(RunCommand), nameof(RunInWindowCommand), nameof(StopCommand), nameof(CopyPreviewCommand),
         nameof(EditCommand), nameof(OpenLinkCommand), nameof(SaveAsMyScriptCommand), nameof(DuplicateCommand), nameof(TogglePinCommand),
         nameof(OpenChangeBaseCommand), nameof(ReattachCommand))]
@@ -94,6 +94,12 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     }
 
     public bool IsLink => Node?.Node is LinkNode;
+
+    public string? HotkeyText => Node?.Hotkey?.ToString();
+
+    public string? HotkeyProblem => main.Hotkeys?.ProblemFor(Node?.Key);
+
+    internal void RefreshHotkeyProblem() => OnPropertyChanged(nameof(HotkeyProblem));
 
     partial void OnNodeChanged(NodeViewModel? oldValue, NodeViewModel? newValue)
     {

@@ -126,6 +126,17 @@ public sealed partial class MainViewModel : ObservableObject
             RefreshJumpList();
         }
     }
+
+    public HotkeyService? Hotkeys
+    {
+        get;
+        set
+        {
+            field = value;
+            RefreshHotkeys();
+        }
+    }
+
     public bool IsInTray { get; private set; }
     public event Action? ShowWindowRequested;
     public event Action? ExitRequested;
@@ -275,6 +286,13 @@ public sealed partial class MainViewModel : ObservableObject
         }
         RefreshRecents();
         RefreshJumpList();
+        RefreshHotkeys();
+    }
+
+    private void RefreshHotkeys()
+    {
+        Hotkeys?.Apply(Tree, IsTrusted);
+        Details.RefreshHotkeyProblem();
     }
 
     private void RefreshJumpList() => JumpList?.Apply(JumpListBuilder.Build(Tree, Workspace?.FilePath, _settings.RecentWorkspaces));

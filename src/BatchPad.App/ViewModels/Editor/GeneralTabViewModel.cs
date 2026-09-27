@@ -11,9 +11,14 @@ public sealed partial class GeneralTabViewModel : ObservableObject
     private readonly ScriptNode _definition;
     private readonly string _fallbackName;
     private readonly Action _changed;
+    private readonly Func<HotkeyGesture, string?> _hotkeyWarning;
+    private readonly Action<bool> _recordingHotkey;
 
-    public GeneralTabViewModel(ScriptNode definition, string fallbackName, Action changed)
+    public GeneralTabViewModel(ScriptNode definition, string fallbackName, Action changed, Func<HotkeyGesture, string?>? warnAboutHotkey = null,
+        Action<bool>? recordingHotkey = null)
     {
+        _hotkeyWarning = warnAboutHotkey ?? (_ => null);
+        _recordingHotkey = recordingHotkey ?? (_ => { });
         _definition = definition;
         _fallbackName = fallbackName;
         name = definition.Name ?? fallbackName;
@@ -26,6 +31,8 @@ public sealed partial class GeneralTabViewModel : ObservableObject
         lockName = definition.Lock ?? "";
         machineWideLock = definition.LockScope == LockScope.Machine;
         module = definition.Module ?? "";
+        hotkey = HotkeyGesture.TryParse(definition.Hotkey, out var gesture) ? gesture.ToString() : definition.Hotkey ?? "";
+        hotkeyWarning = WarningFor(hotkey);
         _changed = changed;
     }
 
@@ -76,6 +83,12 @@ public sealed partial class GeneralTabViewModel : ObservableObject
     [ObservableProperty]
     private string module;
 
+    [ObservableProperty]
+    private string hotkey;
+
+    [ObservableProperty]
+    private string? hotkeyWarning;
+
     /// <summary>A discovered script keeps its derived name unsaved until the user changes it.</summary>
     partial void OnNameChanged(string value) =>
         Set(() => _definition.Name = _definition.Name is null && value == _fallbackName ? null : NullIfEmpty(value));
@@ -89,6 +102,19 @@ public sealed partial class GeneralTabViewModel : ObservableObject
     partial void OnLockNameChanged(string value) => Set(() => _definition.Lock = NullIfEmpty(value));
     partial void OnMachineWideLockChanged(bool value) => Set(() => _definition.LockScope = value ? LockScope.Machine : null);
     partial void OnModuleChanged(string value) => Set(() => _definition.Module = NullIfEmpty(value));
+
+    partial void OnHotkeyChanged(string value)
+    {
+        HotkeyWarning = WarningFor(value);
+        Set(() => _definition.Hotkey = NullIfEmpty(value));
+    }
+
+    public void RecordingHotkey(bool recording) => _recordingHotkey(recording);
+
+    private string? WarningFor(string text) =>
+        text.Length == 0 ? null
+        : HotkeyGesture.TryParse(text, out var gesture) ? _hotkeyWarning(gesture)
+        : HotkeyMessages.Invalid(text);
 
     private void Set(Action apply)
     {

@@ -7,6 +7,8 @@ namespace BatchPad.App.ViewModels;
 
 public sealed record PaletteItem(string Title, string Detail, string Icon, Action Run, NodeViewModel? Node = null)
 {
+    public string? Hotkey => Node?.Hotkey?.ToString();
+
     public string AutomationId => Node?.AutomationId ?? "Command/" + Title;
 }
 

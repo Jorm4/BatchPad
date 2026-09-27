@@ -29,6 +29,7 @@ public sealed partial class NodeViewModel : ObservableObject
         Tree = tree;
         Parent = parent;
         Item = item;
+        Hotkey = IsRunnable && item?.Node is RunnableNode { Hotkey: { } text } && HotkeyGesture.TryParse(text, out var gesture) ? gesture : null;
         _onSelected = onSelected;
         isExpanded = kind == NodeKind.Root || item?.Node is FolderNode { Collapsed: false };
         isNew = item?.IsNew == true;
@@ -47,6 +48,8 @@ public sealed partial class NodeViewModel : ObservableObject
     public bool IsOrphan => Item?.IsOrphan == true;
     public bool IsRunnable => Kind is NodeKind.Script or NodeKind.Workflow;
     public bool IsMyScript => Tree.Kind == TreeKind.MyScripts && Item?.HasEntry == true;
+
+    public HotkeyGesture? Hotkey { get; }
 
     public ResolvedCustomisation? Customisation { get; internal set; }
     public bool IsBroken => Customisation?.IsBroken == true;

@@ -39,6 +39,8 @@
                             <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding Icon}" Margin="0,0,10,0" VerticalAlignment="Center" />
                             <TextBlock DockPanel.Dock="Right" Text="{Binding Detail}" Opacity="0.6" Margin="12,0,0,0" VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" MaxWidth="260" />
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Hotkey}" Opacity="0.6" Margin="12,0,0,0" VerticalAlignment="Center"
+                                       FontFamily="{StaticResource MonoFont}" />
                             <TextBlock Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                         </DockPanel>
                     </DataTemplate>

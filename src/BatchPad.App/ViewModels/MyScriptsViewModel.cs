@@ -186,6 +186,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
             var copy = (RunnableNode)ConfigJson.Clone(list[index]);
             copy.Name = name;
             copy.Pinned = null;
+            copy.Hotkey = null;
             copy.Id = id = IdAssigner.FromName(name, ConfigEntries.Ids(file.Scripts));
             list.Insert(index + 1, copy);
         }, () => ById(id));
@@ -325,6 +326,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
         standalone.Name ??= source.Name;
         standalone.Values = values;
         standalone.ExtraArgs = extraArgs;
+        standalone.Hotkey = null;
         return standalone;
     }
 

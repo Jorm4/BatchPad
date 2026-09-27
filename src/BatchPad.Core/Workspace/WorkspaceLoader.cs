@@ -65,6 +65,7 @@ public static class WorkspaceLoader
         }
         errors.AddRange(WorkflowValidator.FindCycles(allTrees, references));
         errors.AddRange(Prerequisites.FindCycles(allTrees, references));
+        CheckHotkeys(allTrees, errors);
         workspace.Rescan(myScripts.File.SeenPaths?.ToHashSet(StringComparer.OrdinalIgnoreCase));
         global.Rescan();
         myScripts.Rescan();
@@ -149,6 +150,21 @@ public static class WorkspaceLoader
             if (tree.Paths.Problem(ScriptFolderScanner.FullPath(tree.BaseDirectory, folder)) is { } problem)
                 errors.Add(new LoadError($"Script folder '{folder.Path}' is skipped: {problem}", tree.FilePath));
         }
+    }
+
+    private static void CheckHotkeys(IEnumerable<ScriptTree> trees, List<LoadError> errors)
+    {
+        var owners = new Dictionary<HotkeyGesture, string>();
+        foreach (var tree in trees)
+            foreach (var (node, location) in tree.AllNodes())
+            {
+                if (node is not RunnableNode { Hotkey: { } text })
+                    continue;
+                if (!HotkeyGesture.TryParse(text, out var gesture))
+                    errors.Add(new LoadError($"'{location}': {HotkeyMessages.Invalid(text)}", tree.FilePath));
+                else if (!owners.TryAdd(gesture, location))
+                    errors.Add(new LoadError($"'{location}': {HotkeyMessages.Duplicate(gesture, owners[gesture])}", tree.FilePath));
+            }
     }
 
     /// <summary>The file's <c>id</c>, or a hash of its full path (§3.7). The id names a folder, so an unsafe one is hashed too.</summary>

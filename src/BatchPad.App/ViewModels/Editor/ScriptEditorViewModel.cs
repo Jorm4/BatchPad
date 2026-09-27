@@ -25,7 +25,7 @@ public sealed partial class ScriptEditorViewModel : ObservableObject, IUnsavedEd
         _node = node;
         _original = node.Script!;
         Definition = ConfigJson.Clone(_original);
-        General = new GeneralTabViewModel(Definition, node.Name, Refresh);
+        General = new GeneralTabViewModel(Definition, node.Name, Refresh, HotkeyWarning, SuspendHotkeys);
         var proposals = DetectProposals();
         Parameters = new ParametersTabViewModel(Definition, main.Workspace!.Workspace.File.SharedParams?.Keys ?? Enumerable.Empty<string>(),
             proposals.Parameters, Refresh, key => main.DismissProposal(node, key));
@@ -162,6 +162,19 @@ public sealed partial class ScriptEditorViewModel : ObservableObject, IUnsavedEd
         _main.Reload(n => n.Tree.Kind == tree.Kind && n.Script is { } s
             && (saved.Id is not null ? s.Id == saved.Id : s.Path == saved.Path));
     }
+
+    private void SuspendHotkeys(bool suspend)
+    {
+        if (suspend)
+            _main.Hotkeys?.Suspend();
+        else
+            _main.Hotkeys?.Resume();
+    }
+
+    private string? HotkeyWarning(HotkeyGesture gesture) =>
+        _main.Tree!.AllNodes.FirstOrDefault(n => n.Key != _node.Key && n.Hotkey == gesture) is { } owner
+            ? HotkeyMessages.Duplicate(gesture, owner.Name)
+            : _main.Hotkeys?.IsTaken(gesture) == true ? HotkeyMessages.Taken(gesture) : null;
 
     /// <summary>Scripts with an id that could stop this one, as references it can resolve.</summary>
     private static IReadOnlyList<EditorOption<string?>> StopChoices(MainViewModel main, NodeViewModel self) =>

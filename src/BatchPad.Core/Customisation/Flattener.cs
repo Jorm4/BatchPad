@@ -60,6 +60,7 @@ public static class Flattener
         var copy = ConfigJson.Clone(shared);
         copy.Id = null;
         copy.Hidden = null;
+        copy.Hotkey = null;
         copy.Name = name;
         copy.Path = Absolute(copy.Path, from.BaseDirectory);
         copy.WorkingDir = Absolute(copy.WorkingDir, from.BaseDirectory);

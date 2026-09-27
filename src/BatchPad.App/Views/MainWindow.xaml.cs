@@ -2,7 +2,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Shell;
+using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Workspace;
 
@@ -41,6 +43,7 @@ public partial class MainWindow : Window
                 BindingOperations.SetBinding(TaskbarItemInfo, property, new Binding($"{nameof(main.Activity)}.{activityProperty}") { Source = main });
             BindToActivity(TaskbarItemInfo.ProgressStateProperty, nameof(RunActivityViewModel.TaskbarState));
             BindToActivity(TaskbarItemInfo.ProgressValueProperty, nameof(RunActivityViewModel.TaskbarProgress));
+            main.Hotkeys = new HotkeyService(new Win32HotkeyApi(HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)), main.RunByKey);
             main.ShowWindowRequested += Restore;
             main.ExitRequested += () =>
             {
@@ -109,6 +112,12 @@ public partial class MainWindow : Window
             TreeWidth = TreeColumn.ActualWidth,
             OutputHeight = OutputRow.ActualHeight,
         });
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        Main?.Hotkeys?.Clear();
+        base.OnClosed(e);
     }
 
     private void Restore()
