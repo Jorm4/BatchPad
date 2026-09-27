@@ -18,9 +18,9 @@
                     <Button Content="Close" Command="{Binding CloseCommand}" Margin="6,0,0,0"
                             AutomationProperties.AutomationId="SchedulesCloseButton" />
                 </StackPanel>
-                <TextBlock Text="Schedules" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock Text="Schedules" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center" />
             </DockPanel>
-            <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
                        AutomationProperties.AutomationId="SchedulesError" />
             <TextBlock DockPanel.Dock="Top" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,8"
                        Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"
@@ -33,7 +33,7 @@
                 <views:FlatItemsControl ItemsSource="{Binding Items}" AutomationProperties.AutomationId="ScheduleList">
                     <views:FlatItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:ScheduleItemViewModel}">
-                            <Border Margin="0,0,8,8" Padding="12,10" CornerRadius="6" Background="#0A000000"
+                            <Border Margin="0,0,8,8" Padding="12,10" CornerRadius="6" Background="{DynamicResource SubtleFillColorSecondaryBrush}"
                                     AutomationProperties.AutomationId="ScheduleItem" AutomationProperties.Name="{Binding TargetName}">
                                 <DockPanel>
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
@@ -52,7 +52,7 @@
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="{Binding TargetName}" FontWeight="SemiBold"
                                                        AutomationProperties.AutomationId="ScheduleTargetName" />
-                                            <TextBlock Text="{Binding Location}" Margin="8,0,0,0" FontSize="11" Opacity="0.6" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Location}" Margin="8,0,0,0" FontSize="{views:ScaledSize 11}" Opacity="0.6" VerticalAlignment="Center" />
                                         </StackPanel>
                                         <TextBlock Text="{Binding TriggerText}" AutomationProperties.AutomationId="ScheduleTrigger" />
                                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Opacity="0.8">
@@ -60,7 +60,7 @@
                                             <TextBlock Text="{Binding NextRunText}" AutomationProperties.AutomationId="ScheduleNextRun" />
                                             <TextBlock Text="Last: " Margin="16,0,0,0" />
                                             <TextBlock Text="{Binding LastRunText}" AutomationProperties.AutomationId="ScheduleLastRun" />
-                                            <TextBlock x:Name="LastResult" Text="{Binding LastResultText}" Margin="6,0,0,0" Foreground="#C42B1C"
+                                            <TextBlock x:Name="LastResult" Text="{Binding LastResultText}" Margin="6,0,0,0" Foreground="{DynamicResource SystemFillColorCriticalBrush}"
                                                        AutomationProperties.AutomationId="ScheduleLastResult" />
                                         </StackPanel>
                                         <DockPanel Margin="0,6,0,0" Visibility="{Binding StatusText, Converter={StaticResource NullToCollapsed}}">
@@ -68,7 +68,7 @@
                                                     Visibility="{Binding NeedsReview, Converter={StaticResource BoolToVisibility}}"
                                                     ToolTip="Accept the changed definition and resume the schedule"
                                                     AutomationProperties.AutomationId="ScheduleReconfirm" />
-                                            <TextBlock Text="{Binding StatusText}" Foreground="#9D5D00" TextWrapping="Wrap" VerticalAlignment="Center"
+                                            <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource SystemFillColorCautionBrush}" TextWrapping="Wrap" VerticalAlignment="Center"
                                                        AutomationProperties.AutomationId="ScheduleStatus" />
                                         </DockPanel>
                                     </StackPanel>
@@ -76,7 +76,7 @@
                             </Border>
                             <DataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding LastSucceeded}" Value="True">
-                                    <Setter TargetName="LastResult" Property="Foreground" Value="#0F7B0F" />
+                                    <Setter TargetName="LastResult" Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
                                 </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>

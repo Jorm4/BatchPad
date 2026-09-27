@@ -32,7 +32,7 @@
                         <Grid Margin="0,4,0,0">
                             <Rectangle Stroke="#8A8A8A" StrokeDashArray="4 3" RadiusX="4" RadiusY="4" />
                             <StackPanel Margin="8,6">
-                                <TextBlock Text="DETECTED" FontSize="10" FontWeight="SemiBold" Opacity="0.6" />
+                                <TextBlock Text="DETECTED" FontSize="{views:ScaledSize 10}" FontWeight="SemiBold" Opacity="0.6" />
                                 <TextBlock Text="{Binding Summary}" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding Description}" Opacity="0.7" TextWrapping="Wrap" />
                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
@@ -67,6 +67,6 @@
             </ListBox>
         </DockPanel>
 
-        <editor:ParameterEditor Grid.Column="1" DataContext="{Binding Selected}" />
+        <editor:ParameterEditor Grid.Column="1" DataContext="{Binding Selected}" Visibility="{Binding Converter={StaticResource NullToCollapsed}, FallbackValue=Collapsed}" />
     </Grid>
 </UserControl>

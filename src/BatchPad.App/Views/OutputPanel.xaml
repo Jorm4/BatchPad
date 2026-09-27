@@ -11,7 +11,7 @@
             <Setter Property="Background" Value="{StaticResource OutputBackgroundBrush}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="{views:ScaledSize 12}" />
             <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
             <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
             <Setter Property="ItemContainerStyle">
@@ -163,7 +163,7 @@
                                             <TextBlock Text="{Binding TimeText}" Foreground="{StaticResource OutputMutedBrush}" Margin="8,0,0,0" />
                                         </StackPanel>
                                         <TextBlock Text="{Binding Message}" Foreground="{StaticResource OutputErrorBrush}" Margin="16,0,0,2" TextWrapping="Wrap" MaxWidth="900"
-                                                   FontFamily="{StaticResource MonoFont}" FontSize="11"
+                                                   FontFamily="{StaticResource MonoFont}" FontSize="{views:ScaledSize 11}"
                                                    Visibility="{Binding Message, Converter={StaticResource NullToCollapsed}}" />
                                     </StackPanel>
                                     <DataTemplate.Triggers>
@@ -266,11 +266,11 @@
                 <TabControl.ItemTemplate>
                     <DataTemplate DataType="{x:Type vm:OutputTabViewModel}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock x:Name="Dot" Text="●" Foreground="{StaticResource AccentBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock x:Name="Dot" Text="●" Foreground="{StaticResource OutputAccentBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
                             <TextBlock Text="{Binding Title}" Margin="0,0,6,0" />
                             <TextBlock Text="{Binding StatusText}" Opacity="0.7" AutomationProperties.AutomationId="RunStatus" />
                             <TextBlock Text="{Binding DurationText}" Opacity="0.7" Margin="6,0,0,0" />
-                            <Button Content="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10" Padding="4,2" Margin="8,0,0,0"
+                            <Button Content="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="{views:ScaledSize 10}" Padding="4,2" Margin="8,0,0,0"
                                     Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=TabControl}}"
                                     CommandParameter="{Binding}" ToolTip="Close"
                                     AutomationProperties.AutomationId="CloseRunButton" AutomationProperties.Name="Close" />
@@ -282,7 +282,7 @@
                             </DataTrigger>
                             <DataTrigger Binding="{Binding Succeeded}" Value="True">
                                 <Setter TargetName="Dot" Property="Text" Value="✓" />
-                                <Setter TargetName="Dot" Property="Foreground" Value="#0F7B0F" />
+                                <Setter TargetName="Dot" Property="Foreground" Value="{StaticResource OutputSuccessBrush}" />
                             </DataTrigger>
                         </DataTemplate.Triggers>
                     </DataTemplate>

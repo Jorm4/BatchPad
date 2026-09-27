@@ -8,7 +8,7 @@
             <Setter Property="Margin" Value="0,10,0,4" />
         </Style>
         <Style x:Key="Hint" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="{views:ScaledSize 11}" />
             <Setter Property="Opacity" Value="0.7" />
             <Setter Property="Margin" Value="0,2,0,0" />
             <Setter Property="TextWrapping" Value="Wrap" />
@@ -21,9 +21,9 @@
                 <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
                         AutomationProperties.AutomationId="ScheduleSaveButton" />
             </StackPanel>
-            <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding Title}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center" />
         </DockPanel>
-        <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+        <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="ScheduleError" />
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">

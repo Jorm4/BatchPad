@@ -19,7 +19,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.Resources>
-                <Style TargetType="TextBlock">
+                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                     <Setter Property="Margin" Value="0,6,16,8" />
                 </Style>
                 <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">

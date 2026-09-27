@@ -21,8 +21,8 @@
                 </Style.Triggers>
             </Style>
         </StackPanel.Style>
-        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="36" Opacity="0.5" HorizontalAlignment="Center" />
-        <TextBlock Text="Pick a script to run" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,12,0,0" />
+        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="{views:ScaledSize 36}" Opacity="0.5" HorizontalAlignment="Center" />
+        <TextBlock Text="Pick a script to run" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,12,0,0" />
         <TextBlock TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7" Margin="0,6,0,0"
                    Text="Select a script on the left to set its options, preview the command and run it. Add creates a script, link or workflow, and Ctrl+K searches everything." />
     </StackPanel>
@@ -55,7 +55,7 @@
                     </StackPanel>
                 </Button>
                 <StackPanel DataContext="{Binding Node}">
-                    <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding Name}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold"
                                AutomationProperties.AutomationId="DetailsName" />
                     <TextBlock Text="{Binding Location}" Opacity="0.7" Margin="0,2,0,0"
                                AutomationProperties.AutomationId="DetailsLocation" />
@@ -105,7 +105,7 @@
                         <TextBlock Text="Open" />
                     </StackPanel>
                 </Button>
-                <TextBlock Text="{Binding RunError}" Foreground="#C42B1C" TextWrapping="Wrap" Margin="10,6,0,0"
+                <TextBlock Text="{Binding RunError}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" Margin="10,6,0,0"
                            AutomationProperties.AutomationId="LinkError" />
             </StackPanel>
 
@@ -115,7 +115,7 @@
                         ToolTip="Runs the scripts that list this form's choices again"
                         AutomationProperties.AutomationId="RefreshChoicesButton" />
                 <views:ParameterForm DataContext="{Binding Form}" Margin="0,0,0,8" />
-                <Border Padding="10,6" CornerRadius="4" Background="#14000000">
+                <Border Padding="10,6" CornerRadius="4" Background="{DynamicResource SubtleFillColorSecondaryBrush}">
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Content="Copy" Command="{Binding CopyPreviewCommand}" Margin="8,0,0,0"
                                 VerticalAlignment="Top" AutomationProperties.AutomationId="CopyPreviewButton" />
@@ -124,9 +124,9 @@
                                  AutomationProperties.AutomationId="CommandPreview" AutomationProperties.Name="Command preview" />
                     </DockPanel>
                 </Border>
-                <TextBlock Text="{Binding ValidationMessage}" Foreground="#C42B1C" TextWrapping="Wrap" Margin="0,6,0,0"
+                <TextBlock Text="{Binding ValidationMessage}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
                            AutomationProperties.AutomationId="ValidationMessage" />
-                <TextBlock Text="{Binding RunError}" Foreground="#C42B1C" TextWrapping="Wrap" Margin="0,6,0,0"
+                <TextBlock Text="{Binding RunError}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
                            AutomationProperties.AutomationId="RunError" />
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <Button Command="{Binding RunCommand}" Style="{DynamicResource AccentButtonStyle}" MinWidth="80"

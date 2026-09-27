@@ -9,10 +9,10 @@
             <Setter Property="Padding" Value="8,2" />
             <Setter Property="Margin" Value="0,0,6,4" />
             <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="Background" Value="#1A005FB8" />
+            <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
         </Style>
         <DataTemplate x:Key="StepCardTemplate" DataType="{x:Type wf:StepCardViewModel}">
-            <Border Tag="StepCard" Margin="0,0,0,8" Padding="12,10" CornerRadius="6" BorderThickness="1" BorderBrush="#33000000"
+            <Border Tag="StepCard" Margin="0,0,0,8" Padding="12,10" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource SurfaceStrokeColorDefaultBrush}"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                 <StackPanel>
                     <DockPanel>
@@ -155,10 +155,10 @@
                 <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
                         AutomationProperties.AutomationId="WorkflowSaveButton" />
             </StackPanel>
-            <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"
+            <TextBlock Text="{Binding Title}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center"
                        AutomationProperties.AutomationId="WorkflowEditorTitle" />
         </DockPanel>
-        <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+        <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="WorkflowError" />
 
         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
@@ -209,7 +209,7 @@
             </views:FlatItemsControl>
         </DockPanel>
 
-        <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8" CornerRadius="6" BorderThickness="1" BorderBrush="#33000000"
+        <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource SurfaceStrokeColorDefaultBrush}"
                 Visibility="{Binding IsParameterEditorOpen, Converter={StaticResource BoolToVisibility}}">
             <TabControl MaxHeight="360">
                 <TabItem Header="Parameters" AutomationProperties.AutomationId="WorkflowParametersTab">

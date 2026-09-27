@@ -7,7 +7,7 @@
              x:Name="Root">
     <UserControl.Resources>
         <Style x:Key="Section" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontSize" Value="{views:ScaledSize 15}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,18,0,6" />
         </Style>
@@ -24,9 +24,9 @@
                     <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
                             AutomationProperties.AutomationId="WorkspaceSaveButton" />
                 </StackPanel>
-                <TextBlock Text="Workspace settings" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock Text="Workspace settings" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center" />
             </DockPanel>
-            <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+            <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
                        AutomationProperties.AutomationId="WorkspaceError" />
 
             <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -41,7 +41,7 @@
                     <views:FlatItemsControl ItemsSource="{Binding ScriptFolders}" AutomationProperties.AutomationId="ScriptFolders">
                         <views:FlatItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:ScriptFolderViewModel}">
-                                <Border Margin="0,0,0,8" Padding="10" CornerRadius="6" Background="#0A000000">
+                                <Border Margin="0,0,0,8" Padding="10" CornerRadius="6" Background="{DynamicResource SubtleFillColorSecondaryBrush}">
                                     <StackPanel>
                                         <DockPanel>
                                             <Button DockPanel.Dock="Right" Content="Remove" Margin="6,0,0,0"
@@ -108,7 +108,7 @@
                                 </ListBox.ItemContainerStyle>
                             </ListBox>
                         </DockPanel>
-                        <StackPanel Grid.Column="1" DataContext="{Binding SelectedShared}">
+                        <StackPanel Grid.Column="1" DataContext="{Binding SelectedShared}" Visibility="{Binding Converter={StaticResource NullToCollapsed}, FallbackValue=Collapsed}">
                             <DockPanel>
                                 <Button DockPanel.Dock="Right" Content="Remove"
                                         Command="{Binding DataContext.RemoveSharedCommand, ElementName=Root}" CommandParameter="{Binding}"

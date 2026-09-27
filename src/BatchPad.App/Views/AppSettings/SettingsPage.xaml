@@ -5,7 +5,7 @@
              xmlns:views="clr-namespace:BatchPad.App.Views">
     <UserControl.Resources>
         <Style x:Key="Section" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontSize" Value="{views:ScaledSize 15}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,0,0,6" />
         </Style>
@@ -85,7 +85,7 @@
                     <TextBlock Style="{StaticResource Hint}" Margin="110,0,0,6"
                                Visibility="{Binding IsJsonl, Converter={StaticResource InverseBoolToVisibility}}"
                                Text="Don't paste secrets here: write credentials as ${env:NAME}, which is read from the environment when sending." />
-                    <TextBlock Text="{Binding SecretWarning}" Foreground="#9D5D00" TextWrapping="Wrap" Margin="110,0,0,6"
+                    <TextBlock Text="{Binding SecretWarning}" Foreground="{DynamicResource SystemFillColorCautionBrush}" TextWrapping="Wrap" Margin="110,0,0,6"
                                Visibility="{Binding SecretWarning, Converter={StaticResource NullToCollapsed}}"
                                AutomationProperties.AutomationId="TelemetrySinkSecretWarning" />
 
@@ -98,11 +98,11 @@
                                        Visibility="{Binding LastErrorText, Converter={StaticResource NullToCollapsed}}"
                                        AutomationProperties.AutomationId="TelemetrySinkLastError">
                                 <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                                         <Setter Property="Opacity" Value="0.7" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsFailing}" Value="True">
-                                                <Setter Property="Foreground" Value="#C42B1C" />
+                                                <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
                                                 <Setter Property="Opacity" Value="1" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -113,10 +113,10 @@
                                        Visibility="{Binding TestResult, Converter={StaticResource NullToCollapsed}}"
                                        AutomationProperties.AutomationId="TelemetrySinkTestResult">
                                 <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding TestFailed}" Value="True">
-                                                <Setter Property="Foreground" Value="#C42B1C" />
+                                                <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -132,7 +132,7 @@
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
             <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" VerticalAlignment="Center"
                     AutomationProperties.AutomationId="SettingsCloseButton" />
-            <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="Settings" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center" />
         </DockPanel>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="0,0,8,0">

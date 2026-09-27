@@ -5,7 +5,7 @@
              xmlns:views="clr-namespace:BatchPad.App.Views">
     <UserControl.Resources>
         <Style x:Key="Section" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontSize" Value="{views:ScaledSize 18}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,18,0,6" />
         </Style>
@@ -79,7 +79,7 @@
                 <Button Content="Close" Command="{Binding CloseCommand}" Margin="6,0,0,0"
                         AutomationProperties.AutomationId="InsightsCloseButton" />
             </StackPanel>
-            <TextBlock Text="Insights" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="Insights" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center" />
             <TextBlock Text="{Binding TotalText}" Margin="12,0,0,0" Opacity="0.7" VerticalAlignment="Center"
                        AutomationProperties.AutomationId="InsightsTotal" />
         </DockPanel>
@@ -170,7 +170,7 @@
                                 </Button>
                                 <DataTemplate.Triggers>
                                     <DataTrigger Binding="{Binding HasFailures}" Value="True">
-                                        <Setter TargetName="FailureRate" Property="Foreground" Value="#C42B1C" />
+                                        <Setter TargetName="FailureRate" Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>

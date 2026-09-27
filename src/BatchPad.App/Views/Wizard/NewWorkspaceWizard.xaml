@@ -3,9 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:BatchPad.App.Views">
     <DockPanel MaxWidth="720" HorizontalAlignment="Left">
-        <TextBlock DockPanel.Dock="Top" Text="New workspace" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12" />
+        <TextBlock DockPanel.Dock="Top" Text="New workspace" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" Margin="0,0,0,12" />
         <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-            <TextBlock Text="{Binding Error}" Foreground="#C42B1C" TextWrapping="Wrap" AutomationProperties.AutomationId="WizardError" />
+            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" AutomationProperties.AutomationId="WizardError" />
             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                 <Button Content="Back" Command="{Binding BackCommand}" MinWidth="80" AutomationProperties.AutomationId="WizardBackButton" />
                 <Button Content="Next" Command="{Binding NextCommand}" MinWidth="80" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"

@@ -60,7 +60,7 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,0,6,0" VerticalAlignment="Center" />
                     <TextBlock Text="Add" />
-                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="{views:ScaledSize 10}" Margin="6,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
             </Button>
             <Button DockPanel.Dock="Left" Margin="4,0,0,0" Command="{Binding OpenWorkspaceSettingsCommand}" ToolTip="Workspace settings"
@@ -124,7 +124,7 @@
                         </WrapPanel>
                     </StackPanel>
                 </Border>
-                <TextBlock DockPanel.Dock="Bottom" Text="{Binding MyScripts.Error}" Foreground="#C42B1C" TextWrapping="Wrap"
+                <TextBlock DockPanel.Dock="Bottom" Text="{Binding MyScripts.Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="MyScriptsError" />
                 <TreeView x:Name="ScriptTreeView" ItemsSource="{Binding Tree.Roots}" BorderThickness="0" Background="Transparent"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -180,7 +180,7 @@
                             <DockPanel views:FitTreeWidth.IsEnabled="True">
                                 <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="{Binding Icon}" Margin="0,0,8,0"
                                            VerticalAlignment="Center" />
-                                <Button DockPanel.Dock="Right" Content="{Binding ProposalBadge}" Margin="6,0,0,0" Padding="4,0" FontSize="10" VerticalAlignment="Center"
+                                <Button DockPanel.Dock="Right" Content="{Binding ProposalBadge}" Margin="6,0,0,0" Padding="4,0" FontSize="{views:ScaledSize 10}" VerticalAlignment="Center"
                                         Visibility="{Binding HasProposals, Converter={StaticResource BoolToVisibility}}"
                                         ToolTip="Detected from the script; click to review"
                                         Command="{Binding DataContext.Details.ShowProposalsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -188,18 +188,18 @@
                                         AutomationProperties.AutomationId="ProposalBadge" AutomationProperties.Name="{Binding ProposalBadge}" />
                                 <Border x:Name="NewBadge" DockPanel.Dock="Right" Visibility="Collapsed" Margin="6,0,0,0" Padding="4,0"
                                         CornerRadius="3" Background="{StaticResource AccentBrush}">
-                                    <TextBlock Text="NEW" FontSize="10" Foreground="White" />
+                                    <TextBlock Text="NEW" FontSize="{views:ScaledSize 10}" Foreground="White" />
                                 </Border>
-                                <TextBlock DockPanel.Dock="Right" Text="{Binding LinkAge}" Margin="6,0,0,0" FontSize="11" Opacity="0.6" VerticalAlignment="Center"
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding LinkAge}" Margin="6,0,0,0" FontSize="{views:ScaledSize 11}" Opacity="0.6" VerticalAlignment="Center"
                                            Visibility="{Binding LinkAge, Converter={StaticResource NullToCollapsed}}"
                                            AutomationProperties.AutomationId="LinkAge" />
-                                <TextBlock DockPanel.Dock="Right" FontFamily="{StaticResource IconFont}" Text="&#xE823;" Margin="6,0,0,0" FontSize="11" Opacity="0.7"
+                                <TextBlock DockPanel.Dock="Right" FontFamily="{StaticResource IconFont}" Text="&#xE823;" Margin="6,0,0,0" FontSize="{views:ScaledSize 11}" Opacity="0.7"
                                            VerticalAlignment="Center" ToolTip="{Binding ScheduleText}"
                                            Visibility="{Binding IsScheduled, Converter={StaticResource BoolToVisibility}}"
                                            AutomationProperties.AutomationId="ScheduleBadge" AutomationProperties.Name="{Binding ScheduleText}" />
                                 <TextBlock x:Name="RunBadge" DockPanel.Dock="Right" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center" />
                                 <TextBlock x:Name="BrokenBadge" DockPanel.Dock="Right" Visibility="Collapsed" Margin="6,0,0,0" VerticalAlignment="Center"
-                                           FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="#9D5D00" ToolTip="{Binding Description}" />
+                                           FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="{DynamicResource SystemFillColorCautionBrush}" ToolTip="{Binding Description}" />
                                 <Grid ToolTip="{Binding Header}" MinWidth="80">
                                     <TextBlock x:Name="Label" Text="{Binding Header}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                     <TextBox x:Name="RenameBox" Visibility="Collapsed" MinWidth="160" Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}"
@@ -216,14 +216,14 @@
                             </DockPanel>
                             <HierarchicalDataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:NodeKind.Root}">
-                                    <Setter TargetName="Label" Property="FontSize" Value="11" />
+                                    <Setter TargetName="Label" Property="FontSize" Value="{views:ScaledSize 11}" />
                                     <Setter TargetName="Label" Property="FontWeight" Value="SemiBold" />
                                     <Setter TargetName="Label" Property="Opacity" Value="0.7" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Running}">
                                     <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
                                     <Setter TargetName="RunBadge" Property="Text" Value="●" />
-                                    <Setter TargetName="RunBadge" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Waiting}">
                                     <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
@@ -234,18 +234,18 @@
                                 <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Ready}">
                                     <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
                                     <Setter TargetName="RunBadge" Property="Text" Value="●" />
-                                    <Setter TargetName="RunBadge" Property="Foreground" Value="#0F7B0F" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
                                     <Setter TargetName="RunBadge" Property="ToolTip" Value="Running · ready" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Passed}">
                                     <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
                                     <Setter TargetName="RunBadge" Property="Text" Value="✓" />
-                                    <Setter TargetName="RunBadge" Property="Foreground" Value="#0F7B0F" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Badge}" Value="{x:Static vm:RunBadge.Failed}">
                                     <Setter TargetName="RunBadge" Property="Visibility" Value="Visible" />
                                     <Setter TargetName="RunBadge" Property="Text" Value="✗" />
-                                    <Setter TargetName="RunBadge" Property="Foreground" Value="#C42B1C" />
+                                    <Setter TargetName="RunBadge" Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding IsNew}" Value="True">
                                     <Setter TargetName="NewBadge" Property="Visibility" Value="Visible" />
@@ -322,7 +322,7 @@
                                        Text="{Binding TelemetryProblem}" />
                         </DockPanel>
                     </Border>
-                    <TextBlock DockPanel.Dock="Top" Text="{Binding LoadErrors}" Foreground="#C42B1C" TextWrapping="Wrap"
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding LoadErrors}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="LoadErrors" />
 
                     <Grid>

@@ -77,7 +77,7 @@
                     </GridView>
                 </ListView.View>
             </ListView>
-            <TextBlock Text="{Binding Problems}" Foreground="#C42B1C" TextWrapping="Wrap" AutomationProperties.AutomationId="ChoicesProblems" />
+            <TextBlock Text="{Binding Problems}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" AutomationProperties.AutomationId="ChoicesProblems" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

@@ -8,7 +8,7 @@
             Background="{DynamicResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
             AutomationProperties.AutomationId="ChoiceSourcePicker">
         <DockPanel>
-            <TextBlock DockPanel.Dock="Top" Text="Choice source" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <TextBlock DockPanel.Dock="Top" Text="Choice source" FontSize="{views:ScaledSize 18}" FontWeight="SemiBold" Margin="0,0,0,8" />
 
             <ListBox DockPanel.Dock="Top" ItemsSource="{x:Static vm:ChoiceSourcePickerViewModel.Cards}" SelectedValue="{Binding SelectedKind}" SelectedValuePath="Kind"
                      BorderThickness="0" Background="Transparent" AutomationProperties.AutomationId="SourceCards">
@@ -29,7 +29,7 @@
                     <DataTemplate DataType="{x:Type vm:SourceCard}">
                         <StackPanel Margin="4">
                             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
+                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.7" FontSize="{views:ScaledSize 12}" />
                         </StackPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -56,7 +56,7 @@
                             </GridView>
                         </ListView.View>
                     </ListView>
-                    <TextBlock Text="{Binding Problems}" Foreground="#C42B1C" TextWrapping="Wrap"
+                    <TextBlock Text="{Binding Problems}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="PickerProblems" />
                 </StackPanel>
                 <CheckBox Grid.Column="1" Content="Pass values lowercased" IsChecked="{Binding LowercaseValues}" VerticalAlignment="Top"
@@ -106,7 +106,7 @@
                                 <DataTemplate.Triggers>
                                     <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                         <Setter TargetName="Text" Property="FontWeight" Value="Bold" />
-                                        <Setter TargetName="Text" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                        <Setter TargetName="Text" Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>

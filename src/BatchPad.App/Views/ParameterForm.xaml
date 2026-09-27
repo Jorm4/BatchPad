@@ -5,7 +5,7 @@
              xmlns:views="clr-namespace:BatchPad.App.Views">
     <UserControl.Resources>
         <Style x:Key="FieldError" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#C42B1C" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Text" Value="{Binding Error}" />
             <Style.Triggers>
