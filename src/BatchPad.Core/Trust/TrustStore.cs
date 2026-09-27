@@ -44,7 +44,7 @@ public sealed class TrustStore(Settings settings, string settingsFile)
     public bool Revoke(string folder)
     {
         var normalized = PathIdentity.Normalize(folder);
-        bool Matches(string trusted) => PathIdentity.Normalize(trusted).Equals(normalized, StringComparison.OrdinalIgnoreCase);
+        bool Matches(string trusted) => normalized.Equals(NormalizeEntry(trusted), StringComparison.OrdinalIgnoreCase);
         if (!settings.TrustedFolders.Any(Matches))
             return false;
         settings.Update(settingsFile, s => s.TrustedFolders.RemoveAll(Matches));
@@ -58,9 +58,24 @@ public sealed class TrustStore(Settings settings, string settingsFile)
             if (!settings.TrustedFolders.SequenceEqual(_normalizedFrom))
             {
                 _normalizedFrom = [.. settings.TrustedFolders];
-                _normalized = [.. _normalizedFrom.Select(PathIdentity.Normalize)];
+                _normalized = [.. _normalizedFrom.Select(NormalizeEntry).OfType<string>()];
             }
             return _normalized;
+        }
+    }
+
+    /// <summary>A hand-edited entry that is blank or relative would otherwise trust the current folder.</summary>
+    private static string? NormalizeEntry(string? trusted)
+    {
+        if (string.IsNullOrWhiteSpace(trusted) || !Path.IsPathFullyQualified(trusted))
+            return null;
+        try
+        {
+            return PathIdentity.Normalize(trusted);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
         }
     }
 }

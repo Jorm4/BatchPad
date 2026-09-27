@@ -73,6 +73,23 @@ public sealed class TrustTests
     }
 
     [TestMethod]
+    public void BlankRelativeAndInvalidEntriesAreIgnored()
+    {
+        using var dir = new TempDir();
+        var paths = new AppPaths(dir.Path("data"));
+        var workspaceFolder = Directory.CreateDirectory(dir.Path("repo")).FullName;
+        var store = TrustStore.Load(paths);
+        store.Trust(workspaceFolder);
+        Settings.Load(paths.SettingsFile).Update(paths.SettingsFile, s => s.TrustedFolders.AddRange(["", "  ", ".", "C:\\bad\0path"]));
+
+        var reloaded = TrustStore.Load(paths);
+
+        Assert.IsTrue(reloaded.IsTrusted(workspaceFolder));
+        Assert.IsFalse(reloaded.IsTrusted(Environment.CurrentDirectory));
+        Assert.IsTrue(reloaded.Revoke(workspaceFolder));
+    }
+
+    [TestMethod]
     [DataRow("tools/build.bat", true)]
     [DataRow(@"C:\apps\game.EXE", true)]
     [DataRow(@"C:\Users\me\Desktop\Shortcut.lnk", true)]
