@@ -195,8 +195,12 @@ public partial class MainWindow : Window
             });
     }
 
-    private void OnRenameBoxLostFocus(object sender, KeyboardFocusChangedEventArgs e) =>
-        Main?.MyScripts.CommitRenameCommand.Execute(((FrameworkElement)sender).DataContext);
+    // A box torn down by the tree reloading loses focus too, by then bound to WPF's disconnected placeholder.
+    private void OnRenameBoxLostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: NodeViewModel node })
+            Main?.MyScripts.CommitRenameCommand.Execute(node);
+    }
 
     private static NodeViewModel? NodeAt(DependencyObject source) => VisualTree.FindAncestor<TreeViewItem>(source)?.DataContext as NodeViewModel;
 }
