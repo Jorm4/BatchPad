@@ -5,7 +5,7 @@ using System.Windows.Input;
 
 namespace BatchPad.App.Views;
 
-/// <summary>Ctrl+C and a Copy menu on an output list, copying the selected lines, or all shown, in log order.</summary>
+/// <summary>Drag selection, Ctrl+C and a Copy menu on an output list, copying the selected lines, or all shown, in log order.</summary>
 public static class LogCopy
 {
     public static readonly DependencyProperty IsEnabledProperty = DependencyProperty.RegisterAttached(
@@ -27,6 +27,7 @@ public static class LogCopy
         if (element is not ListBox list || !(bool)e.NewValue)
             return;
         list.SelectionMode = SelectionMode.Extended;
+        DragSelection.Attach(list);
         list.CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy,
             (_, _) => ToClipboard(TextOf(list.Items.Cast<object>(), list.SelectedItems.Cast<object>())),
             (_, args) => args.CanExecute = list.SelectedItems.Count > 0));

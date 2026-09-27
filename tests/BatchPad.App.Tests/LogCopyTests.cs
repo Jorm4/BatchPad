@@ -25,4 +25,20 @@ public sealed class LogCopyTests
 
         Assert.AreEqual("same", LogCopy.TextOf(lines, [lines[1]]));
     }
+
+    [TestMethod]
+    public void DraggingSelectsTheRangeAndChangesOnlyWhatMoved()
+    {
+        var (remove, add) = DragSelection.Delta(null, (3, 5));
+        Assert.IsEmpty(remove);
+        CollectionAssert.AreEqual(new[] { 3, 4, 5 }, add.ToList());
+
+        (remove, add) = DragSelection.Delta((3, 5), (3, 7));
+        Assert.IsEmpty(remove);
+        CollectionAssert.AreEqual(new[] { 6, 7 }, add.ToList());
+
+        (remove, add) = DragSelection.Delta((3, 7), (1, 3));
+        CollectionAssert.AreEqual(new[] { 4, 5, 6, 7 }, remove.ToList());
+        CollectionAssert.AreEqual(new[] { 1, 2 }, add.ToList());
+    }
 }
