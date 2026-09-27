@@ -9,6 +9,23 @@
                          Visibility="{Binding DataContext.Editor, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource NullToCollapsed}}" />
     <workflows:WorkflowEditor DataContext="{Binding WorkflowEditor}"
                               Visibility="{Binding DataContext.WorkflowEditor, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource NullToCollapsed}}" />
+    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="440" Margin="0,0,0,24"
+                AutomationProperties.AutomationId="DetailsWelcome">
+        <StackPanel.Style>
+            <Style TargetType="StackPanel">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Node}" Value="{x:Null}">
+                        <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </StackPanel.Style>
+        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="36" Opacity="0.5" HorizontalAlignment="Center" />
+        <TextBlock Text="Pick a script to run" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,12,0,0" />
+        <TextBlock TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7" Margin="0,6,0,0"
+                   Text="Select a script on the left to set its options, preview the command and run it. Add creates a script, link or workflow, and Ctrl+K searches everything." />
+    </StackPanel>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <ScrollViewer.Style>
             <Style TargetType="ScrollViewer">
@@ -52,7 +69,7 @@
                        Visibility="{Binding CustomisesText, Converter={StaticResource NullToCollapsed}}"
                        AutomationProperties.AutomationId="DetailsCustomises" />
             <Border Margin="0,12,0,0" Padding="12" CornerRadius="6" Background="#FFF4CE"
-                    Visibility="{Binding Node.IsBroken, Converter={StaticResource BoolToVisibility}}"
+                    Visibility="{Binding Node.IsBroken, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}"
                     AutomationProperties.AutomationId="BrokenBanner">
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Content="Change base…" Command="{Binding OpenChangeBaseCommand}"
@@ -61,7 +78,7 @@
                 </DockPanel>
             </Border>
             <Border Margin="0,12,0,0" Padding="12" CornerRadius="6" Background="#FFF4CE"
-                    Visibility="{Binding Node.IsOrphan, Converter={StaticResource BoolToVisibility}}"
+                    Visibility="{Binding Node.IsOrphan, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}"
                     AutomationProperties.AutomationId="OrphanBanner">
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Content="Re-attach…" Command="{Binding ReattachCommand}"
