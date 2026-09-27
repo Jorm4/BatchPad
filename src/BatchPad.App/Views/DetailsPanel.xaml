@@ -55,11 +55,11 @@
                     </StackPanel>
                 </Button>
                 <StackPanel DataContext="{Binding Node}">
-                    <TextBlock Text="{Binding Name}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding Name}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
                                AutomationProperties.AutomationId="DetailsName" />
                     <TextBlock Text="{Binding Location}" Opacity="0.7" Margin="0,2,0,0"
                                AutomationProperties.AutomationId="DetailsLocation" />
-                    <TextBlock Text="{Binding FilePath}" Opacity="0.7" FontFamily="{StaticResource MonoFont}"
+                    <TextBlock Text="{Binding FilePath}" Opacity="0.7" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FilePath}"
                                AutomationProperties.AutomationId="DetailsFile" />
                     <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,8,0,0"
                                AutomationProperties.AutomationId="DetailsDescription" />

@@ -18,7 +18,7 @@
                 <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
                         AutomationProperties.AutomationId="EditorSaveButton" />
             </StackPanel>
-            <TextBlock Text="{Binding Title, StringFormat=Edit — {0}}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center"
+            <TextBlock Text="{Binding Title, StringFormat=Edit — {0}}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"
                        AutomationProperties.AutomationId="EditorTitle" />
         </DockPanel>
         <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"

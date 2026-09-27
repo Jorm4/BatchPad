@@ -59,12 +59,19 @@ public sealed partial class NewWorkspaceWizardViewModel : ObservableObject
 
     public IEnumerable<WizardScriptViewModel> Scripts => Groups.SelectMany(g => g.Scripts);
 
-    public string WorkspaceFile => Path.Combine(Folder.Trim(), "batchpad.json");
+    public string WorkspaceFile => Path.Combine(FullFolder, "batchpad.json");
+
+    // Not the current directory: from a pin or Explorer that is BatchPad's own folder.
+    private string StartFolder => _main.Workspace is { } open
+        ? Path.GetDirectoryName(open.Directory) ?? open.Directory
+        : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    private string FullFolder => Path.GetFullPath(Folder.Trim(), StartFolder);
 
     [RelayCommand]
     private void Browse()
     {
-        if (_main.Services.Dialogs.PickFolder(Folder.Trim().Length > 0 ? Folder.Trim() : Environment.CurrentDirectory) is { } picked)
+        if (_main.Services.Dialogs.PickFolder(Folder.Trim().Length > 0 ? FullFolder : StartFolder) is { } picked)
             Folder = picked;
     }
 
@@ -90,7 +97,7 @@ public sealed partial class NewWorkspaceWizardViewModel : ObservableObject
         Error = null;
         if (Page == WizardPage.Folder)
         {
-            var directory = Folder.Trim();
+            var directory = FullFolder;
             if (!Directory.Exists(directory))
             {
                 Error = "The folder does not exist.";
@@ -103,7 +110,7 @@ public sealed partial class NewWorkspaceWizardViewModel : ObservableObject
             }
             Scan(directory);
             if (Name.Trim().Length == 0)
-                Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)));
+                Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(directory));
         }
         Page = Page + 1;
     }
@@ -113,7 +120,7 @@ public sealed partial class NewWorkspaceWizardViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanFinish))]
     private void Finish()
     {
-        var directory = Path.GetFullPath(Folder.Trim());
+        var directory = FullFolder;
         var name = Name.Trim();
         try
         {

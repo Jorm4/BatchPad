@@ -49,20 +49,20 @@
                                     <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsEnabled}" VerticalAlignment="Top" Margin="0,2,4,0"
                                               ToolTip="Enabled" AutomationProperties.AutomationId="ScheduleEnabled" AutomationProperties.Name="Enabled" />
                                     <StackPanel>
-                                        <StackPanel Orientation="Horizontal">
+                                        <WrapPanel>
                                             <TextBlock Text="{Binding TargetName}" FontWeight="SemiBold"
                                                        AutomationProperties.AutomationId="ScheduleTargetName" />
                                             <TextBlock Text="{Binding Location}" Margin="8,0,0,0" FontSize="{views:ScaledSize 11}" Opacity="0.6" VerticalAlignment="Center" />
-                                        </StackPanel>
+                                        </WrapPanel>
                                         <TextBlock Text="{Binding TriggerText}" AutomationProperties.AutomationId="ScheduleTrigger" />
-                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Opacity="0.8">
+                                        <WrapPanel Margin="0,4,0,0" Opacity="0.8">
                                             <TextBlock Text="Next: " />
                                             <TextBlock Text="{Binding NextRunText}" AutomationProperties.AutomationId="ScheduleNextRun" />
                                             <TextBlock Text="Last: " Margin="16,0,0,0" />
                                             <TextBlock Text="{Binding LastRunText}" AutomationProperties.AutomationId="ScheduleLastRun" />
                                             <TextBlock x:Name="LastResult" Text="{Binding LastResultText}" Margin="6,0,0,0" Foreground="{DynamicResource SystemFillColorCriticalBrush}"
                                                        AutomationProperties.AutomationId="ScheduleLastResult" />
-                                        </StackPanel>
+                                        </WrapPanel>
                                         <DockPanel Margin="0,6,0,0" Visibility="{Binding StatusText, Converter={StaticResource NullToCollapsed}}">
                                             <Button DockPanel.Dock="Right" Content="Re-confirm" Command="{Binding ReconfirmCommand}" Margin="6,0,0,0"
                                                     Visibility="{Binding NeedsReview, Converter={StaticResource BoolToVisibility}}"

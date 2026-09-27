@@ -557,7 +557,16 @@ public sealed partial class MainViewModel : ObservableObject
     public void RefreshTelemetryProblem()
     {
         var enabled = _settings.Telemetry?.Sinks.Where(s => s.Enabled).Select(s => s.Key).ToHashSet() ?? [];
-        var failing = Telemetry.Statuses().Where(s => s.IsFailing && enabled.Contains(s.Key)).ToList();
+        IReadOnlyList<SinkStatus> statuses;
+        try
+        {
+            statuses = Telemetry.Statuses();
+        }
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
+        {
+            return;
+        }
+        var failing = statuses.Where(s => s.IsFailing && enabled.Contains(s.Key)).ToList();
         if (failing.Count == 0)
             _telemetryProblemDismissed = false;
         TelemetryProblem = failing.Count == 0 || _telemetryProblemDismissed ? null : DescribeTelemetryProblem(failing);
@@ -616,6 +625,9 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         SessionValues[nodeKey] = new ParameterValues(values, extraArguments);
         node.Reveal();
+        if (Details.Node != node)
+            return;
+        ShowDetails();
         Details.RunWithSessionValues(node);
     }
 

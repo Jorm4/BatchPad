@@ -56,12 +56,12 @@
                 </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="{x:Type vm:ParameterEditorViewModel}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Opacity="0.5" Margin="0,0,6,0"
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Opacity="0.5" Margin="0,0,6,0"
                                        VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding DisplayName}" />
-                            <TextBlock Text="{Binding Use, StringFormat=' (shared: {0})', TargetNullValue=''}" Opacity="0.6" />
-                        </StackPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}" />
+                            <TextBlock Text="{Binding Use, StringFormat=' (shared: {0})', TargetNullValue=''}" Opacity="0.6" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>

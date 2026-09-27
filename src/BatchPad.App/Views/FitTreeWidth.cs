@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace BatchPad.App.Views;
 
@@ -24,18 +25,27 @@ public static class FitTreeWidth
             return;
         TreeView? tree = null;
         SizeChangedEventHandler onResize = (_, _) => Fit(header, tree);
+        // The vertical scrollbar appearing narrows the viewport without resizing the tree.
+        ScrollChangedEventHandler onScroll = (_, args) =>
+        {
+            if (args.ViewportWidthChange != 0)
+                Fit(header, tree);
+        };
         header.Loaded += (_, _) =>
         {
             tree = VisualTree.FindAncestor<TreeView>(header);
             if (tree is null)
                 return;
             tree.SizeChanged += onResize;
+            tree.AddHandler(ScrollViewer.ScrollChangedEvent, onScroll);
             Fit(header, tree);
         };
         header.Unloaded += (_, _) =>
         {
-            if (tree is not null)
-                tree.SizeChanged -= onResize;
+            if (tree is null)
+                return;
+            tree.SizeChanged -= onResize;
+            tree.RemoveHandler(ScrollViewer.ScrollChangedEvent, onScroll);
         };
     }
 
@@ -43,7 +53,9 @@ public static class FitTreeWidth
     {
         if (tree is null || !tree.IsAncestorOf(header))
             return;
-        var left = header.TransformToAncestor(tree).Transform(new Point()).X;
-        header.MaxWidth = Math.Max(0, tree.ActualWidth - left - RightGap);
+        var viewer = VisualTree.FindAncestor<ScrollViewer>(header, v => v.TemplatedParent == tree);
+        var visible = viewer?.ViewportWidth is > 0 and var width ? width : tree.ActualWidth;
+        var left = header.TransformToAncestor((Visual?)viewer ?? tree).Transform(new Point()).X;
+        header.MaxWidth = Math.Max(0, visible - left - RightGap);
     }
 }

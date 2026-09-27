@@ -58,7 +58,10 @@ public sealed partial class CommandPaletteViewModel(MainViewModel main) : Observ
             return;
         IsOpen = false;
         if (chosen.Node is { } node)
+        {
             node.Reveal();
+            main.ShowDetails();
+        }
         else
             chosen.Run();
     }
@@ -108,6 +111,10 @@ public sealed partial class CommandPaletteViewModel(MainViewModel main) : Observ
     private void RunNode(NodeViewModel node)
     {
         node.Reveal();
+        // Kept unsaved edits leave the details on the item being edited.
+        if (main.Details.Node != node)
+            return;
+        main.ShowDetails();
         var command = node.Kind == NodeKind.Link ? main.Details.OpenLinkCommand : main.Details.RunCommand;
         if (command.CanExecute(null))
             command.Execute(null);

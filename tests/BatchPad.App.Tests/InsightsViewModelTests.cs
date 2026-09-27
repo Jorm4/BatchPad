@@ -146,6 +146,21 @@ public sealed class InsightsViewModelTests
         Assert.AreEqual("hello.py", main.Details.Node!.Name);
     }
 
+    [TestMethod]
+    public void ChoosingTheSelectedScriptFromTheSearchClosesInsights()
+    {
+        using var test = new TestWorkspace();
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true);
+        main.Select("Workspace/Hello/hello.bat");
+        main.OpenInsightsCommand.Execute(null);
+
+        main.Palette.OpenCommand.Execute(null);
+        main.Palette.Query = "hello.bat";
+        main.Palette.SelectCommand.Execute(null);
+
+        Assert.IsNull(main.Insights);
+    }
+
     private static void Record(MainViewModel main, string key, string name, DateTimeOffset startedAt, double seconds, string? folder,
         int exitCode = 0, string trigger = RunTriggers.Manual, TestSummary? tests = null) =>
         main.History.Store!.Add(new RunRecord

@@ -54,10 +54,11 @@
             <StackPanel>
                 <ListBox x:Name="Segments" ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}"
                          DisplayMemberPath="Label" BorderThickness="0" Background="Transparent" HorizontalAlignment="Left"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          AutomationProperties.AutomationId="{Binding AutomationId}" AutomationProperties.Name="{Binding Label}">
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
+                            <WrapPanel />
                         </ItemsPanelTemplate>
                     </ListBox.ItemsPanel>
                     <ListBox.ItemContainerStyle>

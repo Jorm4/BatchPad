@@ -89,10 +89,11 @@
                     </DockPanel>
                     <TextBlock Text="Name each choice by (click a part of the example path):" Margin="0,10,0,4" Opacity="0.7" />
                     <ListBox ItemsSource="{Binding Segments}" SelectedItem="{Binding SelectedSegment}" BorderThickness="0"
-                             Background="Transparent" AutomationProperties.AutomationId="PickerSegments">
+                             Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             AutomationProperties.AutomationId="PickerSegments">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
+                                <WrapPanel />
                             </ItemsPanelTemplate>
                         </ListBox.ItemsPanel>
                         <ListBox.ItemContainerStyle>

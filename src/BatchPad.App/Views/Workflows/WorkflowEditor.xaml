@@ -35,8 +35,8 @@
                         <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Opacity="0.5" Margin="0,0,8,0"
                                    VerticalAlignment="Center" Cursor="SizeAll" Tag="{Binding}"
                                    PreviewMouseLeftButtonDown="OnCardHandleDown" />
-                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding Target.Location, StringFormat=' — {0}'}" Opacity="0.7" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
+                        <TextBlock Text="{Binding Target.Location, StringFormat=' — {0}'}" Opacity="0.7" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                     </DockPanel>
                     <StackPanel Visibility="{Binding IsGroup, Converter={StaticResource InverseBoolToVisibility}}">
                         <views:FlatItemsControl ItemsSource="{Binding FlowChips}" Margin="0,6,0,0">
@@ -155,7 +155,7 @@
                 <Button Content="Save" Command="{Binding SaveCommand}" Margin="6,0,0,0" Style="{DynamicResource AccentButtonStyle}"
                         AutomationProperties.AutomationId="WorkflowSaveButton" />
             </StackPanel>
-            <TextBlock Text="{Binding Title}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center"
+            <TextBlock Text="{Binding Title}" FontSize="{views:ScaledSize 20}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"
                        AutomationProperties.AutomationId="WorkflowEditorTitle" />
         </DockPanel>
         <TextBlock DockPanel.Dock="Top" Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
