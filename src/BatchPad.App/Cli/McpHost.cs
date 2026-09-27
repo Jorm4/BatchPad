@@ -15,6 +15,7 @@ public static class McpHost
             error.WriteLine(McpSettings.TurnedOff);
             return CliRunner.Failure;
         }
+        Environment.SetEnvironmentVariable(CliTrust.McpVariable, "1");
         var tools = new McpTools(paths);
         tools.StartTelemetry();
         var options = new McpServerOptions

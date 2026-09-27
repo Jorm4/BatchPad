@@ -50,6 +50,8 @@ public sealed class CliRunner
 
     public Func<string, string?> EnvironmentVariable { get; init; } = Environment.GetEnvironmentVariable;
 
+    public IConsolePrompt Prompt { get; init; } = new ConsolePrompt();
+
     internal RunSummary? LastSummary { get; private set; }
 
     public async Task<int> RunAsync(IReadOnlyList<string> args, string currentDirectory)
@@ -65,8 +67,16 @@ public sealed class CliRunner
             _error.WriteLine(CliCommand.Usage);
             return UsageError;
         }
-        if (command.Verb == CliVerb.Mcp)
-            return await McpHost.RunAsync(_paths, _error);
+        var trust = new CliTrust(_trust, Prompt, _out, _error, EnvironmentVariable);
+        switch (command.Verb)
+        {
+            case CliVerb.Mcp:
+                return await McpHost.RunAsync(_paths, _error);
+            case CliVerb.Trust:
+                return trust.Trust(command, currentDirectory);
+            case CliVerb.Untrust:
+                return trust.Untrust(command, currentDirectory);
+        }
         return await RunAsync(command, currentDirectory);
     }
 

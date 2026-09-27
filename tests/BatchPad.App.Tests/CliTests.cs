@@ -412,6 +412,7 @@ public sealed class CliTests
         var startInfo = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "batchpad.com"))
         {
             UseShellExecute = false,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,
@@ -424,6 +425,7 @@ public sealed class CliTests
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
         using var process = Process.Start(startInfo)!;
+        process.StandardInput.Close();
         var error = process.StandardError.ReadToEndAsync();
         var output = process.StandardOutput.ReadToEnd();
         if (!process.WaitForExit(Limit))

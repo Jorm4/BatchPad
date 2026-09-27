@@ -40,12 +40,15 @@ public sealed class TrustStore(Settings settings, string settingsFile)
         });
     }
 
-    public void Revoke(string folder)
+    /// <returns>Whether <paramref name="folder"/> itself was trusted; one trusted through a folder above it stays trusted.</returns>
+    public bool Revoke(string folder)
     {
         var normalized = PathIdentity.Normalize(folder);
         bool Matches(string trusted) => PathIdentity.Normalize(trusted).Equals(normalized, StringComparison.OrdinalIgnoreCase);
-        if (settings.TrustedFolders.Any(Matches))
-            settings.Update(settingsFile, s => s.TrustedFolders.RemoveAll(Matches));
+        if (!settings.TrustedFolders.Any(Matches))
+            return false;
+        settings.Update(settingsFile, s => s.TrustedFolders.RemoveAll(Matches));
+        return true;
     }
 
     private string[] NormalizedTrustedFolders()

@@ -4,7 +4,7 @@ using BatchPad.Core.Telemetry;
 
 namespace BatchPad.App.Cli;
 
-public enum CliVerb { Run, List, Log, Stats, Compare, Mcp }
+public enum CliVerb { Run, List, Log, Stats, Compare, Mcp, Trust, Untrust }
 
 public sealed record CliCommand(CliVerb Verb)
 {
@@ -25,6 +25,9 @@ public sealed record CliCommand(CliVerb Verb)
     public int? LastLine { get; init; }
     public TimeSpan Since { get; init; } = TimeSpan.FromDays(7);
 
+    /// <summary><c>trust --list</c>: print the trusted folders instead of trusting one.</summary>
+    public bool List { get; init; }
+
     /// <summary>Wraps list and stats JSON with the workspace's git checkout, as the MCP tools return them.</summary>
     public bool WithCheckout { get; init; }
 
@@ -37,9 +40,11 @@ public sealed record CliCommand(CliVerb Verb)
           batchpad stats [--workspace <path>] [--since 1d|7d|30d] [--json]
           batchpad compare <run-id> [<baseline-run-id>] [--workspace <path>] [--cpu] [--json]
           batchpad mcp
+          batchpad trust [--workspace <path>] | batchpad trust --list
+          batchpad untrust [--workspace <path>]
         """;
 
-    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "compare" or "mcp", ..];
+    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "compare" or "mcp" or "trust" or "untrust", ..];
 
     /// <exception cref="CliUsageException" />
     public static CliCommand Parse(IReadOnlyList<string> args)
@@ -52,7 +57,9 @@ public sealed record CliCommand(CliVerb Verb)
             ["stats", ..] => CliVerb.Stats,
             ["compare", ..] => CliVerb.Compare,
             ["mcp", ..] => CliVerb.Mcp,
-            _ => throw new CliUsageException("Expected 'run', 'list', 'log', 'stats', 'compare' or 'mcp'."),
+            ["trust", ..] => CliVerb.Trust,
+            ["untrust", ..] => CliVerb.Untrust,
+            _ => throw new CliUsageException("Expected 'run', 'list', 'log', 'stats', 'compare', 'mcp', 'trust' or 'untrust'."),
         };
         var command = new CliCommand(verb);
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -68,7 +75,8 @@ public sealed record CliCommand(CliVerb Verb)
                 ("--json", CliVerb.Run or CliVerb.List or CliVerb.Stats or CliVerb.Compare) => command with { Json = true },
                 ("--errors-only", CliVerb.Run) => command with { ErrorsOnly = true },
                 ("--no-wait", CliVerb.Run) => command with { NoWait = true },
-                ("--agent", CliVerb.Run) => command with { Agent = ValueAfter(args, ref i) },
+                ("--agent", CliVerb.Run or CliVerb.Trust) => command with { Agent = ValueAfter(args, ref i) },
+                ("--list", CliVerb.Trust) => command with { List = true },
                 ("--tail", CliVerb.Log) => command with { Tail = Count(ValueAfter(args, ref i)) },
                 ("--errors", CliVerb.Log) => command with { ErrorsOnly = true },
                 ("--cpu", CliVerb.Compare) => command with { Cpu = true },

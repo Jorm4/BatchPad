@@ -108,7 +108,12 @@ otherwise Windows PowerShell.
   console and the exit code is the script's. Nobody is there to answer, so a
   `confirm` script needs `--yes` and `ask` or `secret` values need `--set`.
   The workspace must already be trusted. `batchpad list` prints the ids and
-  names. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
+  names.
+- `batchpad trust [--workspace <path>]` trusts a workspace from a terminal:
+  it shows the folder and its repository's origin, and you type the folder's
+  name to confirm. It refuses when its input is piped and when a coding agent
+  runs it. `batchpad trust --list` prints the trusted folders, and
+  `batchpad untrust [--workspace <path>]` stops trusting one. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
   so that cmd waits for the run. Runs from the command line show in the
   app's history too.
 - For coding agents and scripts:

@@ -23,6 +23,35 @@ public sealed record Checkout(string Directory, CheckoutKind Kind, string Name, 
         return new Checkout(located.Directory, located.Kind, located.Name, git?.Branch, git?.Commit, located.Repository);
     }
 
+    /// <summary>The <c>origin</c> remote's URL of the repository containing <paramref name="directory"/>, if it has one.</summary>
+    public static string? OriginUrl(string directory)
+    {
+        if (Locate(directory) is not { } located)
+            return null;
+        var repositoryConfig = Path.Combine(located.Repository, ".git", "config");
+        var config = located.Kind == CheckoutKind.Main
+            ? located.GitDirectory is { } gitDirectory ? Path.Combine(gitDirectory, "config") : null
+            : File.Exists(repositoryConfig) ? repositoryConfig : Path.Combine(located.Repository, "config");
+        try
+        {
+            if (config is null || !File.Exists(config))
+                return null;
+            var inOrigin = false;
+            foreach (var line in File.ReadLines(config).Select(l => l.Trim()))
+            {
+                if (line.StartsWith('['))
+                    inOrigin = line == "[remote \"origin\"]";
+                else if (inOrigin && line.IndexOf('=') is > 0 and var equals && line[..equals].Trim() == "url")
+                    return line[(equals + 1)..].Trim();
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Where the checkout containing <paramref name="directory"/> is, without reading its branch or commit.</summary>
     internal static Located? Locate(string directory)
     {

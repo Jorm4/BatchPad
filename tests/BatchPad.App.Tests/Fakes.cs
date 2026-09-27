@@ -1,3 +1,4 @@
+using BatchPad.App.Cli;
 using BatchPad.App.Services;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
@@ -170,5 +171,23 @@ internal sealed class QueuedDispatcher : IUiDispatcher
     {
         while (_background.TryDequeue(out var next))
             next();
+    }
+}
+
+internal sealed class FakePrompt(params string[] answers) : IConsolePrompt
+{
+    private readonly Queue<string> _answers = new(answers);
+
+    public bool IsInteractive { get; init; } = true;
+    public int Reads { get; private set; }
+
+    public string? ReadLine() => Next();
+
+    public string? ReadSecret() => Next();
+
+    private string? Next()
+    {
+        Reads++;
+        return _answers.TryDequeue(out var answer) ? answer : null;
     }
 }
