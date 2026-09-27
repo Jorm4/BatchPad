@@ -402,7 +402,7 @@ the exe and checks that `BatchPad.exe` and `batchpad.com` start. Package
 versions live in `Directory.Packages.props`, and `NuGet.config` restores
 from nuget.org only.
 
-To release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`.
+To release, push a version tag: `git tag v0.3.0 && git push origin v0.3.0`.
 CI builds that version and publishes a GitHub release with `BatchPad.exe`
 and `batchpad.com` attached. To refresh the README screenshot after UI changes, run
 `tools\publish.bat` and then `dotnet run tools/screenshot.cs`. It drives the
