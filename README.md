@@ -16,7 +16,8 @@ and plain executables are all first-class.
 > little support: issues and pull requests are welcome but may get a slow
 > answer or none. If you need something changed, forking is encouraged.
 >
-> **Status:** the MVP, v1, and telemetry and coding-agent features are
+> **Status:** the MVP, v1, telemetry and coding-agent features, and the
+> later items (benchmarks, Task Scheduler, shell integration, hotkeys) are
 > built. See
 > [docs/DESIGN.md](docs/DESIGN.md) for the design and the roadmap.
 
@@ -49,6 +50,8 @@ and plain executables are all first-class.
   every N minutes, once at a time), when files change, when BatchPad starts or
   after another run. While schedules are enabled, closing the window keeps
   BatchPad in the tray, and a failed scheduled run raises a notification.
+  Time schedules can also run from Windows Task Scheduler while BatchPad is
+  closed.
 - **History.** Every run is recorded with its values and log; the tree shows
   each script's last result, and any past run can be run again.
 - **Readable output.** ANSI colours, error lines highlighted, clickable
@@ -56,6 +59,9 @@ and plain executables are all first-class.
   for scripts that write JUnit XML. Drag, Shift+click or Ctrl+A to select
   lines and Ctrl+C to copy them; "Copy all" copies every line the search
   leaves shown, such as all the errors.
+- **Benchmarks.** Scripts that write Google Benchmark JSON get a Benchmarks
+  view comparing each run with the previous one, and `batchpad compare`
+  fails CI on a regression.
 - **Safe to run together.** Named locks queue runs that must not overlap,
   across the app, the command line and agents, and `dependsOn` runs a
   script's prerequisites first.
@@ -68,18 +74,15 @@ and plain executables are all first-class.
 - **Long-running processes.** Servers and watchers show a running indicator,
   open their URL when ready, and stop from the app, through a matching stop
   script or by ending the whole process tree.
+- **At home in Windows.** Taskbar progress, a notification when a long run
+  finishes while you're elsewhere, pinned My Scripts in the taskbar jump
+  list, and global hotkeys that run a script from any app.
 - **Links.** Keep web pages, report files and folders in the same tree as the
   scripts.
 - **Honest results.** Output is captured live and every run shows its exit
   code. A failed build shows as failed.
 - **Standalone.** One self-contained executable that depends on nothing in the
   projects it serves.
-
-Not there yet: exporting schedules to Windows Task Scheduler, benchmark
-result comparison, global hotkeys, and Windows shell integration (jump
-lists, taskbar progress, toasts). Also open: reading unattended secrets from Windows Credential
-Manager, and a command-line way to trust a workspace. See
-[docs/DESIGN.md](docs/DESIGN.md) §10.
 
 ## Getting BatchPad
 
@@ -103,13 +106,26 @@ otherwise Windows PowerShell.
   recent one.
 - `BatchPad.exe <folder or batchpad.json>` opens that workspace.
 - `BatchPad.exe --version` prints the version and exits.
+- `BatchPad.exe --run <node key> [--workspace <file>]` runs one entry in the
+  BatchPad that has that workspace open, bringing it forward, or starts one.
+  Node keys look like `Workspace:id:hello-bat` or `MyScripts:id:<id>`; the
+  jump list uses it too.
 - From a terminal, `batchpad run <id or name> [--workspace <path>] [--set name=value]… [--yes]`
   runs one script or workflow without the window: output streams to the
   console and the exit code is the script's. Nobody is there to answer, so a
   `confirm` script needs `--yes` and `ask` or `secret` values need `--set`,
   unless the secret is saved (below).
   The workspace must already be trusted. `batchpad list` prints the ids and
-  names.
+  names. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
+  so that cmd waits for the run. Runs from the command line show in the
+  app's history too.
+- `batchpad run --schedule <key> [--workspace <path>]` runs one of your
+  schedules exactly as BatchPad would: with its values, its confirm rule and
+  saved secrets, and refusing (exit 1) when its definition changed since you
+  confirmed it. `<key>` is the schedule's id, or `global:<id>` and
+  `<workspace id>:<id>` to tell a global schedule from one of yours with the
+  same id. The run is recorded as `schedule:<workspace id>:<id>` (or
+  `schedule:global:<id>`).
 - `batchpad trust [--workspace <path>]` trusts a workspace from a terminal:
   it shows the folder and its repository's origin, and you type the folder's
   name to confirm. It refuses when its input is piped and when a coding agent
@@ -123,9 +139,7 @@ otherwise Windows PowerShell.
   which asks for the value at the keyboard so it stays out of shell history.
   `batchpad secret list` prints the saved names and `batchpad secret remove
   <parameter>` deletes one; Settings lists and removes them too. Runs started
-  in the app still ask each time. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
-  so that cmd waits for the run. Runs from the command line show in the
-  app's history too.
+  in the app still ask each time.
 - For coding agents and scripts:
   - `batchpad list --json` describes every entry with its folder, description
     and parameters (types, choices, defaults).
@@ -154,7 +168,17 @@ otherwise Windows PowerShell.
 - **Schedules** (toolbar, or "Schedules" in the Ctrl+K palette) lists every
   schedule with its next and last run. Add one by picking a script or
   workflow, a trigger and its values; it is stored in your own `user.json`,
-  never in the shared `batchpad.json`. Schedules run while BatchPad is open.
+  never in the shared `batchpad.json`. Schedules run while BatchPad is open,
+  or set **Run in** to Windows (time triggers only) to have Windows Task
+  Scheduler run them while it is closed. BatchPad keeps one task per
+  schedule under `\BatchPad\` in Task Scheduler, registered once the
+  workspace is trusted and the schedule confirmed; tasks run only while you
+  are logged on.
+- **Hotkeys and the jump list.** Give a script a global hotkey on its
+  editor's General tab (press the combination; Esc clears it), and it runs
+  from any app. Hotkeys work only once you trust the workspace.
+  Right-click a My Scripts entry and choose **Pin to jump list** to run it
+  from BatchPad's taskbar button.
 - **Insights** and **Settings** (toolbar, or the palette) show the run
   figures, and the coding-agent and telemetry settings.
 - To adopt a project, use **New workspace** (the button next to the workspace
@@ -389,7 +413,7 @@ demo workspace and rewrites `docs/images/main-window.png`.
 | `src/BatchPad.Core` | model, config, discovery, running, workflows (no UI) |
 | `src/BatchPad.App` | the WPF app (`BatchPad.exe`) |
 | `tests/` | Core and view-model tests (headless), UI tests (FlaUI) |
-| `samples/demo` | a demo workspace: one script per runner, and a release pipeline with a parallel group, step outputs, a flaky step and JUnit test results |
+| `samples/demo` | a demo workspace: one script per runner, a release pipeline with a parallel group, step outputs, a flaky step and JUnit test results, and benchmarks to compare |
 | `tools/` | `publish.bat` (single-file exe), `update-stable.ps1` (the pinned build), `make-icon.py` (the app icon), `screenshot.cs` (README image) |
 | `docs/DESIGN.md` | design, file formats, feature research and roadmap |
 

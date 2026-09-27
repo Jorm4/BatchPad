@@ -177,6 +177,8 @@ taken) and stores it in the script's entry.
   "dependsOn": ["generate"],      // run these first, stop on the first failure
   "testReport": "build/qa/junit.xml",   // JUnit XML read after the run (§5); or
                                         // { "path": …, "rerunParam": "match", "rerunBy": "case"|"suite" }
+  "benchmarkReport": "build/bench.json",  // Google Benchmark JSON read after the run (§5); or
+                                          // { "path": …, "format": "google", "threshold": 5 } (percent)
   "singleInstance": false,        // true: a second run waits instead of starting
   "timeout": "30m",               // kill the tree after this long; none for longRunning
   "elevated": false,              // run as administrator; forces window mode (output cannot be captured)
@@ -184,7 +186,7 @@ taken) and stores it in the script's entry.
   "hidden": false,                // hides a discovered script (§3.10)
   "tags": ["web"],
   "icon": "globe",
-  "hotkey": "Ctrl+Shift+B"
+  "hotkey": "Ctrl+Shift+B"        // global hotkey that runs it (§5)
 }
 ```
 
@@ -392,7 +394,7 @@ inside it means the library itself.
         "values": { "game": [] },           // workflow parameters
         "stepValues": { "report": { "open": "never" } }   // per-step overrides, by step id
       },
-      { "name": "My scratch script", "path": "D:/scratch/try.py" }   // standalone
+      { "name": "My scratch script", "path": "D:/scratch/try.py", "pinned": true }   // standalone; pinned: in the jump list (§5)
     ]}
   ],
   "schedules": [ /* §4.2 */ ]
@@ -602,10 +604,29 @@ things every checkout shares, such as a network port or a device, set
 **Unattended runs.** Scheduled runs and CLI runs have nobody to answer
 prompts. `confirm`, `ask` and `secret` then fail the run immediately, with a
 message saying which value is missing, unless the value was supplied: the
-schedule's `values`, the CLI's `--set` and `--yes`. (Reading an unattended
-run's secret from Windows Credential Manager is not built yet, so such a run
-must be given the value.) Secret values are masked in command previews, logs and
+schedule's `values`, the CLI's `--set` and `--yes`. Secret values are masked in command previews, logs and
 history.
+
+**Saved secrets.** A `secret` parameter an unattended run (schedule or
+command line) has no value for is read from Windows Credential Manager, as a
+generic credential named `BatchPad:ws:<workspaceId>:<parameter>`, or
+`BatchPad:global:<parameter>` for a Global-tree script; a `use` parameter
+goes by the shared parameter's name. Since anyone can copy a workspace id, a
+workspace credential also records the folder it was saved for (the
+repository's main checkout, so worktrees share it, else the workspace
+folder) and is read, listed and removed only from there. An explicit `--set`
+wins, and a missing entry still fails with "needs a value for". Workflows,
+their steps and `dependsOn` prerequisites are filled the same way, each from
+its own tree's scope. Runs a coding agent starts (`--agent`, `CLAUDECODE=1`
+or MCP) are never given saved secrets. Values come in only through people: ticking "Remember for
+unattended runs" under a secret field when a run asks for it, or
+`batchpad secret set <parameter> [--workspace <path> | --global]`, which reads
+the value at the keyboard (never from the command line, so it stays out of
+shell history) and refuses under a pipe, a coding agent or MCP, as `trust`
+does (§4.5). `secret list` prints names only and `secret remove` deletes one;
+Settings → Saved secrets lists and removes them too. Only `secret`
+parameters are stored: `ask` values are meant to be chosen each time, and a
+schedule's `values` covers them. Runs started in the app still prompt.
 
 **Prerequisites.** `dependsOn` runs prerequisites first, in order, and stops
 on the first non-zero exit code. A prerequisite's own `dependsOn` runs before
@@ -763,11 +784,53 @@ back fires once.
    works, and runs appear in the normal UI and history. The `missed` policy
    (`skip` | `runOnce`) decides what happens to runs that fell due while the
    app was closed.
-2. **Windows Task Scheduler (opt-in, time triggers only; not built yet).**
-   "Register with Windows" would create a task that calls `batchpad run
-   <target> --workspace … --set …`. The task would run even when BatchPad is
-   closed, and its runs would still show in BatchPad's history, because the
-   CLI writes history too.
+2. **Windows Task Scheduler (opt-in, time triggers only).** `"runIn":
+   "windows"` (the schedule editor's "Run in: Windows") keeps one task per
+   schedule under `\BatchPad\<workspaceId>\<key>-<hash>`
+   (`global-<key>-<hash>` for a global one; the hash of the full schedule key
+   keeps ids that differ only in case or punctuation apart), so it runs while
+   BatchPad is closed. The task runs `BatchPad.exe run --schedule
+   <workspaceId>:<key> --workspace <file> --due <time>` (`global:<key>` for a
+   global one; a plain `<key>` also works when it names one schedule) in the
+   workspace folder, without a console window, only while the user is logged
+   on (no password is stored). `run --schedule` runs the schedule exactly as
+   the in-app scheduler would: its typed values, My Scripts customisation,
+   confirm rule and definition-hash pause all apply, it fills saved secrets
+   (§4), records the trigger `schedule:<key>` in history and updates the
+   schedule's last fire, so the Schedules page shows it.
+
+   Tasks use **next-fire chaining**: a task holds a single time trigger at the
+   schedule's next fire, and each run registers the fire after it before it
+   starts, so a crash mid-run doesn't break the chain. BatchPad's own `cron`,
+   `every`/`between` and daylight-saving rules therefore decide every fire,
+   with no lossy translation into Task Scheduler triggers. `fileChanged`,
+   `onStart` and `afterRun` can't run in Windows ("only time triggers can run
+   in Windows"). Every task allows parallel instances, so each fire starts a
+   process that registers the next; `run --schedule` then applies `overlap`
+   itself with a machine-wide lock per schedule (skip exits at once while the
+   previous run holds it, queue waits for it, parallel takes none). A task
+   always starts when available after a missed time, so the chain survives;
+   with `missed: skip`, a run starting more than 5 minutes late skips itself
+   but still registers the next (time spent queued doesn't count). A run
+   whose schedule was disabled or moved back to the app removes its task
+   without running, and a run that couldn't register the next fire warns and
+   leaves the error for the Schedules page. Task Scheduler expands `%VAR%` in
+   a task's arguments, so a workspace path or id containing `%` can't run in
+   Windows.
+
+   The app creates, updates and deletes tasks to match the loaded schedules
+   on load and reload, through `schtasks.exe /XML` (no COM, no extra
+   package); a disabled, removed or `app` schedule loses its task. Workspace
+   files sharing an id (git worktrees, clones) share the task folder, so the
+   app changes or removes only tasks whose `--workspace` is its own file; a
+   row whose task belongs to another file says so. A task is
+   registered only for a trusted workspace whose schedule carries a confirmed
+   `definitionHash`; otherwise the row says why. The in-app scheduler doesn't
+   fire `windows` schedules and the tray hint ignores them. Their rows show a
+   "Windows" chip and the registration state (registered with the next run,
+   waiting for confirm, or the last error); "Run now" still runs in the app.
+   An instance started with `BATCHPAD_DATA_DIR` keeps its tasks under
+   `\BatchPad\data-<hash>\`, so a test copy never touches the everyday ones.
 
 Scheduled items get a clock badge in the tree. A **Schedules** view lists
 every schedule with its next and last run, has an enable toggle and "Run now"
@@ -804,6 +867,17 @@ workspace for the first time. The decision is stored per folder in settings.
 A script from a file the workspace includes from outside its folder runs only
 once that file's folder is trusted too.
 
+From a terminal, `batchpad trust [--workspace <path>]` trusts one. It shows
+the folder and, when it has one, the repository's origin URL (from
+`.git/config`), then asks the user to type the folder's name: a reflexive
+"y" is what the check exists to prevent. It refuses, exiting 1, when its
+input is redirected, when a coding agent runs it (`CLAUDECODE=1` or
+`--agent`) and under `batchpad mcp` (§4.5). `batchpad trust --list` prints
+the trusted folders, and `batchpad untrust [--workspace <path>]` stops
+trusting one without asking, since that is always safe; it explains instead
+when the folder is trusted only through a parent folder or a worktree's
+repository. A running app sees the change on its next settings reload.
+
 An untrusted workspace is read-only in effect. The tree shows, the editor
 works, and static detection (which reads files and runs nothing) works. It
 does **not**:
@@ -812,7 +886,8 @@ does **not**:
 - run `argparse` or PowerShell detection, which calls the interpreter;
 - open links to executable file types (`.bat`, `.cmd`, `.exe`, `.lnk`, `.ps1`,
   and so on);
-- register hotkeys from shared definitions (once global hotkeys exist, §7);
+- register global hotkeys, even My Scripts and Global ones, since pressing
+  one couldn't run anything (§5);
 - read outside the workspace folder through `include`, `scriptFolders` or
   `choicesFrom` `file` and `glob`; such paths are skipped with a load problem.
 
@@ -959,6 +1034,9 @@ over.
   later.
 - `batchpad stats --json` gives the Insights figures (§4.4) to an agent or a
   report.
+- `batchpad compare <run-id> [<baseline-run-id>] [--cpu] [--json]` compares a
+  run's benchmarks with a baseline run's (§5) and exits 3 when any is slower
+  than the threshold, so CI and agents can gate on it.
 
 **Attribution.** `--agent <name>` records the run with trigger
 `agent:<name>`. Without the flag, a run started from a coding agent's
@@ -995,6 +1073,7 @@ refuses each call, since every call rereads the settings. Its tools:
 | `run_script` | runs one entry by `id` with `values` (a multichoice takes an array) and returns the same result object as `run --json` (errors only, plus the log path; `errorsOnly: false` adds the log's last 2000 lines); `confirm` answers a `confirm` entry; `noWait` fails at once when a lock is held |
 | `get_log` | a recorded run's log by run id, from the directory's workspace only: tail, errors only, or a line range (ranges are MCP-only; `batchpad log` has tail and errors) |
 | `get_stats` | the Insights figures for a period (`since`, default `7d`) |
+| `compare_benchmarks` | a run's benchmarks against a baseline (`baselineRunId`, else the default one; `cpu`), the same JSON as `compare --json` |
 
 Every tool takes a **required `directory`**: the agent's own working folder,
 from which the workspace is found as the command line finds it. It must be a
@@ -1046,9 +1125,12 @@ the agent is working in:
   and Insights and `batchpad stats` can filter or group by checkout.
 
 **Trust stays with people.** The command line and the MCP server run only in
-workspaces trusted in the app (§4.3). A future command-line trust command
-would require an interactive confirmation, so an agent cannot trust a
-workspace for itself.
+trusted workspaces (§4.3). `batchpad trust` needs a person at the keyboard
+to type the folder's name, and refuses under a pipe, `CLAUDECODE=1`,
+`--agent` or MCP, so an agent cannot trust a workspace for itself.
+`batchpad secret set` follows the same rule (§4). This guards against
+mistakes and a well-behaved agent, not a determined program running as the
+same user, which could edit the settings file directly.
 
 **A project snippet.** The README gives a short CLAUDE.md section to paste
 into a project: "build and test through `batchpad run <id> --errors-only`
@@ -1112,6 +1194,19 @@ light/dark mode and uses the accent colour and Mica backdrop.
   runs the script again with that parameter set to the failed test names
   (`rerunBy: "case"`, the default) or suite names (`"suite"`) — a list for a
   multichoice, else space-separated — and the other values unchanged.
+- **Benchmarks:** a script with `benchmarkReport` points at Google Benchmark
+  JSON (`--benchmark_out=<file> --benchmark_out_format=json`). A report
+  written during the run is stored in the history record (times in ns, at
+  most 200 entries; aggregates such as `name/mean` replace their
+  repetitions). A run tab started from the details panel then shows a
+  Benchmarks view: each benchmark's time, the baseline's time and the change,
+  slower rows in the error colour and faster ones in the success colour. The
+  default baseline is the latest earlier successful run of the same entry
+  with the same values, so a Smoke run isn't compared with a Deep one; the
+  header names it ("vs 26 Sep 14:02") and "Compare with…" picks another
+  earlier run. A change within the threshold (5% unless set; exactly 5% is
+  unchanged) is unchanged. History's "Compare with previous" opens the same
+  view for any record with benchmarks, including scheduled ones.
 - **Workflow editor:** Edit (F4) on a workflow opens it in place of the details (§4.1); the run form keeps the workflow's parameters.
 - **Schedules view:** a page opened from the toolbar (or the command palette)
   in place of the details panel (§4.2). Each schedule shows its target, its
@@ -1121,7 +1216,9 @@ light/dark mode and uses the accent colour and Mica backdrop.
   values through the generated form, and save to `user.json`, or to
   `global.json` for a global schedule. Saving from the editor confirms the
   target's current definition; a new schedule gets an id from its target's
-  name, so editing its trigger keeps its state.
+  name, so editing its trigger keeps its state. "Run in" chooses BatchPad or
+  Windows (§4.2); Windows is disabled, with the reason, for non-time
+  triggers.
 - **Output panel:** one tab per run with status, duration and exit code. It
   auto-scrolls and stops when you scroll up. It has search (shows only the
   lines containing the text), clickable `file(line[,col])` /
@@ -1130,18 +1227,54 @@ light/dark mode and uses the accent colour and Mica backdrop.
   (F8 / Shift+F8, over lines matching `errorPatterns` and stderr lines), copy
   all and "open log". Detected URLs are clickable.
 - **Context menu:** Run, Run in window, Stop, Add to My Scripts, Copy command
-  line, Open terminal here, Edit script, Reveal in Explorer, Show history.
+  line, Open terminal here, Edit script, Reveal in Explorer, Show history,
+  and on My Scripts entries Pin to jump list / Unpin.
 - **Command palette (Ctrl+K):** fuzzy search over every script, workflow and
   link in the three trees, shown with its tree and folder. Enter runs it (or
-  opens the link), Shift+Enter selects it in the tree. Commands such as "New
+  opens the link), Shift+Enter selects it in the tree; an item's hotkey shows
+  in its own column. Commands such as "New
   script" and "Workspace settings" are listed too. The tree filter keeps its
   own box.
   The keyboard should reach everything.
-- **Windows integration:** a tray icon, so schedules and servers keep running
-  with the window closed, and a tray notification for a failed scheduled run
-  (§4.2). Planned (L): taskbar progress while running; a toast when a run
-  that took over 10 s finishes while the window is unfocused; jump-list
-  entries for pinned My Scripts.
+- **Windows integration:**
+  - A tray icon, so schedules and servers keep running with the window
+    closed, and a tray notification for a failed scheduled run (§4.2).
+  - Taskbar progress: indeterminate while any run or workflow is going, the
+    finished share of steps while a workflow is the only thing running, and
+    red after a run fails while the window is inactive, until it is
+    activated.
+  - A run that took over 10 s and finishes while the window is inactive
+    raises a notification ("Build — failed, exit 1, 2m 14s"), with the info
+    or error icon; clicking it restores the window on that run's tab. A
+    failed scheduled run keeps its own notification, without a duplicate.
+    These are tray balloons, which Windows 10 and 11 show as toasts in the
+    notification centre; real WinRT toasts would need a Windows-versioned
+    target or a new package plus a shortcut with an AppUserModelID.
+  - `BatchPad.exe --run <nodeKey> [--workspace <file>]` runs an entry from
+    outside, by its node key (`Workspace:id:<id>`, `MyScripts:id:<id>`,
+    `Global:id:<id>`; case-sensitive). It hands the request to
+    the instance that has that workspace open, over a per-user named pipe
+    (one JSON line, `{"run": "<nodeKey>"}`), which brings its window forward
+    and runs the entry as the command palette's Enter does, prompting where
+    needed. With no instance answering within 500 ms it starts one that
+    runs the entry once loaded. An unknown key opens a failed tab saying so,
+    and an untrusted workspace asks for trust instead of running.
+  - The jump list: My Scripts entries marked `"pinned": true` (Pin to jump
+    list in the tree's menu or the details panel) become tasks that run
+    `--run` for them, followed by the recent workspaces. It is rebuilt on
+    open and reload, and is per exe, so a stable and a dev build keep
+    separate lists.
+  - Global hotkeys: an entry's `hotkey` (Ctrl, Alt, Shift and Win with a
+    letter, digit, F1–F24 or a named key; with no modifier only F13–F24, with
+    Shift alone only F-keys, and Win alone is reserved for Windows) runs
+    it from anywhere, like `--run`. The script editor's General tab records
+    one when you press it (Esc or Backspace clears it) and warns about a
+    duplicate or a key another program holds; the details panel shows it
+    beside Run. Invalid and duplicate gestures are load problems (the first
+    entry using a duplicate gets it), and a key taken by another program
+    shows on the entry's details. No hotkey registers in an untrusted
+    workspace (§4.3), and while the editor's Hotkey box has focus BatchPad
+    releases its own so the box can record them.
 - **Live reload:** config files are watched and reloaded on change, keeping
   the selection and the running processes.
 
@@ -1177,11 +1310,11 @@ run form into the definition editor, in tabs:
 
 | Tab | Contents |
 |---|---|
-| General | name, icon, description, file, runner, working directory, console mode, long-running, confirm, module, lock |
+| General | name, icon, description, file, runner, working directory, console mode, long-running, confirm, module, lock, hotkey |
 | Parameters | list with add/remove/drag-reorder; per parameter: name, label, type, switch (`arg`), default, required, env var, ask on run, emit, split, `emptyMeans: all`, `emptyArgs`, `maxPerCall` (and lowercase values on a `use` entry). **Detected** proposals appear inline with Accept/Dismiss |
 | Choices | for choice/multichoice: a grid of label, value, split and extra fields (`dir`, …), or **a source** (below) |
 | Environment | key/value grid, env file picker |
-| After run | ready pattern with a **tester** against the last run's output, open URL, stop companion (picked from the tree), artifacts, test report path, error patterns |
+| After run | ready pattern with a **tester** against the last run's output, open URL, stop companion (picked from the tree), artifacts, test report path, benchmark report path and threshold, error patterns |
 | Advanced | fixed args, argument template, name template, id |
 
 A live command preview under the editor updates on every keystroke, and
@@ -1252,10 +1385,10 @@ Takeaways:
 ## 7. Feature catalogue
 
 Priority: **M** = MVP (first usable build), **1** = v1, **10** = phase 10
-(telemetry and agents), **L** = later, **✗** = considered and rejected.
-Everything marked M, 1 or 10 is built: the MVP in phases 1–7, v1 in phases 8
-and 9, and telemetry and agents in phase 10 (§10). L items are phase 11 or
-later.
+(telemetry and agents), **11** = phase 11, **✗** = considered and rejected.
+Everything marked M, 1, 10 or 11 is built: the MVP in phases 1–7, v1 in
+phases 8 and 9, telemetry and agents in phase 10, and the later items in
+phase 11 (§10).
 
 | Feature | Pri | Notes |
 |---|---|---|
@@ -1289,7 +1422,7 @@ later.
 | Run history with logs, last-result badges | 1 | |
 | Variables, `envFile`, env layering | 1 | Basic `${workspaceDir}` is M |
 | `confirm`, `secret` | 1 | |
-| Benchmark result capture (`--benchmark_out` JSON into history) and before/after comparison | L | |
+| Benchmark result capture (`--benchmark_out` JSON into history) and before/after comparison | 11 | §5; `batchpad compare`, exit 3 on a regression |
 | `errorPatterns`, clickable file:line, next/prev error | 1 | |
 | ANSI colours | 1 | |
 | Named locks, `singleInstance` | 1 | |
@@ -1321,7 +1454,7 @@ later.
 | Workflows: parallel groups, step outputs, retry, re-run from failed step | 1 | |
 | Schedules in-app: cron/every/at, tray, missed-run policy, Schedules view | 1 | §4.2 |
 | Triggers: fileChanged, onStart, afterRun | 1 | |
-| Export time schedules to Windows Task Scheduler | L | Needs the CLI |
+| Export time schedules to Windows Task Scheduler | 11 | §4.2; `runIn: windows`, next-fire chaining through `run --schedule` |
 | Run events, Insights view, `batchpad stats` | 10 | §4.4 |
 | Telemetry sinks: jsonl (+ outbox), OTLP, Elasticsearch, InfluxDB, HTTP | 10 | §4.4; off by default, settings only |
 | Agent CLI: `list --json`, `run --json`/`--errors-only`, `log`, agent attribution | 10 | §4.5 |
@@ -1329,8 +1462,10 @@ later.
 | MCP server (`batchpad mcp`), off until enabled in Settings | 10 | §4.5 |
 | Git worktrees: per-checkout lookup, locks and results; worktree trust | 10 | §4.5 |
 | Tray icon, keep running in the tray, failure notifications | 1 | §4.2 |
-| Toasts, taskbar progress, jump list | L | |
-| Hotkeys (global) | L | |
+| Toasts, taskbar progress, jump list | 11 | §5; tray balloons shown as toasts, `--run` handoff |
+| Hotkeys (global) | 11 | §5 |
+| Unattended secrets from Windows Credential Manager, `batchpad secret` | 11 | §4 |
+| `batchpad trust` / `untrust` with an interactive confirmation | 11 | §4.3 |
 | Portable mode | 1 | Cheap, and helps sharing |
 | Up-to-date checks (Taskfile `sources`/`generates`) | ✗ | That is a build system's job |
 | Remote/SSH execution | ✗ | |
@@ -1393,8 +1528,9 @@ the UI does.
    inside any workspace's My Scripts.
 3. **One exe or App + CLI?** *Decided:* `BatchPad.exe` (GUI) contains all
    the logic. A tiny console-subsystem `batchpad.com` sits beside it: it runs
-   `BatchPad.exe` with its arguments (`run`, `list`, `log`, `stats`, `mcp`,
-   `--version`), relays stdout, stderr and the exit code, and waits. This is needed because cmd does not wait for a
+   `BatchPad.exe` with its arguments (`run`, `list`, `log`, `stats`,
+   `compare`, `mcp`, `trust`, `untrust`, `secret`, `--version`), relays
+   stdout, stderr and the exit code, and waits. This is needed because cmd does not wait for a
    GUI-subsystem exe, so `%errorlevel%` would be wrong. Typing `batchpad`
    finds the `.com` first.
    `run` takes an id (`global:` references too; a workspace id wins over a
@@ -1403,7 +1539,8 @@ the UI does.
    recent one, so a script runs against the repository it was typed in.
    Usage errors and unknown ids exit 2, a run refused before it starts
    (untrusted, unconfirmed, a missing value) exits 1, and a workflow exits
-   with its last failed step's code. Output is relayed as UTF-8.
+   with its last failed step's code. `compare` exits 3 on a benchmark
+   regression. Output is relayed as UTF-8.
 4. **One config file or one file per script?** Default: one `batchpad.json`
    (plus `include`s), written deterministically. The alternative is
    per-script sidecar files in `.batchpad/`, which would mean fewer merge
@@ -1449,12 +1586,14 @@ the UI does.
     until enabled), and worktree support: per-checkout workspace lookup,
     locks and results, and trust verified through git's own files (§4.4,
     §4.5).
-11. **Later:** benchmark comparison, Task Scheduler export, Windows shell
-    integration (jump lists, taskbar progress, toasts), global hotkeys. Open
-    items that may join it: unattended secrets from Windows Credential
-    Manager, and a CLI command to trust a workspace.
+11. **Later:** benchmark comparison (`benchmarkReport`, the Benchmarks view,
+    `batchpad compare`), Task Scheduler export (`runIn: windows`,
+    `run --schedule`), Windows shell integration (taskbar progress, finish
+    notifications, `--run` handoff, the jump list), global hotkeys,
+    unattended secrets from Windows Credential Manager, and `batchpad trust`
+    (§4, §4.2, §4.3, §5).
 
-Phases 1–10 are done; phase 11 remains. Each phase leaves the app building
+Phases 1–11 are done. Each phase leaves the app building
 and runnable, and is broken into implementation steps when it starts.
 
 ## 11. Worked example: a multi-app game repository

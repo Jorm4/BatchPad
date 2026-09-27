@@ -16,8 +16,8 @@ public sealed class TreeViewModelTests
         Assert.IsEmpty(tree.Roots[2].Children);
 
         var workspaceNodes = tree.Roots[1].Descendants().ToList();
-        Assert.AreEqual(3, workspaceNodes.Count(n => n.Kind == NodeKind.Folder));
-        Assert.AreEqual(11, workspaceNodes.Count(n => n.Kind == NodeKind.Script));
+        Assert.AreEqual(4, workspaceNodes.Count(n => n.Kind == NodeKind.Folder));
+        Assert.AreEqual(12, workspaceNodes.Count(n => n.Kind == NodeKind.Script));
         Assert.IsNotNull(tree.Find("Workspace/Hello/hello.bat"));
     }
 

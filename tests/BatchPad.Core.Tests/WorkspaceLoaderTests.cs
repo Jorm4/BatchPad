@@ -28,7 +28,7 @@ public sealed class WorkspaceLoaderTests
         Assert.IsEmpty(loaded.Errors);
         Assert.AreEqual("batchpad-demo", loaded.Id);
         Assert.AreEqual(Fixtures.DemoWorkspace, loaded.Directory);
-        Assert.AreEqual(16, loaded.Workspace.AllNodes().Count());
+        Assert.AreEqual(18, loaded.Workspace.AllNodes().Count());
         Assert.AreEqual(1, loaded.Global.AllNodes().Count());
         Assert.AreEqual(2, loaded.MyScripts.AllNodes().Count());
         Assert.HasCount(4, loaded.Workspace.Items[0].Children);

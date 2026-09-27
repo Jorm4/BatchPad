@@ -76,6 +76,13 @@
           ]
         }
       ]
+    },
+    {
+      "folder": "Benchmarks",
+      "items": [
+        { "id": "bench", "name": "Benchmarks", "path": "bench.py", "benchmarkReport": "out/bench.json",
+          "description": "Four pretend benchmarks with slightly random times; writes Google Benchmark JSON, so the run tab compares them with the previous run." }
+      ]
     }
   ]
 }
