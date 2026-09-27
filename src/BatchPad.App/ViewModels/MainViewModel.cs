@@ -94,7 +94,9 @@ public sealed partial class MainViewModel : ObservableObject
                 OpenSchedulesCommand.Execute(null);
             };
             tray.ExitRequested += Exit;
+            tray.NotificationClosed += UpdateTray;
         }
+        Activity = new RunActivityViewModel(this);
         RefreshRecents();
     }
 
@@ -112,6 +114,7 @@ public sealed partial class MainViewModel : ObservableObject
     public Scheduler? Scheduler { get; private set; }
 
     public ITrayService? Tray { get; }
+    public RunActivityViewModel Activity { get; }
     public bool IsInTray { get; private set; }
     public event Action? ShowWindowRequested;
     public event Action? ExitRequested;
@@ -470,7 +473,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void NotifyFailure(ScheduleFailure failure)
     {
         var name = failure.Entry.Target?.Name ?? failure.Entry.Schedule.Target;
-        Tray?.Notify($"Scheduled run failed: {name}", failure.Message, () => ShowFailure(failure));
+        Tray?.Notify($"Scheduled run failed: {name}", failure.Message, NotificationSeverity.Error, () => ShowFailure(failure));
     }
 
     public void ShowFailure(ScheduleFailure failure)
@@ -884,7 +887,10 @@ public sealed partial class MainViewModel : ObservableObject
             _ => null,
         };
         if (tab is not null)
+        {
+            tab.IsScheduled = true;
             Output.Add(tab);
+        }
         Schedules?.RefreshStatus();
     }
 

@@ -32,6 +32,19 @@ public sealed class TrayTests
     }
 
     [TestMethod]
+    public void TheTrayIconShownForANotificationGoesAwayWhenItCloses()
+    {
+        using var test = new TestWorkspace();
+        var (main, tray, _) = Open(test, new Settings());
+        main.Tray!.Notify("Done", "", NotificationSeverity.Info, () => { });
+        Assert.IsTrue(tray.IsVisible);
+
+        tray.RaiseNotificationClosed();
+
+        Assert.IsFalse(tray.IsVisible);
+    }
+
+    [TestMethod]
     public void WithTheSettingOffClosingExits()
     {
         using var test = new TestWorkspace();
@@ -55,8 +68,9 @@ public sealed class TrayTests
         launcher.Started.Single().Finish(RunOutcome.Exited, 1);
         var record = await fired!.Recorded;
 
-        var (title, _, onClick) = tray.Notifications.Single();
+        var (title, _, severity, onClick) = tray.Notifications.Single();
         StringAssert.Contains(title, "hello.bat");
+        Assert.AreEqual(NotificationSeverity.Error, severity);
         onClick();
         Assert.AreEqual(record.Id, main.History.Selected?.Record.Id);
         Assert.IsTrue(main.Output.IsHistoryOpen);

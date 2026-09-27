@@ -121,20 +121,39 @@ internal sealed class FakeConfirm : IConfirmService
 internal sealed class FakeTray : ITrayService
 {
     public bool IsVisible { get; set; }
-    public List<(string Title, string Message, Action OnClick)> Notifications { get; } = [];
+    public List<(string Title, string Message, NotificationSeverity Severity, Action OnClick)> Notifications { get; } = [];
 
     public event Action? OpenRequested;
     public event Action? SchedulesRequested;
     public event Action? ExitRequested;
+    public event Action? NotificationClosed;
 
     public void RaiseOpen() => OpenRequested?.Invoke();
     public void RaiseSchedules() => SchedulesRequested?.Invoke();
     public void RaiseExit() => ExitRequested?.Invoke();
+    public void RaiseNotificationClosed() => NotificationClosed?.Invoke();
 
-    public void Notify(string title, string message, Action onClick) => Notifications.Add((title, message, onClick));
+    public void Notify(string title, string message, NotificationSeverity severity, Action onClick)
+    {
+        IsVisible = true;
+        Notifications.Add((title, message, severity, onClick));
+    }
 
     public void Dispose()
     {
+    }
+}
+
+internal sealed class FakeWindow : IWindowActivity
+{
+    public bool IsActive { get; set; } = true;
+
+    public event Action? Activated;
+
+    public void Activate()
+    {
+        IsActive = true;
+        Activated?.Invoke();
     }
 }
 

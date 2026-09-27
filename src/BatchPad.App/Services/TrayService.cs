@@ -22,12 +22,14 @@ public sealed class TrayService : ITrayService
     public event Action? OpenRequested;
     public event Action? SchedulesRequested;
     public event Action? ExitRequested;
+    public event Action? NotificationClosed;
 
-    public void Notify(string title, string message, Action onClick)
+    public void Notify(string title, string message, NotificationSeverity severity, Action onClick)
     {
         _notificationClick = onClick;
         TrayIcon.Visible = true;
-        TrayIcon.ShowBalloonTip(10_000, title, string.IsNullOrWhiteSpace(message) ? title : message, Forms.ToolTipIcon.Error);
+        TrayIcon.ShowBalloonTip(10_000, title, string.IsNullOrWhiteSpace(message) ? title : message,
+            severity == NotificationSeverity.Error ? Forms.ToolTipIcon.Error : Forms.ToolTipIcon.Info);
     }
 
     private Forms.NotifyIcon TrayIcon => _icon ??= CreateIcon();
@@ -43,7 +45,12 @@ public sealed class TrayService : ITrayService
         menu.Items.Add("Exit", null, (_, _) => ExitRequested?.Invoke());
         var icon = new Forms.NotifyIcon { Text = "BatchPad", Icon = _image, ContextMenuStrip = menu };
         icon.DoubleClick += (_, _) => OpenRequested?.Invoke();
-        icon.BalloonTipClicked += (_, _) => _notificationClick?.Invoke();
+        icon.BalloonTipClicked += (_, _) =>
+        {
+            _notificationClick?.Invoke();
+            NotificationClosed?.Invoke();
+        };
+        icon.BalloonTipClosed += (_, _) => NotificationClosed?.Invoke();
         return icon;
     }
 

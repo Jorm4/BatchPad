@@ -7,6 +7,7 @@ public abstract partial class OutputTabViewModel(string title, NodeViewModel? no
 {
     public string Title { get; } = title;
     public NodeViewModel? Node { get; set; } = node;
+    public bool IsScheduled { get; set; }
 
     /// <summary>Completes once the result is shown.</summary>
     public Task Finished { get; protected set; } = Task.CompletedTask;

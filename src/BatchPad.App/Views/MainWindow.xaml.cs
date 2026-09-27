@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Shell;
 using BatchPad.App.ViewModels;
 using BatchPad.Core.Workspace;
 
@@ -33,6 +35,12 @@ public partial class MainWindow : Window
     {
         if (Main is { } main)
         {
+            main.Activity.Window = new WindowActivity(this);
+            TaskbarItemInfo = new TaskbarItemInfo();
+            BindingOperations.SetBinding(TaskbarItemInfo, TaskbarItemInfo.ProgressStateProperty,
+                new Binding($"{nameof(main.Activity)}.{nameof(RunActivityViewModel.TaskbarState)}") { Source = main });
+            BindingOperations.SetBinding(TaskbarItemInfo, TaskbarItemInfo.ProgressValueProperty,
+                new Binding($"{nameof(main.Activity)}.{nameof(RunActivityViewModel.TaskbarProgress)}") { Source = main });
             main.ShowWindowRequested += Restore;
             main.ExitRequested += () =>
             {

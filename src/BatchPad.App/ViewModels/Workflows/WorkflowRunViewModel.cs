@@ -186,6 +186,9 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
     public override bool IsRunning => Result is null;
     public override bool Succeeded => Result?.Succeeded == true;
 
+    public int FinishedSteps => _run.Steps.Count(s => s.Status is not (StepStatus.Pending or StepStatus.Running));
+    public int StepCount => _run.Steps.Count;
+
     public override string StatusText => Result?.Outcome switch
     {
         null => _run.WaitingForLock is { } name ? $"waiting for lock {name}" : "running",
@@ -236,6 +239,7 @@ public sealed partial class WorkflowRunViewModel : OutputTabViewModel
                 Steps[i].Refresh();
         }
         row.Refresh();
+        OnPropertyChanged(nameof(FinishedSteps));
         if (step.Status == StepStatus.Running && (SelectedStep is null || SelectedStep.Status != StepStatus.Running))
             SelectedStep = row;
     }
