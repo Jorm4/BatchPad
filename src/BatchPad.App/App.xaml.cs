@@ -19,6 +19,7 @@ public partial class App : Application
     private readonly TrayService _tray = new();
     private MainViewModel? _main;
     private EventWaitHandle? _exitRequest;
+    private InstanceChannelSwitch? _channel;
     private bool _showingError;
 
     /// <summary>Setting this event exits BatchPad as the tray's Exit does, even while hidden to the tray; tools/update-stable.ps1 uses it.</summary>
@@ -28,6 +29,7 @@ public partial class App : Application
     {
         _tray.Dispose();
         _exitRequest?.Dispose();
+        _channel?.Dispose();
         _main?.Shutdown();
         base.OnExit(e);
     }
@@ -36,13 +38,45 @@ public partial class App : Application
     {
         base.OnStartup(e);
         var paths = ResolvePaths();
-        CatchUnexpectedErrors(new ErrorLog(Path.Combine(paths.LocalDirectory, "errors.log")));
-        var main = _main = new MainViewModel(paths, LoadSettings(paths), dispatcher: new WpfDispatcher(Dispatcher), tray: _tray);
-        main.OpenInitial(e.Args.FirstOrDefault(), Environment.CurrentDirectory, AppContext.BaseDirectory);
+        var log = new ErrorLog(Path.Combine(paths.LocalDirectory, "errors.log"));
+        CatchUnexpectedErrors(log);
+        var main = _main = new MainViewModel(paths, LoadSettings(paths), dispatcher: new WpfDispatcher(Dispatcher), tray: _tray)
+        {
+            JumpList = new JumpListService(),
+        };
+        var arguments = GuiArguments.Parse(e.Args);
+        main.OpenInitial(arguments.Workspace, Environment.CurrentDirectory, AppContext.BaseDirectory);
         main.EnableFileWatching();
         new MainWindow { DataContext = main }.Show();
+        var channel = _channel = new InstanceChannelSwitch(Environment.ProcessPath!, () => main.Workspace?.FilePath,
+            action => Dispatcher.BeginInvoke(action), key =>
+            {
+                main.ShowWindow();
+                main.RunByKey(key);
+            }, log.Append);
+        channel.Update();
+        main.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(MainViewModel.Workspace))
+                channel.Update();
+        };
+        if (arguments.RunKey is { } runKey)
+            Dispatcher.BeginInvoke(() => main.RunByKey(runKey));
         _exitRequest = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName(Environment.ProcessId));
         ThreadPool.RegisterWaitForSingleObject(_exitRequest, (_, _) => Dispatcher.BeginInvoke(main.Exit), null, Timeout.Infinite, executeOnlyOnce: false);
+    }
+
+    /// <summary>Sends <c>--run</c> to the instance that has the workspace open; false when none answers.</summary>
+    internal static bool HandOff(string? workspace, string runKey)
+    {
+        var paths = ResolvePaths();
+        var file = WorkspaceLocator.Locate(workspace, Environment.CurrentDirectory, LoadSettings(paths, TextWriter.Null).RecentWorkspaces,
+            AppContext.BaseDirectory);
+        if (file is null)
+            return false;
+        // The receiving instance may bring its window forward only if this process, which the user just started, allows it.
+        AllowSetForegroundWindow(AnyProcess);
+        return InstanceChannel.TrySend(InstanceChannel.PipeNameFor(Environment.ProcessPath!, file), runKey);
     }
 
     /// <summary>Logs an error nothing else handled and, on the UI thread, reports it and keeps BatchPad running.</summary>
@@ -102,6 +136,10 @@ public partial class App : Application
     }
 
     private const int AttachParentProcess = -1;
+    private const int AnyProcess = -1;
+
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
 
     [DllImport("kernel32.dll")]
     private static extern bool AttachConsole(int processId);

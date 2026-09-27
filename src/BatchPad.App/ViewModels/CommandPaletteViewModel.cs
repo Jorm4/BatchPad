@@ -108,16 +108,17 @@ public sealed partial class CommandPaletteViewModel(MainViewModel main) : Observ
         yield return new("Show history", "Command", "", () => main.Output.IsHistoryOpen = true);
     }
 
-    private void RunNode(NodeViewModel node)
+    /// <returns>False when kept unsaved edits left the details on the item being edited.</returns>
+    internal bool RunNode(NodeViewModel node)
     {
         node.Reveal();
-        // Kept unsaved edits leave the details on the item being edited.
         if (main.Details.Node != node)
-            return;
+            return false;
         main.ShowDetails();
         var command = node.Kind == NodeKind.Link ? main.Details.OpenLinkCommand : main.Details.RunCommand;
         if (command.CanExecute(null))
             command.Execute(null);
+        return true;
     }
 
 }

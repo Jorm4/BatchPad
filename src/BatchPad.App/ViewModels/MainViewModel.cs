@@ -115,6 +115,16 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ITrayService? Tray { get; }
     public RunActivityViewModel Activity { get; }
+
+    public IJumpListService? JumpList
+    {
+        get;
+        set
+        {
+            field = value;
+            RefreshJumpList();
+        }
+    }
     public bool IsInTray { get; private set; }
     public event Action? ShowWindowRequested;
     public event Action? ExitRequested;
@@ -263,7 +273,10 @@ public sealed partial class MainViewModel : ObservableObject
             IoProblems.TryIo(() => _settings.Update(_paths.SettingsFile, s => s.AddRecentWorkspace(loaded.FilePath)));
         }
         RefreshRecents();
+        RefreshJumpList();
     }
+
+    private void RefreshJumpList() => JumpList?.Apply(JumpListBuilder.Build(Tree, Workspace?.FilePath, _settings.RecentWorkspaces));
 
     public void Reload(Func<NodeViewModel, bool>? select = null)
     {
@@ -620,6 +633,21 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var node in tree.AllNodes)
             if (node.IsRunnable && last.TryGetValue(node.Key, out var record))
                 node.ShowLastResult(record.Succeeded);
+    }
+
+    /// <summary>Runs a node as the command palette's Enter does; for <c>--run</c> and hotkeys.</summary>
+    public void RunByKey(string nodeKey)
+    {
+        if (Tree?.ByKey(nodeKey) is not { Kind: NodeKind.Script or NodeKind.Workflow or NodeKind.Link } node)
+        {
+            Output.Add(RunViewModel.FailedToStart(nodeKey, null, $"No script or workflow '{nodeKey}' in this workspace."));
+            return;
+        }
+        if (!IsTrusted && node.Kind != NodeKind.Link)
+            IsTrustPromptDismissed = false;
+        if (!Palette.RunNode(node))
+            Output.Add(RunViewModel.FailedToStart(node.Name, null,
+                $"'{node.Name}' didn't run because you kept unsaved edits to '{Details.Node?.Name}'. Finish or discard your edits first."));
     }
 
     public void RunAgain(string nodeKey, IReadOnlyDictionary<string, JsonNode?> values, string extraArguments)

@@ -24,6 +24,7 @@ public static class Flattener
         shared.Name = resolved.Name;
         shared.Id = IdAssigner.FromName(resolved.Name, takenIds);
         shared.Hidden = null;
+        shared.Pinned = null;
         ApplyDefaults(shared.Params, resolved.Values);
 
         if (shared is ScriptNode script)

@@ -20,9 +20,9 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
 {
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsRunnable), nameof(IsWorkflow), nameof(IsLink), nameof(IsMyScript), nameof(CanSaveAsMyScript),
-        nameof(CustomisesText))]
+        nameof(CustomisesText), nameof(CanTogglePin), nameof(PinText))]
     [NotifyCanExecuteChangedFor(nameof(RunCommand), nameof(RunInWindowCommand), nameof(StopCommand), nameof(CopyPreviewCommand),
-        nameof(EditCommand), nameof(OpenLinkCommand), nameof(SaveAsMyScriptCommand), nameof(DuplicateCommand),
+        nameof(EditCommand), nameof(OpenLinkCommand), nameof(SaveAsMyScriptCommand), nameof(DuplicateCommand), nameof(TogglePinCommand),
         nameof(OpenChangeBaseCommand), nameof(ReattachCommand))]
     private NodeViewModel? node;
 
@@ -171,6 +171,13 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
 
     [RelayCommand(CanExecute = nameof(CanSaveAsMyScript))]
     private void SaveAsMyScript() => main.MyScripts.Add(Node!, main.Tree!.MyScriptsRoot);
+
+    public bool CanTogglePin => IsMyScript && Node!.Node is RunnableNode;
+
+    public string PinText => MyScriptsViewModel.IsPinned(Node) ? "Unpin from jump list" : "Pin to jump list";
+
+    [RelayCommand(CanExecute = nameof(CanTogglePin))]
+    private void TogglePin() => main.MyScripts.SetPinned(Node!, !MyScriptsViewModel.IsPinned(Node));
 
     private bool CanDuplicate() => IsMyScript && Node!.Node is RunnableNode;
 

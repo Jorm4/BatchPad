@@ -44,4 +44,7 @@ public abstract class RunnableNode : TreeNode
     public List<string>? Tags { get; set; }
     public string? Icon { get; set; }
     public string? Hotkey { get; set; }
+
+    /// <summary>On a My Scripts entry: shown in the taskbar jump list.</summary>
+    public bool? Pinned { get; set; }
 }

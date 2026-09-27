@@ -58,6 +58,18 @@ public sealed partial class MyScriptsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(IsRunnableEntry))]
     private void Duplicate(NodeViewModel? node) => DuplicateEntry(node!);
 
+    public static bool IsPinned(NodeViewModel? node) => node is { Node: RunnableNode { Pinned: true } };
+
+    public static bool CanPin(NodeViewModel? node) => node is { IsMyScript: true, Node: RunnableNode } && !IsPinned(node);
+
+    public static bool CanUnpin(NodeViewModel? node) => node is { IsMyScript: true } && IsPinned(node);
+
+    [RelayCommand(CanExecute = nameof(CanPin))]
+    private void Pin(NodeViewModel? node) => SetPinned(node!, true);
+
+    [RelayCommand(CanExecute = nameof(CanUnpin))]
+    private void Unpin(NodeViewModel? node) => SetPinned(node!, false);
+
     [RelayCommand(CanExecute = nameof(IsEntry))]
     private void Delete(NodeViewModel? node) => DeleteEntry(node!);
 
@@ -173,6 +185,7 @@ public sealed partial class MyScriptsViewModel : ObservableObject
             var (list, index) = Locate(file, node);
             var copy = (RunnableNode)ConfigJson.Clone(list[index]);
             copy.Name = name;
+            copy.Pinned = null;
             copy.Id = id = IdAssigner.FromName(name, ConfigEntries.Ids(file.Scripts));
             list.Insert(index + 1, copy);
         }, () => ById(id));
@@ -189,6 +202,12 @@ public sealed partial class MyScriptsViewModel : ObservableObject
             list.RemoveAt(index);
         }, null);
     }
+
+    public bool SetPinned(NodeViewModel node, bool pinned) => Edit(file =>
+    {
+        var (list, index) = Locate(file, node);
+        ((RunnableNode)list[index]).Pinned = pinned ? true : null;
+    }, () => Same(node));
 
     public bool Rename(NodeViewModel node, string newName)
     {

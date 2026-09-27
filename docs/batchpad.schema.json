@@ -131,7 +131,8 @@
         "hidden": { "type": "boolean" },
         "tags": { "$ref": "#/$defs/stringList" },
         "icon": { "type": "string" },
-        "hotkey": { "type": "string" }
+        "hotkey": { "type": "string" },
+        "pinned": { "type": "boolean", "description": "On a My Scripts entry: shown in the taskbar jump list." }
       }
     },
     "script": {

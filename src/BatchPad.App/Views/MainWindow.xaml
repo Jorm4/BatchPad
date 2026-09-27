@@ -147,6 +147,10 @@
                                       AutomationProperties.AutomationId="ShareWithWorkspaceMenuItem" />
                             <MenuItem Header="Duplicate" Command="{Binding MyScripts.DuplicateCommand}" CommandParameter="{Binding Tree.SelectedNode}"
                                       AutomationProperties.AutomationId="DuplicateMenuItem" />
+                            <MenuItem Header="Pin to jump list" Command="{Binding MyScripts.PinCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="PinMenuItem" />
+                            <MenuItem Header="Unpin" Command="{Binding MyScripts.UnpinCommand}" CommandParameter="{Binding Tree.SelectedNode}"
+                                      AutomationProperties.AutomationId="UnpinMenuItem" />
                             <MenuItem Header="Rename" InputGestureText="F2" Command="{Binding MyScripts.BeginRenameCommand}" CommandParameter="{Binding Tree.SelectedNode}"
                                       AutomationProperties.AutomationId="RenameMenuItem" />
                             <MenuItem Header="Delete" InputGestureText="Del" Command="{Binding MyScripts.DeleteCommand}" CommandParameter="{Binding Tree.SelectedNode}"

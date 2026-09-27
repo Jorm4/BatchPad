@@ -37,10 +37,10 @@ public partial class MainWindow : Window
         {
             main.Activity.Window = new WindowActivity(this);
             TaskbarItemInfo = new TaskbarItemInfo();
-            BindingOperations.SetBinding(TaskbarItemInfo, TaskbarItemInfo.ProgressStateProperty,
-                new Binding($"{nameof(main.Activity)}.{nameof(RunActivityViewModel.TaskbarState)}") { Source = main });
-            BindingOperations.SetBinding(TaskbarItemInfo, TaskbarItemInfo.ProgressValueProperty,
-                new Binding($"{nameof(main.Activity)}.{nameof(RunActivityViewModel.TaskbarProgress)}") { Source = main });
+            void BindToActivity(DependencyProperty property, string activityProperty) =>
+                BindingOperations.SetBinding(TaskbarItemInfo, property, new Binding($"{nameof(main.Activity)}.{activityProperty}") { Source = main });
+            BindToActivity(TaskbarItemInfo.ProgressStateProperty, nameof(RunActivityViewModel.TaskbarState));
+            BindToActivity(TaskbarItemInfo.ProgressValueProperty, nameof(RunActivityViewModel.TaskbarProgress));
             main.ShowWindowRequested += Restore;
             main.ExitRequested += () =>
             {

@@ -153,6 +153,9 @@
                     <Button Command="{Binding DuplicateCommand}" Margin="6,0,0,0" Content="Duplicate"
                             Visibility="{Binding IsMyScript, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.AutomationId="DuplicateButton" />
+                    <Button Command="{Binding TogglePinCommand}" Margin="6,0,0,0" Content="{Binding PinText}"
+                            Visibility="{Binding CanTogglePin, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.AutomationId="PinButton" />
                     <Button Command="{Binding SaveAsMyScriptCommand}" Margin="6,0,0,0"
                             Visibility="{Binding CanSaveAsMyScript, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.AutomationId="SaveAsMyScriptButton" AutomationProperties.Name="Save as new My Script">
