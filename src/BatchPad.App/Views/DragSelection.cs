@@ -19,6 +19,7 @@ public sealed class DragSelection
     private Point _mouse;
     private (int From, int To)? _range;
     private bool _capturing;
+    private IInputElement? _captured;
 
     private DragSelection(ListBox list)
     {
@@ -87,7 +88,10 @@ public sealed class DragSelection
             _capturing = true;
             try
             {
-                _list.CaptureMouse();
+                // Not the list itself: while the list holds the mouse, each line the mouse enters makes the list select just
+                // that line, undoing the range.
+                _captured = Viewer() ?? (IInputElement)_list;
+                Mouse.Capture(_captured, CaptureMode.Element);
             }
             finally
             {
@@ -115,8 +119,9 @@ public sealed class DragSelection
         _anchor = null;
         _range = null;
         _edgeScroll.Stop();
-        if (_list.IsMouseCaptured)
-            _list.ReleaseMouseCapture();
+        if (_captured is not null && Mouse.Captured == _captured)
+            Mouse.Capture(null);
+        _captured = null;
     }
 
     private void ScrollAtEdge()
@@ -138,6 +143,12 @@ public sealed class DragSelection
         if (_anchor is not { } anchor || IndexAt(_mouse) is not { } index)
             return;
         var now = (Math.Min(anchor, index), Math.Max(anchor, index));
+        // Anything else that changed the selection mid-drag is overruled by rebuilding the whole range.
+        if (_range is { } range && _list.SelectedItems.Count != range.To - range.From + 1)
+        {
+            _list.UnselectAll();
+            _range = null;
+        }
         var (remove, add) = Delta(_range, now);
         foreach (var i in remove.ToList())
             _list.SelectedItems.Remove(_list.Items[i]);
