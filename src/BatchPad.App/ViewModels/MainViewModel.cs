@@ -734,7 +734,7 @@ public sealed partial class MainViewModel : ObservableObject
         SettingsPage = page;
     }
 
-    private void ClosePages(bool keepSchedules = false, bool keepInsights = false, bool keepSettings = false)
+    internal void ClosePages(bool keepSchedules = false, bool keepInsights = false, bool keepSettings = false)
     {
         WorkspaceSettings = null;
         NewItem = null;

@@ -220,6 +220,8 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     [RelayCommand(CanExecute = nameof(CanEdit))]
     private void Edit()
     {
+        // An open page hides the details panel, and with it the editor.
+        main.ClosePages();
         if (Node!.Node is WorkflowNode)
         {
             OpenWorkflowEditor(new WorkflowEditorViewModel(main, Node.Tree, Node));

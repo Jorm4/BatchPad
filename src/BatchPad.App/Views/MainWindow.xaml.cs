@@ -111,6 +111,14 @@ public partial class MainWindow : Window
         Activate();
     }
 
+    private void OnAddClick(object sender, RoutedEventArgs e)
+    {
+        var button = (Button)sender;
+        button.ContextMenu.PlacementTarget = button;
+        button.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        button.ContextMenu.IsOpen = true;
+    }
+
     /// <summary>Selects the item under the mouse so the context menu acts on it.</summary>
     private void OnTreeRightClick(object sender, MouseButtonEventArgs e)
     {

@@ -1145,7 +1145,8 @@ Everything in §3 has a UI. No setting requires opening a JSON file.
 - **New script…** (v1) creates a `.bat`, `.py`, `.cs` or `.ps1` from a small
   template in the script folder and opens it in the user's editor. Its entry
   updates live as the file is saved.
-- **New link…**, **New folder**, **New workflow…** from the tree's context menu.
+- **New link…**, **New folder**, **New workflow…** from the tree's context menu
+  or the toolbar's **Add** menu, which lists the same new items.
   Links also come from dragging a URL or file. **New entry…** adds a script
   entry by name and path, placed in that folder; the path may be a template
   (`build/${param:config.dir}/bin/${param:app|lower}.exe`) or empty (a Python

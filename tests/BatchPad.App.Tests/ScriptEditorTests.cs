@@ -94,6 +94,20 @@ public sealed class ScriptEditorTests
     }
 
     [TestMethod]
+    public void EditClosesAnOpenPageSoTheEditorShows()
+    {
+        using var test = new TestWorkspace();
+        var main = test.OpenMain(test.CopyDemo(), trusted: true);
+        main.Tree!.Find("Workspace/Parameters demo")!.IsSelected = true;
+        main.OpenSettingsCommand.Execute(null);
+
+        main.Details.EditCommand.Execute(null);
+
+        Assert.IsFalse(main.IsPageOpen);
+        Assert.IsNotNull(main.Details.Editor);
+    }
+
+    [TestMethod]
     public void TheSharedBannerShowsForWorkspaceScriptsButNotMyScripts()
     {
         using var test = new TestWorkspace();
