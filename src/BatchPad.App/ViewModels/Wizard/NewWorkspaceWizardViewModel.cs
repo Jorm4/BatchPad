@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using BatchPad.App.Services;
 using BatchPad.Core.Config;
 using BatchPad.Core.Detection;
 using BatchPad.Core.Discovery;
@@ -124,7 +125,7 @@ public sealed partial class NewWorkspaceWizardViewModel : ObservableObject
                 ScriptFolders = ScriptFoldersToWrite(),
             });
         }
-        catch (IOException ex)
+        catch (Exception ex) when (IoProblems.IsIoProblem(ex))
         {
             Error = ex.Message;
             return;

@@ -19,6 +19,7 @@ public partial class App : Application
     private readonly TrayService _tray = new();
     private MainViewModel? _main;
     private EventWaitHandle? _exitRequest;
+    private bool _showingError;
 
     /// <summary>Setting this event exits BatchPad as the tray's Exit does, even while hidden to the tray; tools/update-stable.ps1 uses it.</summary>
     public static string ExitEventName(int processId) => $"BatchPad-Exit-{processId}";
@@ -35,12 +36,42 @@ public partial class App : Application
     {
         base.OnStartup(e);
         var paths = ResolvePaths();
+        CatchUnexpectedErrors(new ErrorLog(Path.Combine(paths.LocalDirectory, "errors.log")));
         var main = _main = new MainViewModel(paths, LoadSettings(paths), dispatcher: new WpfDispatcher(Dispatcher), tray: _tray);
         main.OpenInitial(e.Args.FirstOrDefault(), Environment.CurrentDirectory, AppContext.BaseDirectory);
         main.EnableFileWatching();
         new MainWindow { DataContext = main }.Show();
         _exitRequest = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName(Environment.ProcessId));
         ThreadPool.RegisterWaitForSingleObject(_exitRequest, (_, _) => Dispatcher.BeginInvoke(main.Exit), null, Timeout.Infinite, executeOnlyOnce: false);
+    }
+
+    /// <summary>Logs an error nothing else handled and, on the UI thread, reports it and keeps BatchPad running.</summary>
+    private void CatchUnexpectedErrors(ErrorLog log)
+    {
+        DispatcherUnhandledException += (_, e) =>
+        {
+            log.Append(e.Exception);
+            e.Handled = true;
+            // One at a time: an error raised on every layout pass would otherwise stack up message boxes.
+            if (_showingError)
+                return;
+            _showingError = true;
+            try
+            {
+                MessageBox.Show($"Something went wrong, and BatchPad kept running.\n\n{e.Exception.Message}\n\nDetails are in {log.Path}.",
+                    "BatchPad", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _showingError = false;
+            }
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => log.Append(e.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            log.Append(e.Exception);
+            e.SetObserved();
+        };
     }
 
     internal static int RunCli(string[] args)

@@ -123,7 +123,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             if (_settings.KeepRunningInTray == value)
                 return;
-            _settings.Update(_paths.SettingsFile, s => s.KeepRunningInTray = value);
+            IoProblems.TryIo(() => _settings.Update(_paths.SettingsFile, s => s.KeepRunningInTray = value));
             OnPropertyChanged();
         }
     }
@@ -257,7 +257,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (File.Exists(loaded.FilePath))
         {
-            _settings.Update(_paths.SettingsFile, s => s.AddRecentWorkspace(loaded.FilePath));
+            IoProblems.TryIo(() => _settings.Update(_paths.SettingsFile, s => s.AddRecentWorkspace(loaded.FilePath)));
         }
         RefreshRecents();
     }
@@ -534,7 +534,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void SaveWindowLayout(WindowLayout layout)
     {
-        _settings.Update(_paths.SettingsFile, s => s.Window = layout);
+        IoProblems.TryIo(() => _settings.Update(_paths.SettingsFile, s => s.Window = layout));
     }
 
     [RelayCommand]

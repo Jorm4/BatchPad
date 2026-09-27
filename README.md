@@ -309,6 +309,11 @@ project. You never need to open it, but this is roughly what it looks like:
 The full format, including workflows, discovered script folders and shared
 parameters, is described in [docs/DESIGN.md](docs/DESIGN.md) §3.
 
+Your own settings, My Scripts and trust decisions live in
+`%APPDATA%\BatchPad`; run history, telemetry and `errors.log` in
+`%LOCALAPPDATA%\BatchPad`. An unexpected error is written to `errors.log`
+and shown in a message, and BatchPad keeps running.
+
 ## Build from source
 
 Prerequisites:
