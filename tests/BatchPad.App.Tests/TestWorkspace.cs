@@ -1,5 +1,6 @@
 using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
+using BatchPad.Core.Running;
 using BatchPad.Core.Workspace;
 
 namespace BatchPad.App.Tests;
@@ -25,9 +26,10 @@ internal sealed class TestWorkspace : IDisposable
     public MainViewModel OpenMain(string workspaceDirectory, bool trusted = false, Settings? settings = null,
         IRunLauncher? launcher = null, IUiDispatcher? dispatcher = null, IShellService? shell = null, IFileDialogService? dialogs = null,
         IConfirmService? confirm = null, IWorkflowLauncher? workflows = null, TimeProvider? time = null, IAskService? ask = null,
-        ITrayService? tray = null)
+        ITrayService? tray = null, ISecretStore? secrets = null)
     {
-        var main = new MainViewModel(Paths, settings ?? new Settings(), launcher, dispatcher, shell, dialogs, confirm, workflows, time, ask, tray);
+        var main = new MainViewModel(Paths, settings ?? new Settings(), launcher, dispatcher, shell, dialogs, confirm, workflows, time, ask, tray,
+            secrets ?? new FakeSecretStore());
         if (trusted)
             main.Trust.Trust(workspaceDirectory);
         main.OpenInitial(workspaceDirectory, Root);

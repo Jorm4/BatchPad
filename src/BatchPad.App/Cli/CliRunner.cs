@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -27,8 +28,10 @@ public sealed class CliRunner
     private readonly TextWriter _out;
     private readonly TextWriter _error;
     private readonly TrustStore _trust;
+    private readonly RunGate _gate;
+    private readonly InterpreterLocator _interpreters;
     private readonly IRunLauncher _launcher;
-    private readonly IWorkflowLauncher _workflows;
+    private readonly IWorkflowLauncher? _workflows;
     private readonly TelemetryPipeline _telemetry;
     private readonly bool _flushTelemetryAfterRun;
 
@@ -39,16 +42,18 @@ public sealed class CliRunner
         _paths = paths;
         _out = output;
         _error = error;
-        var interpreters = new InterpreterLocator(settings.Interpreters);
+        _interpreters = new InterpreterLocator(settings.Interpreters);
         _trust = new TrustStore(settings, paths.SettingsFile);
         _telemetry = telemetry ?? TelemetryPipeline.For(paths, settings);
         _flushTelemetryAfterRun = telemetry is null;
-        var gate = new RunGate(_trust, locks: LockManager.For(paths));
-        _launcher = launcher ?? new GatedRunLauncher(gate, interpreters);
-        _workflows = workflows ?? new GatedWorkflowLauncher(gate, interpreters, new ShellOpener(new ShellService()));
+        _gate = new RunGate(_trust, locks: LockManager.For(paths));
+        _launcher = launcher ?? new GatedRunLauncher(_gate, _interpreters);
+        _workflows = workflows;
     }
 
     public Func<string, string?> EnvironmentVariable { get; init; } = Environment.GetEnvironmentVariable;
+
+    public ISecretStore Secrets { get; init; } = new CredentialManagerSecretStore();
 
     public IConsolePrompt Prompt { get; init; } = new ConsolePrompt();
 
@@ -76,6 +81,8 @@ public sealed class CliRunner
                 return trust.Trust(command, currentDirectory);
             case CliVerb.Untrust:
                 return trust.Untrust(command, currentDirectory);
+            case CliVerb.Secret:
+                return new CliSecret(_paths, _trust, Secrets, Prompt, _out, _error, EnvironmentVariable).Run(command, currentDirectory);
         }
         return await RunAsync(command, currentDirectory);
     }
@@ -206,7 +213,7 @@ public sealed class CliRunner
         var telemetry = _telemetry.Attach(store, TelemetryEvents.WorkspaceOf(workspace));
         await using var flushedTelemetry = _flushTelemetryAfterRun ? telemetry : null;
         using var sharedTelemetry = _flushTelemetryAfterRun ? null : telemetry;
-        var run = new CliRun(command, TriggerFor(command), store, target);
+        var run = new CliRun(command, TriggerFor(command), store, target, CliTrust.IsAgent(command, EnvironmentVariable));
         if (!command.Json && Checkout.Read(workspace.Directory) is { } checkout)
             _error.WriteLine($"in {checkout.Describe()}");
 
@@ -224,13 +231,13 @@ public sealed class CliRunner
                 return await RunWorkflowAsync(workspace, request, run, recordAs: target, cancellation);
             }
 
-            var runRequest = new RunRequest(workspace, target.Tree, (ScriptNode)target.Definition)
+            var runRequest = SecretFill.Apply(new RunRequest(workspace, target.Tree, (ScriptNode)target.Definition)
             {
                 Values = values,
                 ExtraArguments = target.ExtraArguments,
                 Unattended = true,
                 Confirmed = command.Yes,
-            };
+            }, SecretsFor(run));
             RunPlanner.CheckUnattended(runRequest);
             if (Prerequisites.WorkflowFor(runRequest) is { } withPrerequisites)
                 return await RunWorkflowAsync(workspace, withPrerequisites, run, recordAs: null, cancellation);
@@ -253,11 +260,20 @@ public sealed class CliRunner
             _error.WriteLine($"{ex.Message} Not waiting because of --no-wait.");
             return Failure;
         }
-        catch (Exception ex) when (ex is WorkflowException or InvalidOperationException || RunProblems.IsRunProblem(ex))
+        catch (Exception ex) when (ex is WorkflowException or InvalidOperationException or Win32Exception || RunProblems.IsRunProblem(ex))
         {
-            _error.WriteLine(ex.Message);
+            WriteError(run, ex.Message);
             return Failure;
         }
+    }
+
+    private ISecretStore SecretsFor(CliRun run) => run.AgentDriven ? ISecretStore.None : Secrets;
+
+    private void WriteError(CliRun run, string message)
+    {
+        _error.WriteLine(message);
+        if (run.AgentDriven && message.Contains(RunPlanner.NeedsAValue, StringComparison.Ordinal))
+            _error.WriteLine("Saved secrets aren't given to runs a coding agent starts.");
     }
 
     private async Task<int> RunWorkflowAsync(LoadedWorkspace workspace, WorkflowRequest request, CliRun cli, Entry? recordAs,
@@ -268,7 +284,8 @@ public sealed class CliRunner
             _error.WriteLine($"--no-wait works only for a single script, and '{cli.Target.Reference}' runs several steps.");
             return UsageError;
         }
-        var run = _workflows.Start(workspace, request);
+        var launcher = _workflows ?? new GatedWorkflowLauncher(_gate, _interpreters, new ShellOpener(new ShellService()), SecretsFor(cli));
+        var run = launcher.Start(workspace, request);
         var streamed = new HashSet<StepRun>();
         var subscriptions = new List<IDisposable?>();
         run.StepChanged += step =>
@@ -306,7 +323,7 @@ public sealed class CliRunner
         lock (streamed)
             subscriptions.ForEach(s => s?.Dispose());
         foreach (var step in run.Steps.Where(s => s.Error is not null))
-            _error.WriteLine($"{step.Id}: {step.Error}");
+            WriteError(cli, $"{step.Id}: {step.Error}");
         if (result.Succeeded)
             return 0;
         return run.Steps.Select(s => s.Result).LastOrDefault(r => r is { Succeeded: false }) is { } failed ? ExitCodeOf(failed) : Failure;
@@ -393,7 +410,7 @@ public sealed class CliRunner
     private static int ExitCodeOf(RunResult result) =>
         result.Outcome == RunOutcome.Exited ? result.ExitCode : result.ExitCode != 0 ? result.ExitCode : Failure;
 
-    private sealed record CliRun(CliCommand Command, string Trigger, HistoryStore Store, Entry Target);
+    private sealed record CliRun(CliCommand Command, string Trigger, HistoryStore Store, Entry Target, bool AgentDriven);
 
     internal sealed record Entry(string Reference, string Name, ScriptTree Tree, RunnableNode Definition, string Key)
     {

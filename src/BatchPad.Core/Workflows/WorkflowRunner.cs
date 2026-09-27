@@ -13,15 +13,19 @@ using BatchPad.Core.Workspace;
 namespace BatchPad.Core.Workflows;
 
 /// <summary>Runs workflows (§4.1).</summary>
+/// <param name="secrets">Fills the missing secrets of unattended runs' workflows and steps.</param>
 public sealed partial class WorkflowRunner(
-    LoadedWorkspace workspace, IStepLauncher launcher, IShellOpener? opener = null, LockManager? locks = null, TimeProvider? time = null)
+    LoadedWorkspace workspace, IStepLauncher launcher, IShellOpener? opener = null, LockManager? locks = null, TimeProvider? time = null,
+    ISecretStore? secrets = null)
 {
     private readonly ChoiceResolver _choices = new();
     private readonly LockManager _locks = locks ?? new LockManager();
     private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly ISecretStore _secrets = secrets ?? ISecretStore.None;
 
-    public WorkflowRunner(LoadedWorkspace workspace, RunGate gate, InterpreterLocator interpreters, IShellOpener? opener = null)
-        : this(workspace, new GatedStepLauncher(gate, interpreters), opener, gate.Locks, gate.Time)
+    public WorkflowRunner(LoadedWorkspace workspace, RunGate gate, InterpreterLocator interpreters, IShellOpener? opener = null,
+        ISecretStore? secrets = null)
+        : this(workspace, new GatedStepLauncher(gate, interpreters), opener, gate.Locks, gate.Time, secrets)
     {
     }
 
@@ -35,6 +39,7 @@ public sealed partial class WorkflowRunner(
         if (request is { Unattended: true, Confirmed: false }
             && (request.Workflow.Confirm is { Length: > 0 } || request.Workflow.Steps.SelectMany(s => s.Leaves()).Any(s => s.Confirm == true)))
             throw new WorkflowException($"'{ScriptTree.DisplayName(request.Workflow)}' needs confirmation, and nobody is there to give it.");
+        request = SecretFill.Apply(request, workspace, _secrets);
 
         var steps = request.Workflow.Steps.Select((step, index) => new StepRun(step, step.Id ?? $"step{index + 1}")).ToList();
         var resumeAt = 0;
@@ -296,14 +301,14 @@ public sealed partial class WorkflowRunner(
             return result.Succeeded;
         }
 
-        var runRequest = new RunRequest(workspace, target.Tree, (ScriptNode)target.Node)
+        var runRequest = SecretFill.Apply(new RunRequest(workspace, target.Tree, (ScriptNode)target.Node)
         {
             Values = values,
             BaseEnvironment = request.BaseEnvironment,
             LockOwner = run.LockOwner,
             Unattended = request.Unattended,
             Confirmed = request.Confirmed,
-        };
+        }, _secrets);
         for (var attempt = 1; ; attempt++)
         {
             var succeeded = await LaunchAsync(run, row, runRequest, isLast);

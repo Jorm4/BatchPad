@@ -1,5 +1,6 @@
 using BatchPad.App.Cli;
 using BatchPad.App.Services;
+using BatchPad.App.ViewModels.Parameters;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
 
@@ -189,5 +190,19 @@ internal sealed class FakePrompt(params string[] answers) : IConsolePrompt
     {
         Reads++;
         return _answers.TryDequeue(out var answer) ? answer : null;
+    }
+}
+
+internal sealed class FakeAsk : IAskService
+{
+    public Action<ParameterFormViewModel>? Answer { get; set; }
+    public bool Result { get; set; } = true;
+    public int Asked { get; private set; }
+
+    public bool Ask(string title, ParameterFormViewModel form)
+    {
+        Asked++;
+        Answer?.Invoke(form);
+        return Result;
     }
 }

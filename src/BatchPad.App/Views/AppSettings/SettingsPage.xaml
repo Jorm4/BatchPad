@@ -141,6 +141,27 @@
                            Text="Lets coding agents such as Claude Code list and run the scripts of trusted workspaces through BatchPad's MCP server (batchpad.com mcp). Off by default." />
                 <CheckBox Content="Let coding agents run scripts" IsChecked="{Binding McpEnabled}" Margin="0,0,0,12"
                           AutomationProperties.AutomationId="McpEnabled" />
+            <StackPanel DataContext="{Binding SavedSecrets}" Margin="0,0,0,12">
+                <TextBlock Text="Saved secrets" Style="{StaticResource Section}" AutomationProperties.AutomationId="SavedSecretsSection" />
+                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8"
+                           Text="Values saved in Windows Credential Manager with &quot;Remember for unattended runs&quot; or batchpad secret set. They are used only by scheduled and command-line runs, never by coding agents; runs you start here still ask." />
+                <TextBlock Style="{StaticResource Hint}" Text="No saved secrets."
+                           Visibility="{Binding HasSecrets, Converter={StaticResource InverseBoolToVisibility}}" />
+                <TextBlock Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
+                           Visibility="{Binding Error, Converter={StaticResource NullToCollapsed}}" />
+                <views:FlatItemsControl ItemsSource="{Binding Secrets}" AutomationProperties.AutomationId="SavedSecrets">
+                    <views:FlatItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SavedSecretViewModel}">
+                            <DockPanel Margin="0,0,0,4" AutomationProperties.Name="{Binding Name}">
+                                <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}"
+                                        AutomationProperties.AutomationId="SavedSecretRemove" />
+                                <TextBlock Text="{Binding Scope}" Opacity="0.7" Width="110" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+                        </DataTemplate>
+                    </views:FlatItemsControl.ItemTemplate>
+                </views:FlatItemsControl>
+            </StackPanel>
             <StackPanel DataContext="{Binding Telemetry}">
                 <TextBlock Text="Telemetry" Style="{StaticResource Section}" AutomationProperties.AutomationId="TelemetrySection" />
                 <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8"

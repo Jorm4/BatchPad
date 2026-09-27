@@ -142,6 +142,7 @@ public sealed class CliTrustTests
         {
             EnvironmentVariable = environment ?? (_ => null),
             Prompt = prompt,
+            Secrets = new FakeSecretStore(),
         };
         return (runner, output, error);
     }

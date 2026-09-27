@@ -318,15 +318,18 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
             return;
         if (request.Script.Confirm is { Length: > 0 } question && !main.Services.Confirm.Confirm(node.Name, question))
             return;
-        if (AskValues(request.Script, request.Tree, request.Values, node) is not { } values)
+        if (AskValues(request.Script, request.Tree, request.Values, node, out var unsaved) is not { } values)
             return;
         Launch(request with { Values = values }, node);
+        RunError ??= unsaved;
     }
 
+    /// <param name="unsaved">Why a secret to remember could not be saved.</param>
     /// <returns>Null when the user cancels.</returns>
     private IReadOnlyDictionary<string, JsonNode?>? AskValues(RunnableNode definition, ScriptTree tree,
-        IReadOnlyDictionary<string, JsonNode?>? values, NodeViewModel node)
+        IReadOnlyDictionary<string, JsonNode?>? values, NodeViewModel node, out string? unsaved)
     {
+        unsaved = null;
         var prompted = RunPlanner.Prompted(definition, main.Workspace!)
             .Where(p => p.Ask == true || values?.GetValueOrDefault(p.Name!) is null)
             .Select(p => p.Name!)
@@ -343,12 +346,38 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         var form = ParameterFormViewModel.For(main.Workspace!, definition, tree, new ParameterValues(stored, ""), main.Services,
             main.CommandChoices, p => prompted.Contains(p.Name!));
         form.HasExtraArguments = false;
+        foreach (var secret in form.Fields.OfType<SecretFieldViewModel>())
+            secret.CanRemember = true;
         if (!main.Services.Ask.Ask(node.Name, form))
             return null;
+        unsaved = RememberSecrets(form, definition, tree);
         var answered = values?.ToDictionary(v => v.Key, v => v.Value) ?? [];
         foreach (var (name, value) in form.Values)
             answered[name] = value;
         return answered;
+    }
+
+    private string? RememberSecrets(ParameterFormViewModel form, RunnableNode definition, ScriptTree tree)
+    {
+        var remembered = form.Fields.OfType<SecretFieldViewModel>().Where(f => f.Remember && f.Text.Length > 0).ToList();
+        if (remembered.Count == 0)
+            return null;
+        var workspace = main.Workspace!;
+        var scope = SecretScope.Of(workspace, tree.Kind);
+        var storedAs = SecretFill.SecretParameters(definition, workspace).ToDictionary(p => p.Name, p => p.StoredAs);
+        string? error = null;
+        foreach (var field in remembered)
+        {
+            try
+            {
+                scope.Set(main.Services.Secrets, storedAs.GetValueOrDefault(field.Name, field.Name), field.Text);
+            }
+            catch (Win32Exception ex)
+            {
+                error = ex.Message;
+            }
+        }
+        return error;
     }
 
     private void StartWorkflow(WorkflowRequest request, NodeViewModel node)
@@ -360,9 +389,10 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
             : null;
         if (question is not null && !main.Services.Confirm.Confirm(node.Name, question))
             return;
-        if (AskValues(request.Workflow, request.Tree, request.Values, node) is not { } values)
+        if (AskValues(request.Workflow, request.Tree, request.Values, node, out var unsaved) is not { } values)
             return;
         ShowWorkflow(request with { Values = values }, node);
+        RunError ??= unsaved;
     }
 
     private void ShowWorkflow(WorkflowRequest request, NodeViewModel? node)

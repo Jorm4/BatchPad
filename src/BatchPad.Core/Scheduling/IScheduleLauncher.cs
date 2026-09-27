@@ -19,9 +19,10 @@ public interface IScheduleLauncher
 }
 
 /// <summary>Runs through the trust gate, with no UI.</summary>
-public sealed class GatedScheduleLauncher(LoadedWorkspace workspace, RunGate gate, InterpreterLocator interpreters) : IScheduleLauncher
+public sealed class GatedScheduleLauncher(LoadedWorkspace workspace, RunGate gate, InterpreterLocator interpreters, ISecretStore? secrets = null)
+    : IScheduleLauncher
 {
-    private readonly WorkflowRunner _workflows = new(workspace, gate, interpreters);
+    private readonly WorkflowRunner _workflows = new(workspace, gate, interpreters, secrets: secrets);
 
     public IRunOutput Start(RunRequest request) => gate.Start(request, interpreters);
 

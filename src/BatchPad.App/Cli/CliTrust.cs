@@ -81,10 +81,13 @@ public sealed class CliTrust(TrustStore trust, IConsolePrompt prompt, TextWriter
     /// <summary>Why <paramref name="action"/> can't go ahead: nobody is at the keyboard, or an agent asked for it.</summary>
     public static string? Refusal(CliCommand command, string action, IConsolePrompt prompt, Func<string, string?> environment)
     {
-        if (command.Agent is not null || environment("CLAUDECODE") == "1" || environment(McpVariable) == "1")
+        if (IsAgent(command, environment))
             return $"Only a person can {action}, not a coding agent. Run this yourself in a terminal, or use the app.";
         if (!prompt.IsInteractive)
             return $"To {action}, BatchPad asks you to confirm at the keyboard, and this command's input is redirected. Run it in a terminal.";
         return null;
     }
+
+    public static bool IsAgent(CliCommand command, Func<string, string?> environment) =>
+        command.Agent is not null || environment("CLAUDECODE") == "1" || environment(McpVariable) == "1";
 }

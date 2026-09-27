@@ -96,9 +96,14 @@ public partial class TextFieldViewModel : ParameterFieldViewModel
     }
 }
 
-/// <summary>A <c>secret</c> value: shown as a password box and never saved.</summary>
+/// <summary>A <c>secret</c> value: shown as a password box, never saved with values or history, only in Credential Manager when remembered.</summary>
 public sealed class SecretFieldViewModel(ParameterDefinition definition, JsonNode? stored, bool isSet)
-    : TextFieldViewModel(definition, stored, isSet);
+    : TextFieldViewModel(definition, stored, isSet)
+{
+    public bool CanRemember { get; set; }
+
+    public bool Remember { get; set; }
+}
 
 public sealed class IntFieldViewModel(ParameterDefinition definition, JsonNode? stored, bool isSet)
     : TextFieldViewModel(definition, stored, isSet)

@@ -139,18 +139,4 @@ public sealed class AskOnRunTests
         process.Finish(RunOutcome.Exited, 0);
         return await recorded.Task.WaitAsync(Limit);
     }
-
-    private sealed class FakeAsk : IAskService
-    {
-        public Action<ParameterFormViewModel>? Answer { get; set; }
-        public bool Result { get; set; } = true;
-        public int Asked { get; private set; }
-
-        public bool Ask(string title, ParameterFormViewModel form)
-        {
-            Asked++;
-            Answer?.Invoke(form);
-            return Result;
-        }
-    }
 }

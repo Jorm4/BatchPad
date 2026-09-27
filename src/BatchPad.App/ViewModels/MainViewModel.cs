@@ -56,7 +56,7 @@ public sealed partial class MainViewModel : ObservableObject
     public MainViewModel(AppPaths paths, Settings settings,
         IRunLauncher? launcher = null, IUiDispatcher? dispatcher = null, IShellService? shell = null, IFileDialogService? dialogs = null,
         IConfirmService? confirm = null, IWorkflowLauncher? workflows = null, TimeProvider? time = null, IAskService? ask = null,
-        ITrayService? tray = null)
+        ITrayService? tray = null, ISecretStore? secrets = null)
     {
         _paths = paths;
         _settings = settings;
@@ -68,10 +68,11 @@ public sealed partial class MainViewModel : ObservableObject
         CommandChoices = new CommandChoiceSource(Trust, interpreters);
         Probes = new ScriptProbes(Trust, interpreters);
         shell ??= new ShellService();
+        secrets ??= new CredentialManagerSecretStore();
         Services = new AppServices(launcher ?? new GatedRunLauncher(gate, interpreters), interpreters,
             dispatcher ?? new ImmediateDispatcher(), shell, dialogs ?? new FileDialogService(),
-            confirm ?? new MessageBoxConfirmService(), workflows ?? new GatedWorkflowLauncher(gate, interpreters, new ShellOpener(shell)),
-            ask ?? new AskDialogService());
+            confirm ?? new MessageBoxConfirmService(), workflows ?? new GatedWorkflowLauncher(gate, interpreters, new ShellOpener(shell), secrets),
+            ask ?? new AskDialogService(), secrets);
         Sources = new SourceOpener(shell, settings);
         _fingerprints = new Debouncer(Services.Dispatcher, TimeSpan.Zero);
         _scheduleState = ScheduleStateStore.For(paths);
@@ -867,7 +868,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
         StopScheduler();
         var scheduler = new Scheduler(History.Store!, new AppScheduleLauncher(Services.Launcher, Services.Workflows, () => Workspace!, History),
-            _scheduleState, Time);
+            _scheduleState, Time) { Secrets = Services.Secrets };
         scheduler.ScheduleFired += fire => Services.Dispatcher.Post(() => ShowScheduledRun(fire));
         scheduler.ScheduleFailed += failure => Services.Dispatcher.Post(() =>
         {

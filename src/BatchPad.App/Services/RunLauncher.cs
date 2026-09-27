@@ -76,12 +76,13 @@ public interface IWorkflowLauncher
     Task StopStepAsync(RunHandle run, RunRequest request);
 }
 
-public sealed class GatedWorkflowLauncher(RunGate gate, InterpreterLocator interpreters, IShellOpener opener) : IWorkflowLauncher
+public sealed class GatedWorkflowLauncher(RunGate gate, InterpreterLocator interpreters, IShellOpener opener, ISecretStore? secrets = null)
+    : IWorkflowLauncher
 {
     private readonly StopCoordinator _stopper = new(gate, interpreters);
 
     public WorkflowRun Start(LoadedWorkspace workspace, WorkflowRequest request) =>
-        new WorkflowRunner(workspace, gate, interpreters, opener).Start(request);
+        new WorkflowRunner(workspace, gate, interpreters, opener, secrets).Start(request);
 
     public async Task StopStepAsync(RunHandle run, RunRequest request)
     {

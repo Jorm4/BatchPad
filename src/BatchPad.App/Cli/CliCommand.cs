@@ -4,7 +4,7 @@ using BatchPad.Core.Telemetry;
 
 namespace BatchPad.App.Cli;
 
-public enum CliVerb { Run, List, Log, Stats, Compare, Mcp, Trust, Untrust }
+public enum CliVerb { Run, List, Log, Stats, Compare, Mcp, Trust, Untrust, Secret }
 
 public sealed record CliCommand(CliVerb Verb)
 {
@@ -28,6 +28,12 @@ public sealed record CliCommand(CliVerb Verb)
     /// <summary><c>trust --list</c>: print the trusted folders instead of trusting one.</summary>
     public bool List { get; init; }
 
+    /// <summary><c>secret</c>: the parameter to set or remove.</summary>
+    public string? Parameter { get; init; }
+
+    /// <summary><c>secret --global</c>: for Global scripts rather than the workspace's.</summary>
+    public bool Global { get; init; }
+
     /// <summary>Wraps list and stats JSON with the workspace's git checkout, as the MCP tools return them.</summary>
     public bool WithCheckout { get; init; }
 
@@ -42,9 +48,11 @@ public sealed record CliCommand(CliVerb Verb)
           batchpad mcp
           batchpad trust [--workspace <path>] | batchpad trust --list
           batchpad untrust [--workspace <path>]
+          batchpad secret set|remove <parameter> [--workspace <path> | --global]
+          batchpad secret list [--workspace <path> | --global]
         """;
 
-    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "compare" or "mcp" or "trust" or "untrust", ..];
+    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "compare" or "mcp" or "trust" or "untrust" or "secret", ..];
 
     /// <exception cref="CliUsageException" />
     public static CliCommand Parse(IReadOnlyList<string> args)
@@ -59,7 +67,8 @@ public sealed record CliCommand(CliVerb Verb)
             ["mcp", ..] => CliVerb.Mcp,
             ["trust", ..] => CliVerb.Trust,
             ["untrust", ..] => CliVerb.Untrust,
-            _ => throw new CliUsageException("Expected 'run', 'list', 'log', 'stats', 'compare', 'mcp', 'trust' or 'untrust'."),
+            ["secret", ..] => CliVerb.Secret,
+            _ => throw new CliUsageException("Expected 'run', 'list', 'log', 'stats', 'compare', 'mcp', 'trust', 'untrust' or 'secret'."),
         };
         var command = new CliCommand(verb);
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -75,15 +84,17 @@ public sealed record CliCommand(CliVerb Verb)
                 ("--json", CliVerb.Run or CliVerb.List or CliVerb.Stats or CliVerb.Compare) => command with { Json = true },
                 ("--errors-only", CliVerb.Run) => command with { ErrorsOnly = true },
                 ("--no-wait", CliVerb.Run) => command with { NoWait = true },
-                ("--agent", CliVerb.Run or CliVerb.Trust) => command with { Agent = ValueAfter(args, ref i) },
+                ("--agent", CliVerb.Run or CliVerb.Trust or CliVerb.Secret) => command with { Agent = ValueAfter(args, ref i) },
                 ("--list", CliVerb.Trust) => command with { List = true },
+                ("--global", CliVerb.Secret) => command with { Global = true },
                 ("--tail", CliVerb.Log) => command with { Tail = Count(ValueAfter(args, ref i)) },
                 ("--errors", CliVerb.Log) => command with { ErrorsOnly = true },
                 ("--cpu", CliVerb.Compare) => command with { Cpu = true },
                 ("--since", CliVerb.Stats) => command with { Since = ParsePeriod(ValueAfter(args, ref i), "--since", m => new CliUsageException(m)) },
                 (var option, _) when option.StartsWith('-') => throw new CliUsageException($"Unknown option '{option}'."),
-                (var positional, CliVerb.Run or CliVerb.Log or CliVerb.Compare) when command.Target is null => command with { Target = positional },
+                (var positional, CliVerb.Run or CliVerb.Log or CliVerb.Compare or CliVerb.Secret) when command.Target is null => command with { Target = positional },
                 (var positional, CliVerb.Compare) when command.Baseline is null => command with { Baseline = positional },
+                (var positional, CliVerb.Secret) when command.Parameter is null => command with { Parameter = positional },
                 _ => throw new CliUsageException($"Unexpected argument '{args[i]}'."),
             };
         }
@@ -91,9 +102,23 @@ public sealed record CliCommand(CliVerb Verb)
             throw new CliUsageException("'run' needs the id or name of a script or workflow.");
         if (command.Target is null && verb is CliVerb.Log or CliVerb.Compare)
             throw new CliUsageException($"'{args[0]}' needs a run id.");
+        if (verb is CliVerb.Secret)
+            CheckSecret(command);
         if (command.Json && command.ErrorsOnly)
             throw new CliUsageException("Use either --json or --errors-only.");
         return command with { Values = values };
+    }
+
+    private static void CheckSecret(CliCommand command)
+    {
+        if (command.Target is not ("set" or "remove" or "list"))
+            throw new CliUsageException("'secret' needs 'set', 'remove' or 'list'.");
+        if (command.Target != "list" && command.Parameter is null)
+            throw new CliUsageException($"'secret {command.Target}' needs a parameter name.");
+        if (command.Target == "list" && command.Parameter is not null)
+            throw new CliUsageException($"Unexpected argument '{command.Parameter}'.");
+        if (command.Global && command.Workspace is not null)
+            throw new CliUsageException("Use either --workspace or --global.");
     }
 
     private static CliCommand Set(CliCommand command, Dictionary<string, string> values, string assignment)

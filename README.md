@@ -106,14 +106,24 @@ otherwise Windows PowerShell.
 - From a terminal, `batchpad run <id or name> [--workspace <path>] [--set name=value]… [--yes]`
   runs one script or workflow without the window: output streams to the
   console and the exit code is the script's. Nobody is there to answer, so a
-  `confirm` script needs `--yes` and `ask` or `secret` values need `--set`.
+  `confirm` script needs `--yes` and `ask` or `secret` values need `--set`,
+  unless the secret is saved (below).
   The workspace must already be trusted. `batchpad list` prints the ids and
   names.
 - `batchpad trust [--workspace <path>]` trusts a workspace from a terminal:
   it shows the folder and its repository's origin, and you type the folder's
   name to confirm. It refuses when its input is piped and when a coding agent
-  runs it. `batchpad trust --list` prints the trusted folders, and
-  `batchpad untrust [--workspace <path>]` stops trusting one. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
+  runs it; that prevents accidents, not a determined program running as you.
+  `batchpad trust --list` prints the trusted folders, and
+  `batchpad untrust [--workspace <path>]` stops trusting one.
+- Secrets for scheduled and command-line runs are kept in Windows
+  Credential Manager, tied to the folder (or repository) they were saved for.
+  Runs a coding agent starts never get them. Save one by ticking "Remember for unattended runs" when
+  a run asks for it, or with `batchpad secret set <parameter> [--global]`,
+  which asks for the value at the keyboard so it stays out of shell history.
+  `batchpad secret list` prints the saved names and `batchpad secret remove
+  <parameter>` deletes one; Settings lists and removes them too. Runs started
+  in the app still ask each time. This goes through `batchpad.com`, which sits beside `BatchPad.exe`
   so that cmd waits for the run. Runs from the command line show in the
   app's history too.
 - For coding agents and scripts:

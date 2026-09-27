@@ -73,6 +73,8 @@ public static partial class RunPlanner
         }).ToList();
     }
 
+    public const string NeedsAValue = "needs a value for";
+
     /// <exception cref="RunException">The run needs confirmation or a value nobody supplied (§4 "Unattended runs").</exception>
     public static void CheckUnattended(RunRequest request)
     {
@@ -82,7 +84,7 @@ public static partial class RunPlanner
         foreach (var parameter in Prompted(request.Script, request.Workspace))
         {
             if (request.Values?.GetValueOrDefault(parameter.Name!) is null)
-                throw new RunException($"'{name}' needs a value for {parameter.Label ?? parameter.Name}.");
+                throw new RunException($"'{name}' {NeedsAValue} {parameter.Label ?? parameter.Name}.");
         }
     }
 

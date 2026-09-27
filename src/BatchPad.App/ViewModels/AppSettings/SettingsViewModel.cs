@@ -13,10 +13,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _main = main;
         Telemetry = new TelemetrySettingsViewModel(main);
+        SavedSecrets = new SavedSecretsViewModel(main.Services.Secrets, main.Workspace);
         mcpEnabled = main.UserSettings.Mcp?.Enabled == true;
     }
 
     public TelemetrySettingsViewModel Telemetry { get; }
+    public SavedSecretsViewModel SavedSecrets { get; }
 
     [ObservableProperty]
     private bool mcpEnabled;

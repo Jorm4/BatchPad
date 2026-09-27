@@ -63,6 +63,9 @@ public sealed class Scheduler : IDisposable
     public HistoryStore History => _history;
     public TimeProvider Time => _time;
 
+    /// <summary>Fills scripts' missing secrets; workflows get theirs from the launcher's <see cref="WorkflowRunner"/>.</summary>
+    public ISecretStore Secrets { get; init; } = ISecretStore.None;
+
     public event Action<ScheduleFire>? ScheduleFired;
     public event Action<ScheduleFailure>? ScheduleFailed;
     public event Action<SchedulePause>? SchedulePaused;
@@ -365,25 +368,26 @@ public sealed class Scheduler : IDisposable
 
         if (target.Definition is ScriptNode script)
         {
-            var request = new RunRequest(target.Workspace, target.Tree, script)
+            var request = SecretFill.Apply(new RunRequest(target.Workspace, target.Tree, script)
             {
                 Values = values,
                 ExtraArguments = target.ExtraArguments,
                 Unattended = true,
                 Confirmed = confirmed,
-            };
+            }, Secrets);
             var chain = Prerequisites.WorkflowFor(request);
             var run = chain is not null ? _launcher.Start(chain, trigger) : _launcher.Start(request);
             return (run, HistoryRecorder.Attach(run, _history, request, target.NodeKey, trigger, target.Name), chain is null ? request : null);
         }
 
-        var workflowRun = _launcher.Start(new WorkflowRequest(target.Tree, (WorkflowNode)target.Definition)
+        var workflowRequest = new WorkflowRequest(target.Tree, (WorkflowNode)target.Definition)
         {
             Values = values,
             StepValues = target.StepValues,
             Unattended = true,
             Confirmed = confirmed,
-        }, trigger);
+        };
+        var workflowRun = _launcher.Start(workflowRequest, trigger);
         return (workflowRun, HistoryRecorder.Attach(workflowRun, _history, target.RecordTemplate(trigger)), null);
     }
 

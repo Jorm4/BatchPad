@@ -29,8 +29,14 @@
         </DataTemplate>
 
         <DataTemplate DataType="{x:Type p:SecretFieldViewModel}">
-            <PasswordBox views:PasswordBinding.Password="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.AutomationId="{Binding AutomationId}" AutomationProperties.Name="{Binding Label}" />
+            <StackPanel>
+                <PasswordBox views:PasswordBinding.Password="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.AutomationId="{Binding AutomationId}" AutomationProperties.Name="{Binding Label}" />
+                <CheckBox Content="Remember for unattended runs" IsChecked="{Binding Remember}" Margin="0,4,0,0"
+                          Visibility="{Binding CanRemember, Converter={StaticResource BoolToVisibility}}"
+                          ToolTip="Saves the value in Windows Credential Manager for scheduled and command-line runs."
+                          AutomationProperties.AutomationId="{Binding AutomationId, StringFormat={}{0}_Remember}" />
+            </StackPanel>
         </DataTemplate>
 
         <DataTemplate DataType="{x:Type p:IntFieldViewModel}">
