@@ -1084,6 +1084,8 @@ light/dark mode and uses the accent colour and Mica backdrop.
 - **Tree:** three roots; badges for running (●), last result (✅/❌) and
   broken references. Filter-as-you-type. Double-click runs with the current
   values; Enter runs; F2 renames; Delete removes a My Scripts entry.
+  Choosing an item closes Insights, Schedules or Settings so its details
+  show; a page holding unsaved edits stays open.
 - **Saving:** a My Scripts entry saves its form values as they change, and a
   rename saves on Enter or when the box loses focus; there is no Save button.
 - **Drag and drop:** from a shared tree to My Scripts creates a customisation

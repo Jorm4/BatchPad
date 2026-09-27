@@ -197,6 +197,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     // Holds until every sink recovers, so a sink that keeps failing doesn't reopen the banner on each retry.
     private bool _telemetryProblemDismissed;
+    private bool _keepPageOpen;
 
     public WindowLayout? WindowLayout => _settings.Window;
 
@@ -265,9 +266,34 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (Workspace is null)
             return;
-        Open(Workspace.FilePath);
-        if (select is not null && Tree!.AllNodes.FirstOrDefault(select) is { } node)
-            node.Reveal();
+        KeepingPageOpen(() =>
+        {
+            Open(Workspace.FilePath);
+            if (select is not null && Tree!.AllNodes.FirstOrDefault(select) is { } node)
+                node.Reveal();
+        });
+    }
+
+    /// <summary>Closes an open page so the selected item's details show, unless the page holds unsaved edits.</summary>
+    public void ShowDetails()
+    {
+        if (IsPageOpen && !IsEditingPage)
+            ClosePages();
+    }
+
+    /// <summary>Runs <paramref name="change"/> without a selection it makes closing the open page.</summary>
+    public void KeepingPageOpen(Action change)
+    {
+        var outer = _keepPageOpen;
+        _keepPageOpen = true;
+        try
+        {
+            change();
+        }
+        finally
+        {
+            _keepPageOpen = outer;
+        }
     }
 
     public void CheckForExternalChanges()
@@ -870,6 +896,8 @@ public sealed partial class MainViewModel : ObservableObject
         if (e.PropertyName != nameof(TreeViewModel.SelectedNode))
             return;
         OnPropertyChanged(nameof(SelectedNode));
+        if (SelectedNode is not null && !_keepPageOpen)
+            ShowDetails();
         Details.Node = SelectedNode;
         if (SelectedNode is { IsNew: true } node)
             MarkSeen(node);

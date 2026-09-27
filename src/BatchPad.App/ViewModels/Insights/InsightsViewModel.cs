@@ -120,7 +120,7 @@ public sealed partial class InsightsViewModel : ObservableObject
     private void SelectScript(string? nodeKey)
     {
         if (nodeKey is not null && _main.Tree?.AllNodes.FirstOrDefault(n => n.Key == nodeKey) is { } node)
-            node.Reveal();
+            _main.KeepingPageOpen(node.Reveal);
     }
 
     [RelayCommand]

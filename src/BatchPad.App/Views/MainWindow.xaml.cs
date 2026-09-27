@@ -130,6 +130,9 @@ public partial class MainWindow : Window
     {
         _dragStart = e.GetPosition(null);
         _dragCandidate = e.OriginalSource is DependencyObject source && VisualTree.FindAncestor<TextBox>(source) is null ? NodeAt(source) : null;
+        // Clicking the item already selected changes no selection, so the page it should close is closed here.
+        if (_dragCandidate is { IsSelected: true })
+            Main?.ShowDetails();
     }
 
     private void OnTreeMouseMove(object sender, MouseEventArgs e)

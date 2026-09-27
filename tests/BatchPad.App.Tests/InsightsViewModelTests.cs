@@ -129,6 +129,23 @@ public sealed class InsightsViewModelTests
 
     private static string Duration(double seconds) => OutputTabViewModel.FormatDuration(TimeSpan.FromSeconds(seconds));
 
+    [TestMethod]
+    public void ChoosingAScriptClosesInsightsButAReloadDoesNot()
+    {
+        using var test = new TestWorkspace();
+        var main = test.OpenMain(TestWorkspace.DemoSource, trusted: true);
+        main.Select("Workspace/Hello/hello.bat");
+        main.OpenInsightsCommand.Execute(null);
+
+        main.ReloadFromDiskCommand.Execute(null);
+        Assert.IsNotNull(main.Insights);
+
+        main.Select("Workspace/Hello/hello.py");
+        Assert.IsNull(main.Insights);
+        Assert.IsFalse(main.IsPageOpen);
+        Assert.AreEqual("hello.py", main.Details.Node!.Name);
+    }
+
     private static void Record(MainViewModel main, string key, string name, DateTimeOffset startedAt, double seconds, string? folder,
         int exitCode = 0, string trigger = RunTriggers.Manual, TestSummary? tests = null) =>
         main.History.Store!.Add(new RunRecord
