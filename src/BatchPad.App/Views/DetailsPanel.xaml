@@ -133,14 +133,6 @@
                             <TextBlock Text="Stop" />
                         </StackPanel>
                     </Button>
-                    <Button Command="{Binding SaveCommand}" Margin="6,0,0,0"
-                            Visibility="{Binding IsMyScript, Converter={StaticResource BoolToVisibility}}"
-                            AutomationProperties.AutomationId="SaveMyScriptButton" AutomationProperties.Name="Save">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" Margin="0,0,6,0" VerticalAlignment="Center" />
-                            <TextBlock Text="Save" />
-                        </StackPanel>
-                    </Button>
                     <Button Command="{Binding DuplicateCommand}" Margin="6,0,0,0" Content="Duplicate"
                             Visibility="{Binding IsMyScript, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.AutomationId="DuplicateButton" />

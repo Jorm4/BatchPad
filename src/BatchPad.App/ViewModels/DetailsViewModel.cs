@@ -22,7 +22,7 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     [NotifyPropertyChangedFor(nameof(IsRunnable), nameof(IsWorkflow), nameof(IsLink), nameof(IsMyScript), nameof(CanSaveAsMyScript),
         nameof(CustomisesText))]
     [NotifyCanExecuteChangedFor(nameof(RunCommand), nameof(RunInWindowCommand), nameof(StopCommand), nameof(CopyPreviewCommand),
-        nameof(EditCommand), nameof(OpenLinkCommand), nameof(SaveCommand), nameof(SaveAsMyScriptCommand), nameof(DuplicateCommand),
+        nameof(EditCommand), nameof(OpenLinkCommand), nameof(SaveAsMyScriptCommand), nameof(DuplicateCommand),
         nameof(OpenChangeBaseCommand), nameof(ReattachCommand))]
     private NodeViewModel? node;
 
@@ -168,11 +168,6 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
     private void CopyPreview() => main.Services.Shell.CopyText(fullCommand.Length > 0 ? fullCommand : Preview);
 
     private bool CanEdit() => Node is { Kind: NodeKind.Script or NodeKind.Workflow, Customisation: null } && !IsEditing;
-
-    private bool CanSave() => IsMyScript && IsRunnable && Form is not null;
-
-    [RelayCommand(CanExecute = nameof(CanSave))]
-    private void Save() => main.MyScripts.SaveValues(Node!, Form!.Snapshot());
 
     [RelayCommand(CanExecute = nameof(CanSaveAsMyScript))]
     private void SaveAsMyScript() => main.MyScripts.Add(Node!, main.Tree!.MyScriptsRoot);
@@ -481,7 +476,9 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         }
         form.Changed += () =>
         {
-            main.SessionValues[node.Key] = form.Snapshot();
+            var values = main.SessionValues[node.Key] = form.Snapshot();
+            if (node.IsMyScript)
+                main.MyScripts.SaveValues(node, values);
             Refresh();
         };
         return form;

@@ -21,6 +21,6 @@ public sealed class MyScriptsTests
 
         var added = app.WaitFor(window, "MyScripts/hello.py").AsTreeItem();
         Assert.IsTrue(added.IsSelected);
-        Assert.IsNotNull(app.WaitFor(window, "SaveMyScriptButton"));
+        Assert.AreEqual("hello.py", app.WaitFor(window, "DetailsName").Name);
     }
 }

@@ -212,22 +212,54 @@ public sealed partial class MyScriptsViewModel : ObservableObject
         }, () => ReferenceResolver.IdOf(node.Node!) is { } id ? ById(id) : n => n.IsMyScript && n.Kind == node.Kind && n.Name == name);
     }
 
-    /// <summary>Saves the form's values on a My Scripts entry; an entry still named by its <c>nameTemplate</c> is renamed to match.</summary>
+    /// <summary>
+    /// Saves the form's values on a My Scripts entry as they change; an entry still named by its <c>nameTemplate</c> is renamed to match.
+    /// Only a rename reloads the tree: otherwise the file and the loaded entry are updated in place, so the form keeps focus.
+    /// </summary>
     public bool SaveValues(NodeViewModel node, ParameterValues values)
     {
+        if (node.Node is not ScriptNode loaded || _main.Workspace is not { } workspace)
+            return false;
         var stored = values.Values.Count == 0 ? null : values.Values.ToDictionary(v => v.Key, v => v.Value?.DeepClone());
+        var extraArgs = values.ExtraArguments.Trim().Length == 0 ? null : values.ExtraArguments.Trim();
         var newName = IsAutoNamed(node) && node.Customisation is { Definition: { } definition, DefinitionTree: { } tree }
-            ? new CustomisationResolver(_main.Workspace!).NameFor(definition, tree, stored)
+            ? new CustomisationResolver(workspace).NameFor(definition, tree, stored)
             : null;
-        return Edit(file =>
+        void Apply(ScriptNode entry)
         {
-            var (list, index) = Locate(file, node);
-            var entry = (ScriptNode)list[index];
-            entry.Values = stored;
-            entry.ExtraArgs = values.ExtraArguments.Trim().Length == 0 ? null : values.ExtraArguments.Trim();
-            if (newName is not null)
+            entry.Values = stored?.ToDictionary(v => v.Key, v => v.Value?.DeepClone());
+            entry.ExtraArgs = extraArgs;
+        }
+        if (newName is not null && newName != node.Name)
+            return Edit(file =>
+            {
+                var (list, index) = Locate(file, node);
+                var entry = (ScriptNode)list[index];
+                Apply(entry);
                 entry.Name = newName;
-        }, () => Same(node));
+            }, () => Same(node));
+
+        var updated = (ScriptNode)ConfigJson.Clone(loaded);
+        Apply(updated);
+        if (Json(updated) == Json(loaded))
+            return true;
+        Error = null;
+        try
+        {
+            UserStore.For(workspace).Update(file =>
+            {
+                var (list, index) = Locate(file, node);
+                Apply((ScriptNode)list[index]);
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ConfigException or StaleEntryException)
+        {
+            Error = ex.Message;
+            return false;
+        }
+        Apply(loaded);
+        _main.RefreshConfigFingerprint(workspace);
+        return true;
     }
 
     public bool ChangeBase(NodeViewModel node, string reference) => Edit(file =>

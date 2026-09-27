@@ -207,9 +207,9 @@ public sealed partial class MainViewModel : ObservableObject
     public NodeViewModel? SelectedNode => Tree?.SelectedNode;
 
     /// <summary>Opens the command-line workspace, else the nearest or most recent one. False when there is none.</summary>
-    public bool OpenInitial(string? commandLinePath, string currentDirectory)
+    public bool OpenInitial(string? commandLinePath, string currentDirectory, string? appDirectory = null)
     {
-        var file = WorkspaceLocator.Locate(commandLinePath, currentDirectory, _settings.RecentWorkspaces);
+        var file = WorkspaceLocator.Locate(commandLinePath, currentDirectory, _settings.RecentWorkspaces, appDirectory);
         if (file is null)
             return false;
         Open(file);
@@ -630,7 +630,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private void RefreshConfigFingerprint(LoadedWorkspace workspace)
+    internal void RefreshConfigFingerprint(LoadedWorkspace workspace)
     {
         if (_fingerprint is not null)
             _fingerprint = _fingerprint with { Configs = ConfigsHash(workspace) };

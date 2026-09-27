@@ -17,6 +17,19 @@ public sealed class WorkspaceLocatorTests
     }
 
     [TestMethod]
+    public void StartingInTheAppsOwnFolderOpensTheMostRecentWorkspace()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.Path("batchpad.json"), "{}");
+        var app = Directory.CreateDirectory(dir.Path("stable")).FullName;
+        var recent = Directory.CreateDirectory(dir.Path("recent")).FullName;
+        File.WriteAllText(dir.Path("recent", "batchpad.json"), "{}");
+
+        Assert.AreEqual(dir.Path("recent", "batchpad.json"),
+            WorkspaceLocator.Locate(null, app, [dir.Path("recent", "batchpad.json")], app + Path.DirectorySeparatorChar));
+    }
+
+    [TestMethod]
     public void CommandLineFolderWinsOverCurrentDirectory()
     {
         using var dir = new TempDir();

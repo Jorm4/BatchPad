@@ -31,7 +31,7 @@ public partial class App : Application
         base.OnStartup(e);
         var paths = ResolvePaths();
         var main = _main = new MainViewModel(paths, LoadSettings(paths), dispatcher: new WpfDispatcher(Dispatcher), tray: _tray);
-        main.OpenInitial(e.Args.FirstOrDefault(), Environment.CurrentDirectory);
+        main.OpenInitial(e.Args.FirstOrDefault(), Environment.CurrentDirectory, AppContext.BaseDirectory);
         main.EnableFileWatching();
         new MainWindow { DataContext = main }.Show();
     }

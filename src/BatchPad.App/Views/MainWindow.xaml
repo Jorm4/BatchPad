@@ -203,7 +203,8 @@
                                 <Grid ToolTip="{Binding Header}">
                                     <TextBlock x:Name="Label" Text="{Binding Header}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                     <TextBox x:Name="RenameBox" Visibility="Collapsed" MinWidth="160" Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}"
-                                             IsVisibleChanged="OnRenameBoxVisibleChanged" AutomationProperties.AutomationId="RenameBox">
+                                             IsVisibleChanged="OnRenameBoxVisibleChanged" LostKeyboardFocus="OnRenameBoxLostFocus"
+                                             AutomationProperties.AutomationId="RenameBox">
                                         <TextBox.InputBindings>
                                             <KeyBinding Key="Enter" Command="{Binding DataContext.MyScripts.CommitRenameCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                         CommandParameter="{Binding}" />

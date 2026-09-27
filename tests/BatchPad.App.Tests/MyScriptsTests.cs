@@ -43,7 +43,6 @@ public sealed class MyScriptsTests
 
         main.Details.DuplicateCommand.Execute(null);
         Choose(main, "app", "RallyRacer");
-        main.Details.SaveCommand.Execute(null);
 
         CollectionAssert.AreEquivalent(
             new[] { "Build Release & run SpaceTrader", "Build Release & run RallyRacer" },
@@ -149,6 +148,30 @@ public sealed class MyScriptsTests
         var link = UserStore.For(main.Workspace!).Load().Scripts.OfType<LinkNode>().Single();
         Assert.AreEqual("https://example.com/report", link.Url);
         Assert.AreEqual("example.com", link.Name);
+    }
+
+    [TestMethod]
+    public void ARenamedEntrysValuesSaveAsTheyChangeAndSurviveARestart()
+    {
+        using var test = new TestWorkspace();
+        var main = OpenBuildWorkspace(test);
+        main.Select(BuildAndRun);
+        main.Details.SaveAsMyScriptCommand.Execute(null);
+        main.MyScripts.Rename(main.SelectedNode!, "Run pirates");
+        var form = main.Details.Form;
+
+        Choose(main, "app", "RallyRacer");
+
+        Assert.AreSame(form, main.Details.Form, "Saving values must not rebuild the form under the user.");
+        var entry = UserEntries(main).Single();
+        Assert.AreEqual("Run pirates", entry.Name);
+        Assert.AreEqual("RallyRacer", entry.Values!["app"]!.GetValue<string>());
+        Choose(main, "app", "SpaceTrader");
+        Assert.AreEqual("SpaceTrader", UserEntries(main).Single().Values!["app"]!.GetValue<string>());
+
+        var reopened = test.OpenMain(Path.Combine(test.Root, "build"), trusted: true);
+        reopened.Select("MyScripts/Run pirates");
+        StringAssert.Contains(reopened.Details.Preview, "SpaceTrader");
     }
 
     private static MainViewModel OpenBuildWorkspace(TestWorkspace test, FakeConfirm? confirm = null)

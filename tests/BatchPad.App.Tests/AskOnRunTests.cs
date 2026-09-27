@@ -73,7 +73,6 @@ public sealed class AskOnRunTests
 
         main.Details.SaveAsMyScriptCommand.Execute(null);
         ((SecretFieldViewModel)main.Details.Form!.Field("token")!).Text = "hunter2";
-        main.Details.SaveCommand.Execute(null);
         var userFile = main.Paths.UserFile(main.Workspace!.Id);
         Assert.IsTrue(File.Exists(userFile));
         Assert.DoesNotContain("hunter2", File.ReadAllText(userFile));

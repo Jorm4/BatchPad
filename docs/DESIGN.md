@@ -345,7 +345,9 @@ empty string.
 
 BatchPad finds a workspace by, in order: the path given on the command line,
 `batchpad.json` in the current directory or a parent (never above a linked
-git worktree's root, §4.5), or the last-used workspace. The recent list lives
+git worktree's root, §4.5), or the last-used workspace. The app skips the
+current directory when it is the exe's own folder, where a pinned or Explorer
+launch starts. The recent list lives
 in settings. The command-line verbs never fall back to the recent list
 (§9.3).
 
@@ -1068,7 +1070,7 @@ light/dark mode and uses the accent colour and Mica backdrop.
 │   ▾ Web              │ Extra    [                      ]              │
 │     ● Serve web      │ > cmd /d /s /c ""D:\…\build.bat" --release …"  │
 │       Stop web       │                                                │
-│ ▸ 🌐 Global          │ [▶ Run] [▶ Run in window] [■ Stop] [💾 Save]   │
+│ ▸ 🌐 Global          │ [▶ Run] [▶ Run in window] [■ Stop]             │
 │                      ├────────────────────────────────────────────────┤
 │                      │ Build ✅ │ Serve web ● │ Tests ❌ │ History     │
 │                      │ === Building SpaceTrader ===                │
@@ -1079,6 +1081,8 @@ light/dark mode and uses the accent colour and Mica backdrop.
 - **Tree:** three roots; badges for running (●), last result (✅/❌) and
   broken references. Filter-as-you-type. Double-click runs with the current
   values; Enter runs; F2 renames; Delete removes a My Scripts entry.
+- **Saving:** a My Scripts entry saves its form values as they change, and a
+  rename saves on Enter or when the box loses focus; there is no Save button.
 - **Drag and drop:** from a shared tree to My Scripts creates a customisation
   with the current values. Within My Scripts it moves and reorders. Dropping
   a script file from Explorer onto My Scripts creates a standalone entry.

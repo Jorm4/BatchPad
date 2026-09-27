@@ -97,7 +97,8 @@ otherwise Windows PowerShell.
 ## Using it
 
 - `BatchPad.exe` opens the workspace found in the current folder or above it,
-  else the most recent one.
+  else the most recent one. Started from a pin or Explorer, it opens the most
+  recent one.
 - `BatchPad.exe <folder or batchpad.json>` opens that workspace.
 - `BatchPad.exe --version` prints the version and exits.
 - From a terminal, `batchpad run <id or name> [--workspace <path>] [--set name=value]… [--yes]`

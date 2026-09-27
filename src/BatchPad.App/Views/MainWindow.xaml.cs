@@ -195,5 +195,8 @@ public partial class MainWindow : Window
             });
     }
 
+    private void OnRenameBoxLostFocus(object sender, KeyboardFocusChangedEventArgs e) =>
+        Main?.MyScripts.CommitRenameCommand.Execute(((FrameworkElement)sender).DataContext);
+
     private static NodeViewModel? NodeAt(DependencyObject source) => VisualTree.FindAncestor<TreeViewItem>(source)?.DataContext as NodeViewModel;
 }
