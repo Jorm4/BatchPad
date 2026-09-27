@@ -524,7 +524,10 @@ the stop script an entry with an id when it has none.
 | shell | `cmd.exe /d /v:off /s /c "<command>"` for inline `command` entries |
 
 **Captured mode** (default): stdout and stderr are redirected and streamed
-line by line into the output panel with stderr tinted. Stdin is redirected
+line by line into the output panel with stderr tinted. Lines that read as
+errors or warnings by common compiler, build and test conventions (`error
+C1083:`, `error:`, `BUILD FAILED`, `FAILED`, a Python traceback; `warning
+C4996:`, `WARNING`) are shown red or yellow. Stdin is redirected
 and closed immediately, so `pause` and prompts return instead of hanging.
 Output is decoded line by line. A line is read as UTF-8 when it is valid
 UTF-8, and otherwise with the OEM code page. This matters because a batch

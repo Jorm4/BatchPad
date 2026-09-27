@@ -67,4 +67,34 @@ public sealed class OutputLineParserTests
 
         Assert.IsTrue(parser.Parse(new string('a', 5000) + "! error").IsErrorMatch);
     }
+
+    [TestMethod]
+    [DataRow(@"D:\proj\src\MtTypes.h(7,10): error C1083: Cannot open include file: 'p3/P3Types.h': No such file or directory")]
+    [DataRow(@"D:\proj\build_targets.proj(9,5): error MSB4181: The ""MSBuild"" task returned false but did not log an error.")]
+    [DataRow(@"LINK : fatal error LNK1168: cannot open game.exe for writing")]
+    [DataRow("src/main.c:3:5: error: expected ';' before 'return'")]
+    [DataRow("======================== BUILD FAILED ========================")]
+    [DataRow("error C2220: the following warning is treated as an error")]
+    [DataRow("FAILED tests/test_math.py::test_add - assert 1 == 2")]
+    [DataRow("Traceback (most recent call last):")]
+    [DataRow("ValueError: invalid literal for int()")]
+    public void CompilerBuildAndTestErrorsReadAsErrors(string line) =>
+        Assert.AreEqual(LineSeverity.Error, OutputLineParser.Plain.Parse(line).Severity);
+
+    [TestMethod]
+    [DataRow(@"D:\proj\src\a.cpp(12): warning C4996: 'strcpy': This function may be unsafe.")]
+    [DataRow("src/main.c:3:5: warning: unused variable 'x'")]
+    [DataRow("WARNING: the cache is stale")]
+    [DataRow("DeprecationWarning: use run() instead")]
+    public void CompilerAndToolWarningsReadAsWarnings(string line) =>
+        Assert.AreEqual(LineSeverity.Warning, OutputLineParser.Plain.Parse(line).Severity);
+
+    [TestMethod]
+    [DataRow("    0 Warning(s)")]
+    [DataRow("    0 Error(s)")]
+    [DataRow(@"  ZombieFortCoreTests_vs2026.vcxproj -> D:\proj\build\release\tests\zombiefortcoretests.exe")]
+    [DataRow("If a failure was LNK1168 \"cannot open ... for writing\", the target exe")]
+    [DataRow("no errors found, 2 warnings suppressed")]
+    public void OrdinaryAndSummaryLinesAreNotColoured(string line) =>
+        Assert.AreEqual(LineSeverity.None, OutputLineParser.Plain.Parse(line).Severity);
 }

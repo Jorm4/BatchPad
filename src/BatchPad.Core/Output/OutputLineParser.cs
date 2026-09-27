@@ -13,9 +13,12 @@ public enum AnsiColor : byte
 
 public readonly record struct OutputSpan(string Text, AnsiColor Color, bool Bold);
 
+public enum LineSeverity : byte { None, Warning, Error }
+
 /// <param name="Text">The line without escape sequences.</param>
 /// <param name="Spans">Styled runs making up <paramref name="Text"/>; null when the line has no styling.</param>
-public sealed record ParsedLine(string Text, IReadOnlyList<OutputSpan>? Spans, bool IsErrorMatch);
+/// <param name="Severity">What the line reads as by common compiler, build and test conventions, for colouring.</param>
+public sealed record ParsedLine(string Text, IReadOnlyList<OutputSpan>? Spans, bool IsErrorMatch, LineSeverity Severity = LineSeverity.None);
 
 /// <summary>Splits output lines into ANSI-styled spans and flags lines matching a script's <c>errorPatterns</c> (§4).</summary>
 /// <remarks>Each line starts unstyled, so lines can be parsed independently and from any thread.</remarks>
@@ -23,6 +26,16 @@ public sealed class OutputLineParser
 {
     private const char Escape = '\u001b';
     private readonly Regex[] _errorPatterns;
+
+    // "error C1083:", "fatal error LNK1168:", "error:", BUILD FAILED, pytest's FAILED, unittest's FAIL:, Python's tracebacks and ValueError:.
+    private static readonly Regex ErrorLine = new(
+        @"(?i:\b(?:fatal\s+)?error\b(?:\s+[a-z]+\d+)?\s*:)|\bFAILED\b|^\s*FAIL\b|^Traceback \(most recent call last\)|\b\w*(?:Error|Exception):\s",
+        RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+
+    // "warning C4996:", "warning:", a leading WARN or WARNING, Python's DeprecationWarning:. Not a summary such as "0 Warning(s)".
+    private static readonly Regex WarningLine = new(
+        @"(?i:\bwarning\b(?:\s+[a-z]+\d+)?\s*:)|^\s*\[?WARN(?:ING)?\b|\b\w+Warning:\s",
+        RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     public OutputLineParser(IEnumerable<string>? errorPatterns = null)
     {
@@ -34,8 +47,11 @@ public sealed class OutputLineParser
     public ParsedLine Parse(string line)
     {
         var (text, spans) = line.Contains(Escape) ? Split(line) : (line, null);
-        return new ParsedLine(text, spans, IsError(text));
+        return new ParsedLine(text, spans, IsError(text), SeverityOf(text));
     }
+
+    public static LineSeverity SeverityOf(string text) =>
+        Matches(ErrorLine, text) ? LineSeverity.Error : Matches(WarningLine, text) ? LineSeverity.Warning : LineSeverity.None;
 
     private bool IsError(string text) => _errorPatterns.Any(pattern => Matches(pattern, text));
 

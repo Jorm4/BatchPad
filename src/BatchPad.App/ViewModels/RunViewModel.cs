@@ -12,10 +12,10 @@ namespace BatchPad.App.ViewModels;
 
 /// <param name="Spans">ANSI-styled runs of <paramref name="Text"/>; null for an unstyled line.</param>
 public sealed record OutputLineViewModel(string Text, OutputStream Stream, IReadOnlyList<OutputSpan>? Spans = null, bool IsErrorMatch = false,
-    IReadOnlyList<SourceLinkViewModel>? Links = null)
+    IReadOnlyList<SourceLinkViewModel>? Links = null, LineSeverity Severity = LineSeverity.None)
 {
     public static OutputLineViewModel From(ParsedLine line, OutputStream stream, SourceLinks? links = null) =>
-        new(line.Text, stream, line.Spans, line.IsErrorMatch, links?.For(line.Text));
+        new(line.Text, stream, line.Spans, line.IsErrorMatch, links?.For(line.Text), line.Severity);
 
     // Identity, so the list can select one of several identical lines.
     public bool Equals(OutputLineViewModel? other) => ReferenceEquals(this, other);

@@ -4,7 +4,8 @@
              xmlns:vm="clr-namespace:BatchPad.App.ViewModels"
              xmlns:views="clr-namespace:BatchPad.App.Views"
              xmlns:wf="clr-namespace:BatchPad.App.ViewModels.Workflows"
-             xmlns:hist="clr-namespace:BatchPad.App.ViewModels.History">
+             xmlns:hist="clr-namespace:BatchPad.App.ViewModels.History"
+             xmlns:output="clr-namespace:BatchPad.Core.Output;assembly=BatchPad.Core">
     <UserControl.Resources>
         <Style x:Key="OutputLines" TargetType="ListBox">
             <Setter Property="Background" Value="{StaticResource OutputBackgroundBrush}" />
@@ -84,6 +85,12 @@
                     <Setter TargetName="Marker" Property="Background" Value="#2EF1707A" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsError}" Value="True">
+                    <Setter TargetName="Line" Property="Foreground" Value="{StaticResource OutputErrorBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Severity}" Value="{x:Static output:LineSeverity.Warning}">
+                    <Setter TargetName="Line" Property="Foreground" Value="{StaticResource OutputWarningBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Severity}" Value="{x:Static output:LineSeverity.Error}">
                     <Setter TargetName="Line" Property="Foreground" Value="{StaticResource OutputErrorBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsInfo}" Value="True">
