@@ -1,5 +1,6 @@
 # BatchPad
 dist/
+stable/
 *.json.lock
 *.json.*.tmp
 .claude/settings.local.json

@@ -1,0 +1,10 @@
+{
+  "id": "batchpad",
+  "name": "BatchPad",
+  "scripts": [
+    {
+      "id": "update-stable", "name": "Update stable BatchPad", "path": "tools/update-stable.ps1",
+      "description": "Publishes BatchPad and installs it into stable\\, the copy to pin; a stable BatchPad that is open restarts."
+    }
+  ]
+}

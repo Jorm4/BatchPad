@@ -329,6 +329,14 @@ To produce the single-file `dist\BatchPad.exe` and its console companion
 `dist\batchpad.com`, run `tools\publish.bat` (a self-contained win-x64
 `dotnet publish`).
 
+To keep a build you use day to day apart from `dist\`, which every publish
+replaces, pin `stable\BatchPad.exe` (git-ignored) and refresh it with the
+repository's own *Update stable BatchPad* script, or
+`tools\update-stable.ps1`. It publishes, then closes a stable BatchPad
+that is open, copies the new files into `stable\` and restarts it. Closing
+is forced after 10 seconds, which also ends command-line runs of the stable
+copy.
+
 `dotnet test` runs every test, but the UI tests skip themselves unless
 `BATCHPAD_UI_TESTS=1` is set: they start the real app, take the foreground
 and type into it, so run them only when you aren't using the desktop. CI
@@ -349,7 +357,7 @@ demo workspace and rewrites `docs/images/main-window.png`.
 | `src/BatchPad.App` | the WPF app (`BatchPad.exe`) |
 | `tests/` | Core and view-model tests (headless), UI tests (FlaUI) |
 | `samples/demo` | a demo workspace: one script per runner, and a release pipeline with a parallel group, step outputs, a flaky step and JUnit test results |
-| `tools/` | `publish.bat` (single-file exe), `screenshot.cs` (README image) |
+| `tools/` | `publish.bat` (single-file exe), `update-stable.ps1` (the pinned build), `screenshot.cs` (README image) |
 | `docs/DESIGN.md` | design, file formats, feature research and roadmap |
 
 ## License
