@@ -357,7 +357,7 @@ demo workspace and rewrites `docs/images/main-window.png`.
 | `src/BatchPad.App` | the WPF app (`BatchPad.exe`) |
 | `tests/` | Core and view-model tests (headless), UI tests (FlaUI) |
 | `samples/demo` | a demo workspace: one script per runner, and a release pipeline with a parallel group, step outputs, a flaky step and JUnit test results |
-| `tools/` | `publish.bat` (single-file exe), `update-stable.ps1` (the pinned build), `screenshot.cs` (README image) |
+| `tools/` | `publish.bat` (single-file exe), `update-stable.ps1` (the pinned build), `make-icon.py` (the app icon), `screenshot.cs` (README image) |
 | `docs/DESIGN.md` | design, file formats, feature research and roadmap |
 
 ## License

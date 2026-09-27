@@ -8,6 +8,7 @@
     <AssemblyName>BatchPad</AssemblyName>
     <RootNamespace>BatchPad.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>BatchPad.ico</ApplicationIcon>
     <StartupObject>BatchPad.App.Program</StartupObject>
   </PropertyGroup>
 
@@ -26,6 +27,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BatchPad.Core\BatchPad.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="BatchPad.ico" />
+    <EmbeddedResource Include="BatchPad.ico" LogicalName="BatchPad.App.BatchPad.ico" />
   </ItemGroup>
 
 </Project>

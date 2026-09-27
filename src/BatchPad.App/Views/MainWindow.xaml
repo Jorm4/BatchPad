@@ -8,7 +8,7 @@
         xmlns:schedules="clr-namespace:BatchPad.App.Views.Schedules"
         xmlns:insights="clr-namespace:BatchPad.App.Views.Insights"
         xmlns:appsettings="clr-namespace:BatchPad.App.Views.AppSettings"
-        Title="BatchPad" Height="760" Width="1200"
+        Title="BatchPad" Icon="/BatchPad.ico" Height="760" Width="1200"
         FontFamily="Segoe UI Variable Text, Segoe UI"
         SourceInitialized="OnSourceInitialized" Closing="OnClosing" PreviewKeyDown="OnPreviewKeyDown"
         AutomationProperties.AutomationId="MainWindow">

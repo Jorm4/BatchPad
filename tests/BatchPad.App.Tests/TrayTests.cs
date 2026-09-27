@@ -83,6 +83,9 @@ public sealed class TrayTests
     {
         using var tray = new TrayService();
         Assert.IsFalse(tray.IsVisible);
+        tray.IsVisible = true;
+        Assert.IsTrue(tray.IsVisible);
+        tray.IsVisible = false;
     }
 
     private static (MainViewModel, FakeTray, FakeLauncher) Open(TestWorkspace test, Settings settings)

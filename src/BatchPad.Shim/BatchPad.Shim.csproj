@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>BatchPad.Shim</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <ApplicationIcon>..\BatchPad.App\BatchPad.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>

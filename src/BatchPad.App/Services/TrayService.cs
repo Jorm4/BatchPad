@@ -34,9 +34,8 @@ public sealed class TrayService : ITrayService
 
     private Forms.NotifyIcon CreateIcon()
     {
-        _image = Environment.ProcessPath is { } exe && Icon.ExtractAssociatedIcon(exe) is { } own
-            ? own
-            : (Icon)SystemIcons.Application.Clone();
+        using (var stream = typeof(TrayService).Assembly.GetManifestResourceStream("BatchPad.App.BatchPad.ico")!)
+            _image = new Icon(stream, Forms.SystemInformation.SmallIconSize);
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open", null, (_, _) => OpenRequested?.Invoke());
         menu.Items.Add("Schedules", null, (_, _) => SchedulesRequested?.Invoke());
