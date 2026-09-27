@@ -20,16 +20,34 @@
             </Style>
         </ScrollViewer.Style>
         <StackPanel>
-            <StackPanel DataContext="{Binding Node}">
-                <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"
-                           AutomationProperties.AutomationId="DetailsName" />
-                <TextBlock Text="{Binding Location}" Opacity="0.7" Margin="0,2,0,0"
-                           AutomationProperties.AutomationId="DetailsLocation" />
-                <TextBlock Text="{Binding FilePath}" Opacity="0.7" FontFamily="{StaticResource MonoFont}"
-                           AutomationProperties.AutomationId="DetailsFile" />
-                <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,8,0,0"
-                           AutomationProperties.AutomationId="DetailsDescription" />
-            </StackPanel>
+            <DockPanel>
+                <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="12,0,0,0" Command="{Binding EditCommand}" ToolTip="Edit (F4)"
+                        AutomationProperties.AutomationId="EditButton">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Style.Triggers>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Edit" />
+                    </StackPanel>
+                </Button>
+                <StackPanel DataContext="{Binding Node}">
+                    <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"
+                               AutomationProperties.AutomationId="DetailsName" />
+                    <TextBlock Text="{Binding Location}" Opacity="0.7" Margin="0,2,0,0"
+                               AutomationProperties.AutomationId="DetailsLocation" />
+                    <TextBlock Text="{Binding FilePath}" Opacity="0.7" FontFamily="{StaticResource MonoFont}"
+                               AutomationProperties.AutomationId="DetailsFile" />
+                    <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,8,0,0"
+                               AutomationProperties.AutomationId="DetailsDescription" />
+                </StackPanel>
+            </DockPanel>
             <TextBlock Text="{Binding CustomisesText}" Opacity="0.7" Margin="0,4,0,0"
                        Visibility="{Binding CustomisesText, Converter={StaticResource NullToCollapsed}}"
                        AutomationProperties.AutomationId="DetailsCustomises" />

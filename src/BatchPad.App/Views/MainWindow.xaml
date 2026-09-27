@@ -63,13 +63,6 @@
                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
             </Button>
-            <Button DockPanel.Dock="Left" Margin="4,0,0,0" Command="{Binding Details.EditCommand}" ToolTip="Edit (F4)"
-                    AutomationProperties.AutomationId="EditButton">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" Margin="0,0,6,0" VerticalAlignment="Center" />
-                    <TextBlock Text="Edit" />
-                </StackPanel>
-            </Button>
             <Button DockPanel.Dock="Left" Margin="4,0,0,0" Command="{Binding OpenWorkspaceSettingsCommand}" ToolTip="Workspace settings"
                     AutomationProperties.AutomationId="WorkspaceButton">
                 <StackPanel Orientation="Horizontal">
