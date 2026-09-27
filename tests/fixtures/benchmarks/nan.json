@@ -1,0 +1,8 @@
+{
+  "context": { "executable": "bench.exe", "note": "NaN and Infinity inside a string stay as they are" },
+  "benchmarks": [
+    { "name": "BM_Ratio", "run_name": "BM_Ratio", "run_type": "iteration", "iterations": 100, "real_time": 42.0, "cpu_time": 41.0,
+      "time_unit": "ns", "hit_rate": NaN, "peak": Infinity, "floor": -Infinity },
+    { "name": "BM_Empty", "run_name": "BM_Empty", "run_type": "iteration", "iterations": 0, "real_time": NaN, "cpu_time": NaN, "time_unit": "ns" }
+  ]
+}

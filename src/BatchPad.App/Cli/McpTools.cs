@@ -101,6 +101,19 @@ public sealed partial class McpTools : IAsyncDisposable
         return InvokeAsync(directory, _ => new CliCommand(CliVerb.Stats) { Since = period, Json = true, WithCheckout = true }, cancellation);
     }
 
+    [McpServerTool(Name = "compare_benchmarks", ReadOnly = true)]
+    [Description("Compares a recorded run's benchmarks with a baseline run's: per benchmark both times in ns, the change in percent and a "
+        + "verdict (slower, faster, unchanged, new, gone), and whether any is slower than the script's threshold. The default baseline is "
+        + "the latest earlier successful run of the same script with the same values.")]
+    public Task<CallToolResult> CompareBenchmarks(
+        [Description(DirectoryHelp)] string directory,
+        [Description("The runId from run_script.")] string runId,
+        [Description("The run to compare with; omit for the default baseline.")] string? baselineRunId = null,
+        [Description("Compares CPU time instead of real time.")] bool cpu = false,
+        CancellationToken cancellation = default) =>
+        InvokeAsync(directory, _ => new CliCommand(CliVerb.Compare) { Target = runId, Baseline = baselineRunId, Cpu = cpu, Json = true },
+            cancellation);
+
     /// <summary>Stops the runs of the calls still in flight and waits until they are recorded.</summary>
     public async ValueTask DisposeAsync()
     {

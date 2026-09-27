@@ -17,6 +17,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.Resources>
                 <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -69,8 +70,18 @@
                               AutomationProperties.AutomationId="RerunBy" AutomationProperties.Name="Re-run by" />
                 </StackPanel>
             </StackPanel>
-            <TextBlock Grid.Row="6" Text="Artifacts" />
-            <StackPanel Grid.Row="6" Grid.Column="1">
+            <TextBlock Grid.Row="6" Text="Benchmark report" />
+            <DockPanel Grid.Row="6" Grid.Column="1" Margin="0,0,0,8">
+                <TextBox DockPanel.Dock="Right" Text="{Binding BenchmarkThresholdPercent, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="0"
+                         ToolTip="Percent change that counts as slower or faster; empty for 5"
+                         AutomationProperties.AutomationId="BenchmarkThreshold" AutomationProperties.Name="Benchmark threshold" />
+                <TextBlock DockPanel.Dock="Right" Text="threshold %" Margin="12,6,8,0" />
+                <TextBox Text="{Binding BenchmarkReport, UpdateSourceTrigger=PropertyChanged}" Margin="0"
+                         ToolTip="Google Benchmark JSON the script writes with --benchmark_out, for example build/bench.json"
+                         AutomationProperties.AutomationId="BenchmarkReportPath" AutomationProperties.Name="Benchmark report" />
+            </DockPanel>
+            <TextBlock Grid.Row="7" Text="Artifacts" />
+            <StackPanel Grid.Row="7" Grid.Column="1">
                 <views:FlatItemsControl ItemsSource="{Binding Artifacts}" AutomationProperties.AutomationId="ArtifactRows">
                     <views:FlatItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:ArtifactRowViewModel}">

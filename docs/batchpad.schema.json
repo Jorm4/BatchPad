@@ -178,6 +178,19 @@
             }
           ]
         },
+        "benchmarkReport": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string" },
+                "format": { "enum": ["google"] },
+                "threshold": { "type": "number", "minimum": 0, "description": "Percent change that counts as slower or faster; default 5." }
+              }
+            }
+          ]
+        },
         "singleInstance": { "type": "boolean" },
         "timeout": { "type": "string", "examples": ["30m", "1h30m"] },
         "elevated": { "type": "boolean" },

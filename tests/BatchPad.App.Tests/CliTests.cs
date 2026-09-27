@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using BatchPad.App.Cli;
 using BatchPad.Core.History;
+using BatchPad.Core.Output;
 using BatchPad.Core.Running;
 using BatchPad.Core.Telemetry;
 using BatchPad.Core.Trust;
@@ -314,6 +315,66 @@ public sealed class CliTests
         Assert.AreEqual(5, stats.Runs);
         Assert.AreEqual("Suite.Flaky", stats.FlakyTests.Single().Name);
     }
+
+    [TestMethod]
+    public void TheParserReadsCompareWithAnOptionalBaseline()
+    {
+        var command = CliCommand.Parse(["compare", "run-2", "run-1", "--cpu", "--json"]);
+
+        Assert.AreEqual((CliVerb.Compare, "run-2", "run-1", true, true), (command.Verb, command.Target, command.Baseline, command.Cpu, command.Json));
+        Assert.IsNull(CliCommand.Parse(["compare", "run-2"]).Baseline);
+        Assert.AreEqual("'compare' needs a run id.", Assert.Throws<CliUsageException>(() => CliCommand.Parse(["compare"])).Message);
+        Assert.Throws<CliUsageException>(() => CliCommand.Parse(["compare", "a", "b", "c"]));
+    }
+
+    [TestMethod]
+    public async Task CompareExitsThreeWhenABenchmarkIsSlowerThanTheThreshold()
+    {
+        using var test = new TestWorkspace();
+        var (runner, output, _) = Runner(test, new FakeLauncher());
+        var store = HistoryStore.For(test.Paths, "cli-fixture");
+        var baseline = AddBenchmarkRun(store, 0, parseNs: 1000);
+        var steady = AddBenchmarkRun(store, 1, parseNs: 1030);
+        var slower = AddBenchmarkRun(store, 2, parseNs: 1236);
+
+        Assert.AreEqual(0, await runner.RunAsync(["compare", steady.Id, "-w", Fixture], test.Root));
+        StringAssert.Contains(output.ToString(), $"vs {baseline.Id}");
+        StringAssert.Matches(output.ToString(), new System.Text.RegularExpressions.Regex(@"BM_Parse\s+1\.00 us\s+1\.03 us\s+\+3\.0%\s+unchanged"));
+
+        output.GetStringBuilder().Clear();
+        Assert.AreEqual(CliCompare.Regression, await runner.RunAsync(["compare", slower.Id, "-w", Fixture], test.Root));
+        StringAssert.Matches(output.ToString(), new System.Text.RegularExpressions.Regex(@"BM_Parse\s+1\.03 us\s+1\.24 us\s+\+20\.0%\s+slower"));
+
+        output.GetStringBuilder().Clear();
+        Assert.AreEqual(0, await runner.RunAsync(["compare", slower.Id, baseline.Id, "--cpu", "--json", "-w", Fixture], test.Root));
+        var json = JsonDocument.Parse(output.ToString()).RootElement;
+        Assert.AreEqual(baseline.Id, json.GetProperty("baselineRunId").GetString());
+        Assert.IsFalse(json.GetProperty("regressed").GetBoolean());
+        Assert.AreEqual("unchanged", json.GetProperty("benchmarks")[0].GetProperty("verdict").GetString());
+    }
+
+    [TestMethod]
+    public async Task CompareFailsWhenTheNamedBaselineHasNoBenchmarks()
+    {
+        using var test = new TestWorkspace();
+        var (runner, output, error) = Runner(test, new FakeLauncher());
+        var store = HistoryStore.For(test.Paths, "cli-fixture");
+        var plain = store.Add(new RunRecord { NodeKey = "Workspace:id:build", Name = "build", StartedAt = DateTimeOffset.Now.AddMinutes(-5) }, []);
+        var current = AddBenchmarkRun(store, 1, parseNs: 1000);
+
+        Assert.AreEqual(CliRunner.Failure, await runner.RunAsync(["compare", current.Id, plain.Id, "-w", Fixture], test.Root));
+        StringAssert.Contains(error.ToString(), $"Run '{plain.Id}' recorded no benchmarks");
+        Assert.AreEqual("", output.ToString());
+    }
+
+    internal static RunRecord AddBenchmarkRun(HistoryStore store, int minutes, double parseNs) =>
+        store.Add(new RunRecord
+        {
+            NodeKey = "Workspace:id:bench",
+            Name = "Bench",
+            StartedAt = DateTimeOffset.Now.AddMinutes(minutes - 10),
+            Benchmarks = new BenchmarkSummary([new("BM_Parse", parseNs, 500, 1000)], 5),
+        }, []);
 
     [TestMethod]
     public void TheComShimPrintsAJsonResultForClaudeCode()

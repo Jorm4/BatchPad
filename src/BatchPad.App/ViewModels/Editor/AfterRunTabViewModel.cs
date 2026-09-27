@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
 using BatchPad.App.Services;
@@ -37,7 +38,7 @@ public sealed partial class ArtifactRowViewModel(ArtifactDefinition artifact, Ac
     }
 }
 
-/// <summary>The editor's After run tab (§5.1): ready pattern and its tester, stop companion, error patterns, artifacts and test report.</summary>
+/// <summary>The editor's After run tab (§5.1): ready pattern and its tester, stop companion, error patterns, artifacts, test and benchmark reports.</summary>
 public sealed partial class AfterRunTabViewModel : ObservableObject
 {
     private readonly ScriptNode _definition;
@@ -61,6 +62,8 @@ public sealed partial class AfterRunTabViewModel : ObservableObject
         openUrl = definition.Ready?.Open ?? "";
         stop = StopChoices.First(c => c.Value == definition.Stop);
         testReport = definition.TestReport?.Path ?? "";
+        benchmarkReport = definition.BenchmarkReport?.Path ?? "";
+        benchmarkThresholdPercent = definition.BenchmarkReport?.Threshold?.ToString(CultureInfo.CurrentCulture) ?? "";
         UpdateRerunParams(definition.Params);
         rerunParam = RerunParamChoices.First(c => c.Value == definition.TestReport?.RerunParam);
         rerunScope = RerunScopes.First(c => c.Value == (definition.TestReport?.RerunBy ?? RerunBy.Case));
@@ -122,6 +125,12 @@ public sealed partial class AfterRunTabViewModel : ObservableObject
 
     [ObservableProperty]
     private string testReport;
+
+    [ObservableProperty]
+    private string benchmarkReport;
+
+    [ObservableProperty]
+    private string benchmarkThresholdPercent;
 
     /// <summary>One regular expression per line; matching output lines are marked as errors.</summary>
     [ObservableProperty]
@@ -190,6 +199,20 @@ public sealed partial class AfterRunTabViewModel : ObservableObject
         var report = _definition.TestReport ?? new TestReportDefinition();
         change(report);
         _definition.TestReport = report.Path is null && report.IsPlain ? null : report;
+        _changed();
+    }
+
+    partial void OnBenchmarkReportChanged(string value) => WriteBenchmarkReport(r => r.Path = GeneralTabViewModel.NullIfEmpty(value));
+
+    partial void OnBenchmarkThresholdPercentChanged(string value) =>
+        WriteBenchmarkReport(r => r.Threshold = double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out var percent) && percent >= 0
+            ? percent : null);
+
+    private void WriteBenchmarkReport(Action<BenchmarkReportDefinition> change)
+    {
+        var report = _definition.BenchmarkReport ?? new BenchmarkReportDefinition();
+        change(report);
+        _definition.BenchmarkReport = report.Path is null && report.IsPlain ? null : report;
         _changed();
     }
 

@@ -398,9 +398,9 @@ public sealed partial class DetailsViewModel(MainViewModel main) : ObservableObj
         try
         {
             var process = main.Services.Launcher.Start(request);
-            main.History.Record(process, request, node);
+            var recording = main.History.Record(process, request, node);
             main.TrackLongRunning(process, request, node);
-            run = new RunViewModel(title, node, process, main.Services.Dispatcher, ContextFor(request));
+            run = new RunViewModel(title, node, process, main.Services.Dispatcher, ContextFor(request) with { Recording = recording });
         }
         catch (Exception ex) when (RunProblems.IsRunProblem(ex))
         {

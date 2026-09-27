@@ -4,11 +4,13 @@ using BatchPad.Core.Telemetry;
 
 namespace BatchPad.App.Cli;
 
-public enum CliVerb { Run, List, Log, Stats, Mcp }
+public enum CliVerb { Run, List, Log, Stats, Compare, Mcp }
 
 public sealed record CliCommand(CliVerb Verb)
 {
     public string? Target { get; init; }
+    public string? Baseline { get; init; }
+    public bool Cpu { get; init; }
     public string? Workspace { get; init; }
     public IReadOnlyDictionary<string, string> Values { get; init; } = new Dictionary<string, string>();
     public IReadOnlyDictionary<string, JsonNode?> JsonValues { get; init; } = new Dictionary<string, JsonNode?>();
@@ -33,10 +35,11 @@ public sealed record CliCommand(CliVerb Verb)
           batchpad list [--workspace <path>] [--json]
           batchpad log <run-id> [--workspace <path>] [--tail N] [--errors]
           batchpad stats [--workspace <path>] [--since 1d|7d|30d] [--json]
+          batchpad compare <run-id> [<baseline-run-id>] [--workspace <path>] [--cpu] [--json]
           batchpad mcp
         """;
 
-    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "mcp", ..];
+    public static bool IsCli(IReadOnlyList<string> args) => args is ["run" or "list" or "log" or "stats" or "compare" or "mcp", ..];
 
     /// <exception cref="CliUsageException" />
     public static CliCommand Parse(IReadOnlyList<string> args)
@@ -47,8 +50,9 @@ public sealed record CliCommand(CliVerb Verb)
             ["list", ..] => CliVerb.List,
             ["log", ..] => CliVerb.Log,
             ["stats", ..] => CliVerb.Stats,
+            ["compare", ..] => CliVerb.Compare,
             ["mcp", ..] => CliVerb.Mcp,
-            _ => throw new CliUsageException("Expected 'run', 'list', 'log', 'stats' or 'mcp'."),
+            _ => throw new CliUsageException("Expected 'run', 'list', 'log', 'stats', 'compare' or 'mcp'."),
         };
         var command = new CliCommand(verb);
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -61,22 +65,24 @@ public sealed record CliCommand(CliVerb Verb)
                 ("--workspace" or "-w", _) => command with { Workspace = ValueAfter(args, ref i) },
                 ("--set", CliVerb.Run) => Set(command, values, ValueAfter(args, ref i)),
                 ("--yes" or "-y", CliVerb.Run) => command with { Yes = true },
-                ("--json", CliVerb.Run or CliVerb.List or CliVerb.Stats) => command with { Json = true },
+                ("--json", CliVerb.Run or CliVerb.List or CliVerb.Stats or CliVerb.Compare) => command with { Json = true },
                 ("--errors-only", CliVerb.Run) => command with { ErrorsOnly = true },
                 ("--no-wait", CliVerb.Run) => command with { NoWait = true },
                 ("--agent", CliVerb.Run) => command with { Agent = ValueAfter(args, ref i) },
                 ("--tail", CliVerb.Log) => command with { Tail = Count(ValueAfter(args, ref i)) },
                 ("--errors", CliVerb.Log) => command with { ErrorsOnly = true },
+                ("--cpu", CliVerb.Compare) => command with { Cpu = true },
                 ("--since", CliVerb.Stats) => command with { Since = ParsePeriod(ValueAfter(args, ref i), "--since", m => new CliUsageException(m)) },
                 (var option, _) when option.StartsWith('-') => throw new CliUsageException($"Unknown option '{option}'."),
-                (var positional, CliVerb.Run or CliVerb.Log) when command.Target is null => command with { Target = positional },
+                (var positional, CliVerb.Run or CliVerb.Log or CliVerb.Compare) when command.Target is null => command with { Target = positional },
+                (var positional, CliVerb.Compare) when command.Baseline is null => command with { Baseline = positional },
                 _ => throw new CliUsageException($"Unexpected argument '{args[i]}'."),
             };
         }
         if (command.Target is null && verb is CliVerb.Run)
             throw new CliUsageException("'run' needs the id or name of a script or workflow.");
-        if (command.Target is null && verb is CliVerb.Log)
-            throw new CliUsageException("'log' needs a run id.");
+        if (command.Target is null && verb is CliVerb.Log or CliVerb.Compare)
+            throw new CliUsageException($"'{args[0]}' needs a run id.");
         if (command.Json && command.ErrorsOnly)
             throw new CliUsageException("Use either --json or --errors-only.");
         return command with { Values = values };

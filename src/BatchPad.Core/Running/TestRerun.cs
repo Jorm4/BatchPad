@@ -1,19 +1,12 @@
 using System.Text.Json.Nodes;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
-using BatchPad.Core.Templating;
 
 namespace BatchPad.Core.Running;
 
-/// <summary>Finds a run's JUnit report and builds the values that re-run its failed tests (§5).</summary>
+/// <summary>Builds the values that re-run a run's failed tests (§5).</summary>
 public static class TestRerun
 {
-    /// <exception cref="TemplateException">The path uses a variable that has no value.</exception>
-    public static string? ReportPath(RunRequest request) =>
-        request.Script.TestReport?.Path is { Length: > 0 } path
-            ? TemplateExpander.ExpandPath(path, request.Tree.BaseDirectory, RunPlanner.BoundTemplatesFor(request))
-            : null;
-
     public static IReadOnlyList<string> FailedNames(JUnitReport report, RerunBy by) =>
         [.. report.Cases.Where(c => c.Outcome == TestOutcome.Failed).Select(c => by == RerunBy.Suite ? c.Suite : c.Name).Distinct()];
 

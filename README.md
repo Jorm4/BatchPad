@@ -128,6 +128,13 @@ otherwise Windows PowerShell.
   - `batchpad log <run-id> [--tail N] [--errors]` prints a recorded run's log.
   - `batchpad stats [--since 1d|7d|30d] [--json]` summarises where the time
     went, including per git checkout.
+  - `batchpad compare <run-id> [<baseline-run-id>] [--cpu] [--json]` compares
+    a run's benchmarks (a script's `benchmarkReport`, Google Benchmark JSON)
+    with a baseline run's, by real time or with `--cpu` CPU time. The default
+    baseline is the latest earlier successful run of the same script with
+    the same values. It exits 3 when any benchmark is slower than the
+    script's threshold (5% unless set), so CI can gate on it; 1 is a BatchPad
+    error and 2 a usage error.
   - `batchpad mcp` serves the same over the Model Context Protocol (below).
 - **Schedules** (toolbar, or "Schedules" in the Ctrl+K palette) lists every
   schedule with its next and last run. Add one by picking a script or
@@ -155,11 +162,12 @@ To try it without a project of your own, open the demo workspace:
 
 ### Coding agents
 
-`batchpad mcp` runs an MCP server over stdio with four tools: `list_scripts`,
+`batchpad mcp` runs an MCP server over stdio with five tools: `list_scripts`,
 `run_script` (id, values, `errorsOnly`, `confirm`, `noWait`; returns the
 same result object as `run --json`, and with `errorsOnly: false` the log's
 last 2000 lines too), `get_log` (run id, then tail, errors only or a line
-range) and `get_stats`. Every tool takes a required `directory`, the agent's
+range), `get_stats` and `compare_benchmarks` (run id, optional baseline run
+id, `cpu`; returns the same JSON as `compare --json`). Every tool takes a required `directory`, the agent's
 working folder on a local drive (network and device paths are refused), and
 finds the workspace from it as the command line does; `get_log` reads only
 that workspace's history. The server has no workspace of its own, because

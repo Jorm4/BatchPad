@@ -105,6 +105,9 @@
                     <ToggleButton DockPanel.Dock="Right" IsChecked="{Binding ShowTests}" Content="{Binding TestResults.Summary}" Padding="8,2" Margin="4,0,0,0"
                                   Visibility="{Binding TestResults, Converter={StaticResource NullToCollapsed}}" ToolTip="Test results"
                                   AutomationProperties.AutomationId="TestsButton" />
+                    <ToggleButton DockPanel.Dock="Right" IsChecked="{Binding ShowBenchmarks}" Content="{Binding BenchmarkResults.Summary}" Padding="8,2"
+                                  Margin="4,0,0,0" Visibility="{Binding BenchmarkResults, Converter={StaticResource NullToCollapsed}}" ToolTip="Benchmarks"
+                                  AutomationProperties.AutomationId="BenchmarksButton" />
                     <ContentControl Content="{Binding Log}" ContentTemplate="{StaticResource LogToolbar}" Focusable="False" />
                 </DockPanel>
                 <WrapPanel DockPanel.Dock="Top" Margin="8,6,8,2" Visibility="{Binding IsReady, Converter={StaticResource BoolToVisibility}}">
@@ -130,8 +133,10 @@
                 <Grid>
                     <ListBox ItemsSource="{Binding Log.DisplayedLines}" SelectedItem="{Binding Log.SelectedLine}" views:ScrollSelection.IntoView="True"
                              views:AutoScroll.Follow="{Binding AutoScroll}" Style="{StaticResource OutputLines}"
-                             Visibility="{Binding ShowTests, Converter={StaticResource InverseBoolToVisibility}}"
+                             Visibility="{Binding ShowLines, Converter={StaticResource BoolToVisibility}}"
                              AutomationProperties.AutomationId="OutputLines" />
+                    <views:BenchmarkPanel DataContext="{Binding BenchmarkResults}"
+                                          Visibility="{Binding DataContext.ShowBenchmarks, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource BoolToVisibility}}" />
                     <DockPanel DataContext="{Binding TestResults}" Background="{StaticResource OutputBackgroundBrush}"
                                Visibility="{Binding DataContext.ShowTests, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource BoolToVisibility}}">
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,4">
@@ -181,6 +186,9 @@
                     </DockPanel>
                 </Grid>
             </DockPanel>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:BenchmarkTabViewModel}">
+            <views:BenchmarkPanel DataContext="{Binding Benchmarks}" />
         </DataTemplate>
         <DataTemplate DataType="{x:Type wf:WorkflowRunViewModel}">
             <Grid>
@@ -320,6 +328,9 @@
                             <StackPanel Grid.Column="6" Orientation="Horizontal">
                                 <Button Content="Open log" Command="{Binding OpenLogCommand}" Padding="6,0" Margin="0,0,6,0"
                                         AutomationProperties.AutomationId="OpenLogButton" />
+                                <Button Content="Compare with previous" Command="{Binding CompareWithPreviousCommand}" Padding="6,0" Margin="0,0,6,0"
+                                        Visibility="{Binding HasBenchmarks, Converter={StaticResource BoolToVisibility}}"
+                                        AutomationProperties.AutomationId="CompareBenchmarksButton" />
                                 <Button Content="Run again" Command="{Binding RunAgainCommand}" Padding="6,0"
                                         AutomationProperties.AutomationId="RunAgainButton" />
                             </StackPanel>

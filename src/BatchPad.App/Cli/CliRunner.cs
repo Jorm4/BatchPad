@@ -103,6 +103,7 @@ public sealed class CliRunner
             CliVerb.List => List(command, workspace),
             CliVerb.Log => ShowLog(command, HistoryStore.For(_paths, workspace.Id)),
             CliVerb.Stats => ShowStats(command, workspace),
+            CliVerb.Compare => CliCompare.Run(command, HistoryStore.For(_paths, workspace.Id), _out, _error),
             _ => await RunAsync(command, workspace, cancellation),
         };
     }

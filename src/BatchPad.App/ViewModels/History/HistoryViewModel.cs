@@ -16,15 +16,19 @@ public sealed partial class HistoryEntryViewModel(RunRecord record, HistoryViewM
     public string Name => Record.Name;
     public string WhenText => Record.StartedAt.ToLocalTime().ToString("g");
     public string DurationText => OutputTabViewModel.FormatDuration(Record.Duration);
-    public string ResultText => RunViewModel.StatusOf(new RunResult(Record.Outcome, Record.ExitCode, Record.Duration));
+    public string ResultText => RunViewModel.StatusOf(Record);
     public bool Succeeded => Record.Succeeded;
     public string Trigger => Record.Trigger;
+    public bool HasBenchmarks => Record.Benchmarks is { Results.Count: > 0 };
 
     [RelayCommand]
     private void OpenLog() => owner.OpenLog(Record);
 
     [RelayCommand]
     private void RunAgain() => owner.RunAgain(Record);
+
+    [RelayCommand]
+    private void CompareWithPrevious() => owner.CompareWithPrevious(Record);
 }
 
 /// <summary>Records the workspace's runs and lists the recent ones (§3.9).</summary>
@@ -65,11 +69,8 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
             Runs.Add(new HistoryEntryViewModel(record, this));
     }
 
-    public void Record(IRunOutput run, RunRequest request, NodeViewModel? node)
-    {
-        if (Store is { } store)
-            _ = HistoryRecorder.Attach(run, store, request, node?.Key ?? KeyOf(request), name: node?.Name);
-    }
+    public RunRecording? Record(IRunOutput run, RunRequest request, NodeViewModel? node) =>
+        Store is { } store ? new RunRecording(HistoryRecorder.Attach(run, store, request, node?.Key ?? KeyOf(request), name: node?.Name), store) : null;
 
     public void Record(WorkflowRun run, NodeViewModel node)
     {
@@ -133,6 +134,12 @@ public sealed partial class HistoryViewModel(MainViewModel main) : ObservableObj
             .Where(v => !IsMasked(v.Value))
             .ToDictionary(v => v.Key, v => v.Value?.DeepClone());
         main.RunAgain(record.NodeKey, values, record.ExtraArguments ?? "");
+    }
+
+    public void CompareWithPrevious(RunRecord record)
+    {
+        if (Store is not null)
+            main.Output.Add(new BenchmarkTabViewModel(record, main.Tree?.ByKey(record.NodeKey), new BenchmarkResultsViewModel(record, Store.Recent())));
     }
 
     internal static string KeyOf(RunRequest request) =>

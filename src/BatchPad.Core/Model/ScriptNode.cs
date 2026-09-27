@@ -23,8 +23,10 @@ public sealed class ScriptNode : RunnableNode
     public List<string>? ErrorPatterns { get; set; }
     public List<ArtifactDefinition>? Artifacts { get; set; }
     public List<string>? DependsOn { get; set; }
-    [JsonConverter(typeof(TestReportConverter))]
+    [JsonConverter(typeof(PathOrObjectConverter<TestReportDefinition>))]
     public TestReportDefinition? TestReport { get; set; }
+    [JsonConverter(typeof(PathOrObjectConverter<BenchmarkReportDefinition>))]
+    public BenchmarkReportDefinition? BenchmarkReport { get; set; }
     public bool? SingleInstance { get; set; }
     public string? Timeout { get; set; }
     public bool? Elevated { get; set; }
@@ -52,7 +54,7 @@ public sealed class ArtifactDefinition : ExtensibleObject
 public enum ArtifactOpen { Never, OnSuccess, Always }
 
 /// <summary><c>testReport</c>: a JUnit XML path, or an object that also names the parameter "Re-run failed" fills (§5).</summary>
-public sealed class TestReportDefinition : ExtensibleObject
+public sealed class TestReportDefinition : ExtensibleObject, IReportDefinition
 {
     public string? Path { get; set; }
     public string? RerunParam { get; set; }
@@ -63,3 +65,24 @@ public sealed class TestReportDefinition : ExtensibleObject
 }
 
 public enum RerunBy { Case, Suite }
+
+/// <summary>A report file a script writes: a path string, or an object when it has more settings than the path.</summary>
+public interface IReportDefinition
+{
+    string? Path { get; set; }
+    bool IsPlain { get; }
+}
+
+/// <summary><c>benchmarkReport</c>: a Google Benchmark JSON path, or an object that also sets the regression threshold in percent.</summary>
+public sealed class BenchmarkReportDefinition : ExtensibleObject, IReportDefinition
+{
+    public const string GoogleFormat = "google";
+    public const double DefaultThreshold = 5;
+
+    public string? Path { get; set; }
+    public string? Format { get; set; }
+    public double? Threshold { get; set; }
+
+    [JsonIgnore]
+    public bool IsPlain => Format is null && Threshold is null && ExtensionData is not { Count: > 0 };
+}

@@ -99,15 +99,15 @@ public sealed class ChoiceSourceListConverter : JsonConverter<List<ChoiceSource>
     }
 }
 
-/// <summary><c>testReport</c> is a path string or an object; a report with only a path is written back as a string.</summary>
-public sealed class TestReportConverter : JsonConverter<TestReportDefinition>
+/// <summary>A report is a path string or an object; a report with only a path is written back as a string.</summary>
+public sealed class PathOrObjectConverter<T> : JsonConverter<T> where T : class, IReportDefinition, new()
 {
-    public override TestReportDefinition? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
         reader.TokenType == JsonTokenType.String
-            ? new TestReportDefinition { Path = reader.GetString() }
-            : JsonSerializer.Deserialize<TestReportDefinition>(ref reader, options);
+            ? new T { Path = reader.GetString() }
+            : JsonSerializer.Deserialize<T>(ref reader, options);
 
-    public override void Write(Utf8JsonWriter writer, TestReportDefinition value, JsonSerializerOptions options)
+    public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
     {
         if (value.IsPlain)
             writer.WriteStringValue(value.Path);

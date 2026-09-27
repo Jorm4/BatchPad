@@ -4,7 +4,6 @@ using System.Collections.Specialized;
 using BatchPad.Core.Config;
 using BatchPad.Core.History;
 using BatchPad.Core.Model;
-using BatchPad.Core.Running;
 using BatchPad.Core.Scheduling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -48,7 +47,7 @@ public sealed partial class ScheduleItemViewModel : ObservableObject
     private RunRecord? lastRun;
 
     public string LastRunText => LastRun is { } last ? last.StartedAt.ToLocalTime().ToString("g") : "never";
-    public string LastResultText => LastRun is { } last ? RunViewModel.StatusOf(new RunResult(last.Outcome, last.ExitCode, last.Duration)) : "";
+    public string LastResultText => LastRun is { } last ? RunViewModel.StatusOf(last) : "";
     public bool LastSucceeded => LastRun?.Succeeded == true;
 
     [ObservableProperty]

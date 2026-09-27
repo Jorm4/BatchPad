@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Runtime.ExceptionServices;
 using System.Text.Json.Nodes;
 using BatchPad.App.Services;
+using BatchPad.Core.History;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
@@ -28,7 +30,13 @@ public sealed record OutputLineViewModel(string Text, OutputStream Stream, IRead
 
 /// <summary>What a run tab needs beyond the process: the request it ran, for ready, stop companion and artifacts.</summary>
 public sealed record RunContext(RunRequest Request, IShellOpener Opener, Func<RunRequest, bool> StartCompanion, SourceOpener? Sources = null,
-    Action<string, IReadOnlyDictionary<string, JsonNode?>, string>? RunAgain = null, Action<string>? PinLink = null);
+    Action<string, IReadOnlyDictionary<string, JsonNode?>, string>? RunAgain = null, Action<string>? PinLink = null)
+{
+    public RunRecording? Recording { get; init; }
+}
+
+/// <summary>The history record a run is being saved as, and the store it goes to.</summary>
+public sealed record RunRecording(Task<RunRecord> Record, HistoryStore Store);
 
 public sealed partial class SourceLinkViewModel(SourceReference reference, SourceLocationResolver resolver, SourceOpener opener)
 {
@@ -144,7 +152,29 @@ public sealed partial class RunViewModel : OutputTabViewModel
     private TestResultsViewModel? testResults;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLines))]
     private bool showTests;
+
+    [ObservableProperty]
+    private BenchmarkResultsViewModel? benchmarkResults;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLines))]
+    private bool showBenchmarks;
+
+    public bool ShowLines => !ShowTests && !ShowBenchmarks;
+
+    partial void OnShowTestsChanged(bool value)
+    {
+        if (value)
+            ShowBenchmarks = false;
+    }
+
+    partial void OnShowBenchmarksChanged(bool value)
+    {
+        if (value)
+            ShowTests = false;
+    }
 
     public bool IsReady => ReachedReady && IsRunning;
 
@@ -164,6 +194,8 @@ public sealed partial class RunViewModel : OutputTabViewModel
         { Outcome: RunOutcome.TimedOut } => "timed out",
         _ => "failed to start",
     };
+
+    public static string StatusOf(RunRecord record) => StatusOf(new RunResult(record.Outcome, record.ExitCode, record.Duration));
 
     public override string DurationText => Result is { Outcome: not RunOutcome.FailedToStart, Duration: var duration }
         ? FormatDuration(duration)
@@ -193,15 +225,39 @@ public sealed partial class RunViewModel : OutputTabViewModel
     {
         var outcome = await process.Completion.ConfigureAwait(false);
         var report = ReadTestReport();
-        var shown = new TaskCompletionSource();
-        dispatcher.Post(() =>
+        await PostAsync(dispatcher, () =>
         {
             Complete(outcome);
             if (report is not null)
                 TestResults = TestResultsFor(report);
-            shown.SetResult();
+        }).ConfigureAwait(false);
+        if (_context?.Recording is not { } recording)
+            return;
+        BenchmarkResultsViewModel? benchmarks;
+        try
+        {
+            benchmarks = await BenchmarksAsync(recording).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Rethrown on the UI thread, where App logs and reports what nothing else handled.
+            if (!IoProblems.IsIoProblem(ex))
+                dispatcher.Post(() => ExceptionDispatchInfo.Throw(ex));
+            return;
+        }
+        if (benchmarks is not null)
+            await PostAsync(dispatcher, () => BenchmarkResults = benchmarks).ConfigureAwait(false);
+    }
+
+    private static Task PostAsync(IUiDispatcher dispatcher, Action action)
+    {
+        var done = new TaskCompletionSource();
+        dispatcher.Post(() =>
+        {
+            action();
+            done.SetResult();
         });
-        await shown.Task.ConfigureAwait(false);
+        return done.Task;
     }
 
     private void Complete(RunResult outcome)
@@ -218,6 +274,12 @@ public sealed partial class RunViewModel : OutputTabViewModel
     }
 
     private JUnitReport? ReadTestReport() => _context is null ? null : TestReportReader.ForFinishedRun(_context.Request, _startedUtc);
+
+    private static async Task<BenchmarkResultsViewModel?> BenchmarksAsync(RunRecording recording)
+    {
+        var record = await recording.Record.ConfigureAwait(false);
+        return record.Benchmarks is { Results.Count: > 0 } ? new BenchmarkResultsViewModel(record, recording.Store.Recent()) : null;
+    }
 
     private TestResultsViewModel TestResultsFor(JUnitReport report)
     {

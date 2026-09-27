@@ -78,6 +78,48 @@ public sealed class RunRecordTests
     }
 
     [TestMethod]
+    public async Task ARunWithABenchmarkReportRecordsItsResultsAndThreshold()
+    {
+        using var workspace = new RunWorkspace("""{ "id": "bench", "path": "bench.bat", "benchmarkReport": { "path": "out.json", "threshold": 8 } }""");
+        File.Copy(Fixtures.Path("benchmarks", "google.json"), workspace.Temp.Path("google.json"));
+        File.WriteAllText(workspace.Temp.Path("bench.bat"), "@type \"%~dp0google.json\" > \"%~dp0out.json\"\r\n");
+
+        var benchmarks = (await Record(workspace, "bench")).Benchmarks!;
+
+        Assert.HasCount(5, benchmarks.Results);
+        Assert.AreEqual(1250.5, benchmarks.Results[0].RealNs);
+        Assert.AreEqual(8, benchmarks.Threshold);
+        Assert.IsFalse(benchmarks.Truncated);
+    }
+
+    [TestMethod]
+    public async Task ABenchmarkReportOlderThanTheRunIsIgnored()
+    {
+        using var workspace = new RunWorkspace("""{ "id": "bench", "path": "bench.bat", "benchmarkReport": "out.json" }""");
+        var report = workspace.Temp.Path("out.json");
+        File.Copy(Fixtures.Path("benchmarks", "google.json"), report);
+        File.SetLastWriteTimeUtc(report, DateTime.UtcNow.AddHours(-1));
+        File.WriteAllText(workspace.Temp.Path("bench.bat"), "@echo nothing\r\n");
+
+        Assert.IsNull((await Record(workspace, "bench")).Benchmarks);
+    }
+
+    [TestMethod]
+    public async Task ManyBenchmarksAreCutAndMarkedTruncated()
+    {
+        using var workspace = new RunWorkspace("""{ "id": "bench", "path": "bench.bat", "benchmarkReport": "out.json" }""");
+        var rows = Enumerable.Range(0, 250).Select(i => $$"""{ "name": "BM_{{i}}", "run_type": "iteration", "iterations": 1, "real_time": {{i}}, "cpu_time": {{i}}, "time_unit": "ns" }""");
+        File.WriteAllText(workspace.Temp.Path("many.json"), $"{{ \"benchmarks\": [ {string.Join(", ", rows)} ] }}");
+        File.WriteAllText(workspace.Temp.Path("bench.bat"), "@type \"%~dp0many.json\" > \"%~dp0out.json\"\r\n");
+
+        var benchmarks = (await Record(workspace, "bench")).Benchmarks!;
+
+        Assert.HasCount(BenchmarkSummary.MaxResults, benchmarks.Results);
+        Assert.IsTrue(benchmarks.Truncated);
+        Assert.AreEqual(BenchmarkReportDefinition.DefaultThreshold, benchmarks.Threshold);
+    }
+
+    [TestMethod]
     public async Task AnErrorPatternLineIsRecordedWithItsSourceLocation()
     {
         using var workspace = new RunWorkspace("""{ "id": "build", "path": "build.bat", "errorPatterns": [ ": error " ] }""");

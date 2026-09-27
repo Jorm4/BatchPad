@@ -120,7 +120,7 @@ public sealed class McpTests
         await using var client = await McpClient.StartInitializedAsync(test, test.Root);
 
         var tools = (await client.CallAsync("tools/list"))["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Order();
-        CollectionAssert.AreEqual(new[] { "get_log", "get_stats", "list_scripts", "run_script" }, tools.ToArray());
+        CollectionAssert.AreEqual(new[] { "compare_benchmarks", "get_log", "get_stats", "list_scripts", "run_script" }, tools.ToArray());
 
         var listed = JsonNode.Parse(TextOf(await client.CallToolAsync("list_scripts", new JsonObject { ["directory"] = workspace })))!;
         CollectionAssert.AreEqual(new[] { "pass", "fail", "long" },
@@ -197,6 +197,29 @@ public sealed class McpTests
         var refused = await tools.ListScripts(workspace);
         Assert.IsTrue(refused.IsError);
         StringAssert.Contains(((TextContentBlock)refused.Content.Single()).Text, McpSettings.TurnedOff);
+    }
+
+    [TestMethod]
+    public async Task CompareBenchmarksReturnsTheSameJsonAsTheCommandLine()
+    {
+        using var test = new TestWorkspace();
+        var directory = Path.GetDirectoryName(WriteWorkspace(test))!;
+        var settings = new Settings();
+        new TrustStore(settings, test.Paths.SettingsFile).Trust(directory);
+        var store = HistoryStore.For(test.Paths, "mcp-fixture");
+        CliTests.AddBenchmarkRun(store, 0, parseNs: 1000);
+        var current = CliTests.AddBenchmarkRun(store, 1, parseNs: 1300);
+        await using var tools = EnabledTools(test);
+        var output = new StringWriter();
+
+        var result = await tools.CompareBenchmarks(directory, current.Id);
+        var exitCode = await new CliRunner(test.Paths, settings, output, new StringWriter()).RunAsync(["compare", current.Id, "--json", "-w", directory], test.Root);
+
+        Assert.AreEqual(CliCompare.Regression, exitCode);
+        Assert.AreNotEqual(true, result.IsError);
+        var text = ((TextContentBlock)result.Content.Single()).Text;
+        Assert.AreEqual(output.ToString().TrimEnd(), text);
+        Assert.IsTrue(JsonNode.Parse(text)!["regressed"]!.GetValue<bool>());
     }
 
     private static void EnableMcp(TestWorkspace test) =>

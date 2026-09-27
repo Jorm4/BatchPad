@@ -79,6 +79,7 @@ public static class HistoryRecorder
             ExitCode = result.ExitCode,
             QueuedMs = (long)(handle?.Queued.TotalMilliseconds ?? 0),
             Tests = request is null ? null : Summarize(TestReportReader.ForFinishedRun(request, startedAt)),
+            Benchmarks = request is null ? null : Summarize(BenchmarkReportReader.ForFinishedRun(request, startedAt), request.Script.BenchmarkReport),
             Errors = request is null ? null : ErrorsIn(output, request, secrets),
         }, output.Select(l => Mask(l.Text, secrets)));
     }
@@ -105,6 +106,11 @@ public static class HistoryRecorder
             [.. cases.Where(c => c.Outcome != TestOutcome.Skipped).OrderByDescending(c => c.Seconds).Take(TestSummary.MaxSlowest)
                 .Select(c => new TestTiming(QualifiedName(c), c.Seconds))]);
     }
+
+    private static BenchmarkSummary? Summarize(IReadOnlyList<BenchmarkResult>? results, BenchmarkReportDefinition? report) =>
+        results is null ? null
+            : new BenchmarkSummary([.. results.Take(BenchmarkSummary.MaxResults).Select(r => r with { Name = Shorten(r.Name) })],
+                report?.Threshold ?? BenchmarkReportDefinition.DefaultThreshold, results.Count > BenchmarkSummary.MaxResults);
 
     private static string QualifiedName(TestCaseResult test) => Shorten(test.ClassName.Length > 0 ? $"{test.ClassName}.{test.Name}" : test.Name);
 

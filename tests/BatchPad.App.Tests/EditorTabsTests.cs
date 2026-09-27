@@ -136,6 +136,27 @@ public sealed class EditorTabsTests
         Assert.IsTrue(main.Details.Editor!.Definition.TestReport!.IsPlain);
     }
 
+    [TestMethod]
+    public void BenchmarkReportWithAThresholdRoundTripsAsAnObject()
+    {
+        using var test = new TestWorkspace();
+        var (main, demo) = Open(test);
+        var afterRun = Edit(main).AfterRun;
+
+        afterRun.BenchmarkReport = "out/bench.json";
+        afterRun.BenchmarkThresholdPercent = "10";
+        main.Details.Editor!.SaveCommand.Execute(null);
+
+        var report = Read(demo).BenchmarkReport!;
+        Assert.AreEqual(("out/bench.json", 10.0), (report.Path, report.Threshold));
+        var reopened = Edit(main).AfterRun;
+        Assert.AreEqual("out/bench.json", reopened.BenchmarkReport);
+        Assert.AreEqual("10", reopened.BenchmarkThresholdPercent);
+
+        reopened.BenchmarkThresholdPercent = "";
+        Assert.IsTrue(main.Details.Editor!.Definition.BenchmarkReport!.IsPlain);
+    }
+
     private static (MainViewModel, string) Open(TestWorkspace test)
     {
         var demo = test.CopyDemo();

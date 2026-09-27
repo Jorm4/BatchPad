@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using BatchPad.Core.Output;
 using BatchPad.Core.Running;
 using BatchPad.Core.Workspace;
 
@@ -60,6 +61,7 @@ public sealed record RunRecord
     public GitInfo? Git { get; init; }
     public Checkout? Checkout { get; init; }
     public TestSummary? Tests { get; init; }
+    public BenchmarkSummary? Benchmarks { get; init; }
     public List<ErrorLine>? Errors { get; init; }
     public string? Machine { get; init; }
     public string? User { get; init; }
@@ -78,6 +80,12 @@ public sealed record TestSummary(int Passed, int Failed, int Skipped, List<strin
 {
     public const int MaxFailedNames = 50;
     public const int MaxSlowest = 10;
+}
+
+/// <summary>A run's benchmark results, with the threshold in percent its script set for calling a change a regression.</summary>
+public sealed record BenchmarkSummary(List<BenchmarkResult> Results, double Threshold, bool Truncated = false)
+{
+    public const int MaxResults = 200;
 }
 
 /// <summary>An error-pattern or stderr line, with the source location it names when that file exists.</summary>

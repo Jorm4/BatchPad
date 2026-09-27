@@ -1,4 +1,6 @@
+using BatchPad.App.Services;
 using BatchPad.App.ViewModels;
+using BatchPad.Core.History;
 using BatchPad.Core.Model;
 using BatchPad.Core.Output;
 using BatchPad.Core.Running;
@@ -184,6 +186,49 @@ public sealed class RunViewModelTests
         main.TrustWorkspaceCommand.Execute(null);
 
         Assert.IsTrue(main.Details.RunCommand.CanExecute(null));
+    }
+
+    [TestMethod]
+    public async Task ATabCompletesWhenSavingItsRunToHistoryFails()
+    {
+        using var test = new TestWorkspace();
+        var launcher = new FakeLauncher();
+        var main = Open(test, launcher, "Workspace/Hello/hello.bat");
+        main.Details.RunCommand.Execute(null);
+        var failure = new InvalidOperationException("history broke");
+        var context = new RunContext(launcher.Requests.Single(), main.Services.Opener, _ => false)
+        {
+            Recording = new RunRecording(Task.FromException<RunRecord>(failure), main.History.Store!),
+        };
+        var process = new FakeProcess();
+        var dispatcher = new CatchingDispatcher();
+        var run = new RunViewModel("hello", null, process, dispatcher, context);
+
+        process.Finish(RunOutcome.Exited, 0);
+        await run.Finished;
+
+        Assert.AreEqual("exit 0", run.StatusText);
+        Assert.IsNull(run.BenchmarkResults);
+        Assert.AreSame(failure, dispatcher.Unhandled.Single());
+    }
+
+    private sealed class CatchingDispatcher : IUiDispatcher
+    {
+        public List<Exception> Unhandled { get; } = [];
+
+        public void Post(Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                Unhandled.Add(ex);
+            }
+        }
+
+        public void Background<T>(Func<T> work, Action<T> apply, TimeSpan delay = default) => apply(work());
     }
 
     private static MainViewModel Open(TestWorkspace test, FakeLauncher launcher, string node, FakeShell? shell = null)
