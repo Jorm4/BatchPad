@@ -4,8 +4,8 @@
              xmlns:vm="clr-namespace:BatchPad.App.ViewModels.Insights"
              xmlns:views="clr-namespace:BatchPad.App.Views">
     <UserControl.Resources>
-        <Style x:Key="Section" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="15" />
+        <Style x:Key="Section" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="18" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,18,0,6" />
         </Style>
@@ -14,6 +14,7 @@
             <Setter Property="Text" Value="None in this period." />
         </Style>
         <Style x:Key="Row" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Command" Value="{Binding DataContext.SelectScriptCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
@@ -27,7 +28,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Back" Property="Background" Value="#14000000" />
+                                <Setter TargetName="Back" Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -36,6 +37,7 @@
         </Style>
         <Style x:Key="Header" TargetType="Button">
             <Setter Property="Command" Value="{Binding SortCommand}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Padding" Value="0" />
@@ -54,7 +56,7 @@
                 <Rectangle Grid.Column="1" Height="12" HorizontalAlignment="Left" Width="{Binding BarWidth}" RadiusX="2" RadiusY="2"
                            Fill="{StaticResource AccentBrush}" />
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <TextBlock Text="{Binding ShareText}" MinWidth="40" AutomationProperties.AutomationId="InsightsBarShare" />
+                    <TextBlock Text="{Binding ShareText}" MinWidth="40" Margin="8,0,8,0" AutomationProperties.AutomationId="InsightsBarShare" />
                     <TextBlock Text="{Binding DurationText}" Opacity="0.7" />
                 </StackPanel>
             </Grid>
